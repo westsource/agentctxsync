@@ -1,0 +1,51 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ t.login_title }}{% endblock %}
+{% block content_full %}
+<div class="w-full max-w-sm" x-data="{ loading: false }">
+  <div class="text-center mb-8">
+    <div class="w-14 h-14 rounded-2xl bg-sky-500 flex items-center justify-center mx-auto mb-4"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></div>
+    <h1 class="text-2xl font-bold text-gray-900">Agent Contexts Sync</h1>
+    <p class="text-gray-500 text-sm mt-1">{{ t.login_subtitle }}</p>
+  </div>
+
+  <div class="bg-white border border-gray-200 rounded-2xl p-8">
+    {% if error %}
+    <div class="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm">
+      {{ t[error] if error in t else error }}
+    </div>
+    {% endif %}
+    {% if success %}
+    <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 text-sm">
+      {{ t[success] if success in t else success }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/web/login" @submit="loading = true">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.login_username }}</label>
+        <input type="text" name="username" required placeholder="admin" autofocus
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+      </div>
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.login_password }}</label>
+        <input type="password" name="password" required
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+      </div>
+      <button type="submit" :disabled="loading"
+              class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-medium rounded-lg transition-colors text-sm">
+        <span x-show="!loading">{{ t.login_sign_in }}</span>
+        <span x-show="loading" x-cloak>{{ t.login_signing_in }}</span>
+      </button>
+    </form>
+  </div>
+
+  <div class="mt-6 text-center">
+    <a href="/web/register" class="text-sm text-gray-500 hover:text-sky-600 transition-colors">{{ t.login_register_link }}</a>
+  </div>
+  <div class="mt-4 text-center">
+    <a href="/web/set-language/zh-CN" class="text-xs text-gray-400 hover:text-sky-600 transition-colors mr-2">中文</a>
+    <span class="text-gray-300">|</span>
+    <a href="/web/set-language/en" class="text-xs text-gray-400 hover:text-sky-600 transition-colors ml-2">EN</a>
+  </div>
+</div>
+{% endblock %}

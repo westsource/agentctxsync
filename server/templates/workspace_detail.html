@@ -1,0 +1,255 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ ws.name }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+{% macro sortable(label, key) %}
+  {% if sort == key %}
+  <a href="/web/workspace/{{ ws.id }}?sort={{ key }}&dir={{ 'asc' if dir == 'desc' else 'desc' }}"
+     class="inline-flex items-center gap-1 text-sky-600 hover:text-sky-500" title="{{ t.ws_sort_toggle }}">
+    {{ label }}
+    <span class="text-[10px]">{{ '▲' if dir == 'asc' else '▼' }}</span>
+  </a>
+  {% else %}
+  <a href="/web/workspace/{{ ws.id }}?sort={{ key }}&dir=desc"
+     class="inline-flex items-center gap-1 text-gray-400 hover:text-gray-600" title="{{ t.ws_sort_asc_hint }}">
+    {{ label }}
+  </a>
+  {% endif %}
+{% endmacro %}
+<!-- Back link -->
+<a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-6">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+  {{ t.ws_back }}
+</a>
+
+<!-- Workspace Info -->
+<div class="bg-white border border-gray-200 rounded-xl mb-6">
+  <div class="px-6 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">{{ ws.name }}</h2>
+  </div>
+  <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_description }}</label>
+      <p class="text-sm text-gray-600">{{ ws.description or t.common_none }}</p>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_api_key }}</label>
+      <div class="flex items-center gap-2">
+        <code class="text-xs text-sky-600 bg-gray-100 px-2 py-1 rounded font-mono">{{ ws.api_key }}</code>
+        <button onclick="copyToClipboard(this)" data-copy="{{ ws.api_key }}" data-orig-title="{{ t.common_copy }}" data-copied-title="{{ t.common_copied }}" class="text-gray-400 hover:text-sky-600 transition-colors" title="{{ t.common_copy }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_created }}</label>
+      <p class="text-sm text-gray-600">{{ ws.created_at|timestamp_fmt if ws.created_at else t.common_none }}</p>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_actions }}</label>
+      <div class="flex gap-2 flex-wrap">
+        <a href="/web/workspace/{{ ws.id }}/export"
+           class="inline-flex items-center justify-center h-7 px-3 text-xs bg-sky-600/10 text-sky-600 border border-sky-600/20 rounded-lg hover:bg-sky-600/20 transition-colors">{{ t.ws_export_sessions }}</a>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/import" enctype="multipart/form-data" class="inline" id="import-form-{{ ws.id }}">
+          <input type="file" name="file" accept=".json,.gz,application/json,application/gzip" required
+                 class="hidden" id="import-file-{{ ws.id }}"
+                 onchange="document.getElementById('import-form-{{ ws.id }}').submit()">
+          <button type="button" onclick="document.getElementById('import-file-{{ ws.id }}').click()"
+                  class="inline-flex items-center justify-center h-7 px-3 text-xs bg-emerald-600/10 text-emerald-600 border border-emerald-600/20 rounded-lg hover:bg-emerald-600/20 transition-colors">{{ t.ws_import_sessions }}</button>
+        </form>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/regen-key" class="inline"
+              onclick="return confirm('{{ t.common_confirm_regenerate }}')">
+          <button type="submit" class="inline-flex items-center justify-center h-7 px-3 text-xs bg-amber-600/10 text-amber-400 border border-amber-600/20 rounded-lg hover:bg-amber-600/20 transition-colors">{{ t.ws_regenerate_key }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sync Devices -->
+<div class="bg-white border border-gray-200 rounded-xl mb-6">
+  <div class="px-6 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_sync_devices }}</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_device }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_sessions_synced }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages_synced }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for d in devices %}
+        <tr class="hover:bg-gray-100/50 transition-colors">
+          <td class="px-6 py-4 font-medium text-gray-900 text-sm">{{ d.device_id }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ d.last_sync_at|timestamp_fmt if d.last_sync_at else t.common_never }}</td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-600">{{ d.sessions_synced }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ d.messages_synced }}</span></td>
+        </tr>
+        {% endfor %}
+        {% if not devices %}
+        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_devices }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Recent Sessions -->
+<div class="bg-white border border-gray-200 rounded-xl">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_recent_sessions }}</h2>
+    <form method="GET" action="/web/workspace/{{ ws.id }}" class="flex items-center gap-2">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="dir" value="{{ dir }}">
+      <input type="hidden" name="page" value="1">
+      <label class="text-xs text-gray-500">{{ t.ws_profile_filter }}</label>
+      <select name="profile" onchange="this.form.submit()"
+        class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-500">
+        <option value="all" {% if profile == 'all' %}selected{% endif %}>{{ t.ws_profile_all }}</option>
+        <option value="default" {% if profile == 'default' %}selected{% endif %}>{{ t.ws_profile_default }}</option>
+        {% for p in profile_options %}
+        <option value="{{ p }}" {% if profile == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+        <input type="checkbox" name="show_hidden" value="1"
+               {% if show_hidden %}checked{% endif %} onchange="this.form.submit()"
+               class="rounded border-gray-300 text-sky-600 focus:ring-sky-500">
+        {{ t.ws_show_hidden }}
+      </label>
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ t.ws_search_placeholder }}"
+             class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 w-40 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
+             onchange="this.form.submit()">
+    </form>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_title }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_agent }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_profile }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_model }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_messages, 'msg_count') }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_started, 'started_at') }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_last_updated, 'last_msg_at') }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_actions }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for s in sessions %}
+        <tr class="hover:bg-gray-100/50 transition-colors">
+          <td class="px-6 py-4 font-medium text-gray-900 text-sm">
+            {% if s.pinned %}<span class="mr-1" title="{{ t.ws_pinned }}">📌</span>{% endif %}
+            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="hover:text-sky-600 transition-colors">{{ s.title or s.id }}</a>
+          </td>
+          <td class="px-6 py-4">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+              {% if s.agent_type == 'codex' %}bg-orange-50 text-orange-600
+              {% elif s.agent_type == 'opencode' %}bg-emerald-50 text-emerald-600
+              {% elif s.agent_type == 'reasonix' %}bg-indigo-50 text-indigo-600
+              {% elif s.agent_type == 'openclaw' %}bg-rose-50 text-rose-600
+              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ s.agent_type or 'hermes' }}</span>
+          </td>
+          <td class="px-6 py-4">
+            {% if s.profile %}
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+              {% if s.profile == 'default' %}bg-gray-100 text-gray-600
+              {% else %}bg-sky-50 text-sky-600{% endif %}">{{ s.profile }}</span>
+            {% else %}<span class="text-gray-300">—</span>{% endif %}
+          </td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.model or t.common_none }}</td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-600">{{ s.msg_count }}</span></td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.last_msg_at|timestamp_fmt if s.last_msg_at else (s.last_synced_at|timestamp_fmt if s.last_synced_at else t.common_none) }}</td>
+          <td class="px-6 py-4">
+            <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/{{ 'unhide' if s.hidden else 'hide' }}"
+              class="inline" onsubmit="return confirm('{{ t.ws_hide_confirm if not s.hidden else t.ws_unhide_confirm }}')">
+              <button type="submit" class="text-xs font-medium
+                {% if s.hidden %}text-emerald-600 hover:text-emerald-500{% else %}text-gray-400 hover:text-red-500{% endif %} transition-colors"
+                title="{{ t.ws_hide_hint if not s.hidden else t.ws_unhide_hint }}">
+                {{ t.ws_unhide if s.hidden else t.ws_hide }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not sessions %}
+        <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_sessions }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 or total > size %}
+  <div class="flex items-center justify-between gap-3 px-6 py-3 border-t border-gray-200">
+    <div class="text-xs text-gray-400">{{ t.ws_page_info|format(total, page, pages) }}</div>
+    <div class="flex items-center gap-2">
+      <select onchange="location.href='/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size=' + this.value + '&page=1'"
+              class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-sky-300 transition-colors">
+        <option value="20" {% if size == 20 %}selected{% endif %}>20 {{ t.ws_per_page }}</option>
+        <option value="50" {% if size == 50 %}selected{% endif %}>50 {{ t.ws_per_page }}</option>
+        <option value="100" {% if size == 100 %}selected{% endif %}>100 {{ t.ws_per_page }}</option>
+      </select>
+      {% if page > 1 %}
+      <a href="/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size={{ size }}&page={{ page - 1 }}"
+         class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
+      {% endif %}
+      {% if page < pages %}
+      <a href="/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size={{ size }}&page={{ page + 1 }}"
+         class="px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_next_page }}</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Projects -->
+<div class="bg-white border border-gray-200 rounded-xl mt-6">
+  <div class="px-6 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_projects }}</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_name }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_slug }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_folders }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_sessions }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_status }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for p in projects %}
+        <tr class="hover:bg-gray-100/50 transition-colors">
+          <td class="px-6 py-4 font-medium text-gray-900 text-sm">{{ p.name or p.id }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500"><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{{ p.slug }}</code></td>
+          <td class="px-6 py-4 text-sm text-gray-500">
+            {% if p.folders %}
+            {% for f in p.folders %}<div class="truncate max-w-md">{{ f.path }}{% if f.is_primary %} <span class="text-[10px] text-sky-500">★</span>{% endif %}</div>{% endfor %}
+            {% else %}<span class="text-gray-300">—</span>{% endif %}
+          </td>
+          <td class="px-6 py-4 text-sm text-gray-500">
+            {% if p.sessions %}
+            {% for s in p.sessions[:5] %}
+            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="block truncate max-w-md text-sky-600 hover:text-sky-500">{{ s.title or s.id }}</a>
+            {% endfor %}
+            {% if p.session_count > 5 %}<span class="text-[11px] text-gray-400">+{{ p.session_count - 5 }} {{ t.ws_more }}</span>{% endif %}
+            {% else %}<span class="text-gray-300">—</span>{% endif %}
+          </td>
+          <td class="px-6 py-4">
+            {% if p.archived %}<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{{ t.ws_project_archived }}</span>
+            {% else %}<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ t.ws_project_active }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not projects %}
+        <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_projects }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

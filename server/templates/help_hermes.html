@@ -1,0 +1,125 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ t.help_title }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+  <!-- Header -->
+  <div class="mb-6">
+    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ t.common_back }}
+    </a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ t.help_title }}</h1>
+    <p class="text-gray-500 text-sm mt-1">{{ t.help_subtitle }}</p>
+  </div>
+
+  <!-- 1. Download + per-agent install & verify -->
+  <div class="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+    <h2 class="text-lg font-bold text-gray-900 mb-1">{{ t.help_download_section }}</h2>
+    <p class="text-sm text-gray-500 mb-4">{{ t.help_download_desc }}</p>
+    <div class="space-y-4">
+      {% for agent_key, agent in agents.items() %}
+      <div class="border border-gray-100 rounded-lg p-4">
+        <div class="mb-1">
+          <h3 class="text-sm font-bold text-gray-900">{{ agent.label }}</h3>
+          <p class="text-xs text-gray-500 mt-0.5">{{ agent.desc }}</p>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">{{ t.help_store }}<code class="text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{{ agent.store }}</code></p>
+        <div class="flex flex-wrap gap-2">
+          {% for ws in ws_list %}
+          <a href="/web/download/mcp-client?ws_id={{ ws.id }}&agent={{ agent_key }}"
+             class="inline-flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
+            {{ t.help_download_for|format(ws.name) }}
+          </a>
+          {% else %}
+          <p class="text-sm text-gray-400">{{ t.dash_no_workspaces }}</p>
+          {% endfor %}
+        </div>
+        <details class="group mt-3">
+          <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-500">
+            <svg class="w-4 h-4 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            {{ t.help_install_detail }}
+          </summary>
+          <div class="mt-3 space-y-3">
+            <ol class="space-y-3 text-sm text-gray-700">
+              {% for step in agent.install %}
+              <li class="flex gap-3">
+                <span class="shrink-0 w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-bold">{{ loop.index }}</span>
+                <span class="min-w-0 flex-1">
+                  {% if step.text %}<span>{{ step.text | safe }}</span>{% endif %}
+                  {% if step.code %}<pre class="mt-2 px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ step.code }}</code></pre>{% endif %}
+                </span>
+              </li>
+              {% endfor %}
+            </ol>
+            <div>
+              {% if agent.uninstall %}
+              <p class="text-sm text-gray-600 mb-1">{{ t.help_uninstall }}</p>
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ agent.uninstall }}</code></pre>
+              <div class="h-3"></div>
+              {% endif %}
+              <p class="text-sm text-gray-600 mb-1">{{ t.help_verify }}</p>
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ agent.verify }}</code></pre>
+            </div>
+          </div>
+        </details>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Workspace API keys -->
+  <div class="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+    <h2 class="text-lg font-bold text-gray-900 mb-1">{{ t.help_ws_section }}</h2>
+    <p class="text-sm text-gray-500 mb-4">{{ t.help_ws_desc }}</p>
+    <div class="space-y-3">
+      {% for ws in ws_list %}
+      <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-gray-900">{{ ws.name }}</p>
+          <code class="block text-xs text-gray-500 break-all mt-0.5">{{ ws.api_key }}</code>
+        </div>
+        <button type="button" onclick="copyKey(this, '{{ ws.api_key }}')"
+                class="shrink-0 px-3 py-1.5 text-xs font-medium text-sky-600 hover:text-sky-500 border border-sky-200 hover:border-sky-300 rounded-lg transition-colors">{{ t.common_copy }}</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div class="bg-gray-50 border border-gray-200 rounded-xl p-6">
+    <h2 class="text-sm font-bold text-gray-900 mb-3">{{ t.help_note_section }}</h2>
+    <ul class="space-y-2 text-sm text-gray-600">
+      <li class="flex gap-2"><span class="text-sky-500">•</span><span>{{ t.help_note_server }}<code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{{ server_url }}</code></span></li>
+      <li class="flex gap-2"><span class="text-sky-500">•</span><span>{{ t.help_note_periodic }}</span></li>
+      <li class="flex gap-2"><span class="text-sky-500">•</span><span>{{ t.help_note_tools }}</span></li>
+    </ul>
+  </div>
+</div>
+
+<script>
+function copyKey(btn, val) {
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = val;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(val).then(function () { flashCopied(btn); }, fallback);
+  } else {
+    fallback();
+    flashCopied(btn);
+  }
+}
+function flashCopied(btn) {
+  var orig = btn.textContent;
+  btn.textContent = '{{ t.common_copied }}';
+  setTimeout(function () { btn.textContent = orig; }, 1500);
+}
+</script>
+{% endblock %}

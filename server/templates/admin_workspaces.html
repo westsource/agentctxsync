@@ -1,0 +1,68 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ t.admin_all_workspaces }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ t.common_back }}
+    </a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ t.admin_all_workspaces }}</h1>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white border border-gray-200 rounded-xl p-5">
+    <p class="text-2xl font-bold text-gray-900">{{ all_workspaces|length }}</p>
+    <p class="text-xs text-gray-400 mt-1">{{ t.admin_total_workspaces }}</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-5">
+    <p class="text-2xl font-bold text-gray-900">{{ total_sessions }}</p>
+    <p class="text-xs text-gray-400 mt-1">{{ t.admin_total_sessions }}</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-5">
+    <p class="text-2xl font-bold text-gray-900">{{ total_messages }}</p>
+    <p class="text-xs text-gray-400 mt-1">{{ t.admin_total_messages }}</p>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="bg-white border border-gray-200 rounded-xl">
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_workspace }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_owner }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_api_key }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_sessions_col }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_messages }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_created }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for ws in all_workspaces %}
+        <tr class="hover:bg-gray-100/50 transition-colors">
+          <td class="px-6 py-4">
+            <a href="/web/workspace/{{ ws.id }}" class="font-medium text-gray-900 hover:text-sky-600 transition-colors">{{ ws.name }}</a>
+            {% if ws.description %}<p class="text-xs text-gray-400 mt-0.5">{{ ws.description }}</p>{% endif %}
+          </td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ ws.owner_name or ws.owner_username or t.common_none }}</td>
+          <td class="px-6 py-4">
+            <code class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{{ ws.api_key[:20] }}...</code>
+          </td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-600">{{ ws.session_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ ws.message_count }}</span></td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ ws.created_at|timestamp_fmt if ws.created_at else t.common_none }}</td>
+        </tr>
+        {% endfor %}
+        {% if not all_workspaces %}
+        <tr><td colspan="6" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.dash_no_workspaces }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

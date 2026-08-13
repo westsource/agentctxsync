@@ -1,0 +1,134 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ t.invites_title }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<div>
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        {{ t.common_back }}
+      </a>
+      <h1 class="text-2xl font-bold text-gray-900">{{ t.invites_title }}</h1>
+    </div>
+    <button onclick="document.getElementById('createModal').classList.remove('hidden')"
+            class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">
+      {{ t.invites_generate }}
+    </button>
+  </div>
+
+  <!-- Invites Table -->
+  <div class="bg-white border border-gray-200 rounded-xl">
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-gray-200">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_code }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_created_by }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_status }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_used_by }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_note }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_expires }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_created_at }}</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_action }}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for inv in invites %}
+          <tr class="hover:bg-gray-100/50 transition-colors">
+            <td class="px-6 py-4">
+              <code class="px-2 py-1 bg-gray-100 rounded-md text-sm font-mono text-gray-800">{{ inv.code }}</code>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ inv.creator_name or t.common_none }}</td>
+            <td class="px-6 py-4">
+              {% if inv.revoked %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-400">{{ t.invites_status_revoked }}</span>
+              {% elif inv.used %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{{ t.invites_status_used }}</span>
+              {% elif inv.expires_at and inv.expires_at < now %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-500">{{ t.invites_status_expired }}</span>
+              {% else %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ t.invites_status_active }}</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ inv.used_by_name or t.common_none }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500 max-w-[200px] truncate" title="{{ inv.note or '' }}">{{ inv.note or t.common_none }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ inv.expires_at|timestamp_fmt if inv.expires_at else t.invites_never }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ inv.created_at|timestamp_fmt if inv.created_at else t.common_none }}</td>
+            <td class="px-6 py-4 text-right whitespace-nowrap">
+              {% if not inv.used and not inv.revoked and not (inv.expires_at and inv.expires_at < now) %}
+              <button type="button" onclick="copyInviteLink(this, '{{ base_url }}web/register?code={{ inv.code }}', '{{ t.invites_copy_intro }}')"
+                      class="text-sm text-sky-600 hover:text-sky-500 transition-colors mr-3">{{ t.invites_copy_link }}</button>
+              <form method="POST" action="/web/invite/{{ inv.id }}/revoke" class="inline" onsubmit="return confirm('{{ t.invites_revoke }}?')">
+                <button type="submit" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">{{ t.invites_revoke }}</button>
+              </form>
+              {% else %}
+              <span class="text-sm text-gray-300">{{ t.common_none }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="px-6 py-12 text-center text-sm text-gray-400">{{ t.invites_empty }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Generate Invite Modal -->
+<div id="createModal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/40">
+  <div class="bg-white rounded-2xl w-full max-w-sm p-6" @click.outside="document.getElementById('createModal').classList.add('hidden')">
+    <h2 class="text-lg font-bold text-gray-900 mb-4">{{ t.invites_generate }}</h2>
+    <form method="POST" action="/web/invite/create">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.invites_expiry_days }}</label>
+        <input type="number" name="expiry_days" value="0" min="0"
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+      </div>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.invites_note }}</label>
+        <input type="text" name="note"
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')"
+                class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">{{ t.dash_cancel }}</button>
+        <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">{{ t.invites_generate_btn }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function copyInviteLink(btn, url, intro) {
+  // Copies the intro sentence plus the registration link (two lines).
+  var text = (intro ? intro + '\n' : '') + url;
+  // navigator.clipboard requires a secure context (HTTPS); this site runs on
+  // plain HTTP, so fall back to the legacy execCommand('copy') textarea trick.
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function () { flashCopied(btn); }, fallback);
+  } else {
+    fallback();
+    flashCopied(btn);
+  }
+}
+function flashCopied(btn) {
+  var orig = btn.textContent;
+  btn.textContent = '{{ t.common_copied }}';
+  setTimeout(function () { btn.textContent = orig; }, 1500);
+}
+</script>
+{% endblock %}

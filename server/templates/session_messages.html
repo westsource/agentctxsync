@@ -1,0 +1,224 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ session.title or session.id }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<style>
+  .md-body > :first-child { margin-top: 0; }
+  .md-body > :last-child { margin-bottom: 0; }
+  .md-body h1, .md-body h2, .md-body h3, .md-body h4 { font-weight: 600; margin: 0.5em 0 0.25em; line-height: 1.3; }
+  .md-body h1 { font-size: 1.25em; } .md-body h2 { font-size: 1.15em; } .md-body h3 { font-size: 1.05em; }
+  .md-body p { margin: 0.4em 0; }
+  .md-body ul, .md-body ol { margin: 0.4em 0; padding-left: 1.4em; list-style: revert; }
+  .md-body li { margin: 0.15em 0; }
+  .md-body pre { background: #0f172a; color: #e2e8f0; padding: 0.7em 0.9em; border-radius: 0.5rem; overflow-x: auto; margin: 0.5em 0; font-size: 0.8em; line-height: 1.5; }
+  .md-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .md-body :not(pre) > code { background: rgba(0,0,0,0.08); padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.85em; }
+  .md-body blockquote { border-left: 3px solid rgba(100,116,139,0.4); padding-left: 0.8em; margin: 0.4em 0; color: rgba(100,116,139,0.9); }
+  .md-body a { text-decoration: underline; }
+  .md-body table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
+  .md-body th, .md-body td { border: 1px solid rgba(100,116,139,0.3); padding: 0.3em 0.6em; }
+  .md-body th { background: rgba(100,116,139,0.12); font-weight: 600; }
+  .md-body hr { border: none; border-top: 1px solid rgba(100,116,139,0.3); margin: 0.6em 0; }
+  .bg-sky-600 .md-body blockquote { color: rgba(255,255,255,0.85); border-left-color: rgba(255,255,255,0.5); }
+  .bg-sky-600 .md-body :not(pre) > code { background: rgba(255,255,255,0.2); }
+</style>
+
+<!-- Reusable pagination bar (top and bottom of the message list) -->
+{% macro pagination_bar(extra_class) %}
+{% if pages > 1 or total > size %}
+<div class="flex items-center justify-between gap-3 {{ extra_class }}">
+  <div class="text-xs text-gray-400">{{ t.msg_page_info|format(total, page, pages) }}</div>
+  <div class="flex items-center gap-2">
+    <select onchange="location.href='/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ role }}&size=' + this.value"
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-sky-300 transition-colors">
+      <option value="20" {% if size == 20 %}selected{% endif %}>20 {{ t.ws_per_page }}</option>
+      <option value="50" {% if size == 50 %}selected{% endif %}>50 {{ t.ws_per_page }}</option>
+      <option value="100" {% if size == 100 %}selected{% endif %}>100 {{ t.ws_per_page }}</option>
+    </select>
+    {% if page > 1 %}
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page=1&role={{ role }}&size={{ size }}"
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_first_page }}</a>
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page - 1 }}&role={{ role }}&size={{ size }}"
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
+    {% endif %}
+    {% if page < pages %}
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page + 1 }}&role={{ role }}&size={{ size }}"
+       class="inline-block px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_next_page }}</a>
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ pages }}&role={{ role }}&size={{ size }}"
+       class="inline-block px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_last_page }}</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+<div class="max-w-3xl">
+  <!-- Top bar -->
+  <div class="mb-6">
+    <a href="/web/workspace/{{ ws.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ t.common_back }}
+    </a>
+    <div class="flex items-start justify-between gap-4 mt-2">
+      <div class="min-w-0">
+        <h1 class="text-xl font-bold text-gray-900 truncate">{{ session.title or session.id }}</h1>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-gray-500">
+          <span>{{ t.msg_model }}: <span class="text-gray-700">{{ session.model or t.common_none }}</span></span>
+          <span>{{ t.msg_messages }}: <span class="text-gray-700">{{ total }}</span></span>
+          <span>{{ t.msg_started }}: {{ session.started_at|timestamp_fmt if session.started_at else t.common_none }}</span>
+          <span>{{ t.msg_synced }}: {{ session.last_synced_at|timestamp_fmt if session.last_synced_at else t.common_none }}</span>
+        </div>
+      </div>
+      <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
+         class="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:border-sky-300 text-gray-700 hover:text-sky-600 text-sm font-medium rounded-lg transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
+        {{ t.msg_export }}
+      </a>
+    </div>
+  </div>
+
+  <!-- Role filter -->
+  <div class="flex flex-wrap items-center gap-2 mb-5">
+    {% for key, label in [('', t.msg_filter_all), ('user', t.msg_filter_user), ('assistant', t.msg_filter_assistant), ('tool', t.msg_filter_tool), ('system', t.msg_filter_system)] %}
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ key }}"
+       class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors {% if role == key %}bg-sky-600 text-white shadow-sm{% else %}bg-white border border-gray-200 text-gray-500 hover:text-gray-900{% endif %}">{{ label }}</a>
+    {% endfor %}
+    <form method="GET" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}" class="inline-flex items-center gap-1.5 ml-auto">
+      <input type="hidden" name="role" value="{{ role }}">
+      <input type="checkbox" name="show_hidden" value="1"
+             {% if show_hidden %}checked{% endif %} onchange="this.form.submit()"
+             class="rounded border-gray-300 text-amber-500 focus:ring-amber-400">
+      <label class="text-xs text-gray-500 cursor-pointer select-none">{{ t.msg_show_hidden }}</label>
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ t.msg_search_placeholder }}"
+             class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 w-40 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
+             onchange="this.form.submit()">
+    </form>
+  </div>
+
+  <!-- Pagination (top) -->
+  {{ pagination_bar('mb-5 pb-4 border-b border-gray-200') }}
+
+  <!-- Messages -->
+  <div class="space-y-4">
+    {% for m in messages %}
+      {% if m.role == 'user' %}
+      <div class="flex justify-end">
+        <div class="relative max-w-[85%] bg-sky-600 text-white rounded-2xl rounded-br-md px-4 pt-8 pb-3 group">
+          <div id="msg-{{ loop.index0 }}" class="md-body text-sm break-words">{{ m.content_md|safe }}</div>
+          <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
+                  class="absolute top-1.5 left-1.5 p-1 rounded-md text-white/50 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="{{ t.common_copy }}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          </button>
+          <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+                onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
+                class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button type="submit" class="p-1 rounded-md text-[11px] font-medium
+              {% if m.hidden %}text-emerald-300 hover:text-emerald-100{% else %}text-white/50 hover:text-white hover:bg-white/10{% endif %} transition-colors"
+              title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+              {{ t.msg_unhide if m.hidden else t.msg_hide }}
+            </button>
+          </form>
+        </div>
+      </div>
+      {% elif m.role == 'assistant' %}
+      <div class="flex justify-start">
+        <div class="relative max-w-[85%] bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 pt-8 pb-3 group">
+          {% if m.reasoning_content %}
+          <details class="mb-2">
+            <summary class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer select-none">{{ t.msg_thinking }}</summary>
+            <p class="mt-2 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
+          </details>
+          {% endif %}
+          <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-800 break-words">{{ m.content_md|safe }}</div>
+          <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+                onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
+                class="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button type="submit" class="p-1 rounded-md text-[11px] font-medium
+              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
+              title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+              {{ t.msg_unhide if m.hidden else t.msg_hide }}
+            </button>
+          </form>
+          <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
+                  class="absolute top-1.5 right-1.5 p-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="{{ t.common_copy }}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          </button>
+        </div>
+      </div>
+      {% elif m.role == 'tool' %}
+      <div class="flex justify-start" x-data="{ open: false }">
+        <div class="relative max-w-[85%] w-full bg-gray-50 border border-gray-200 rounded-xl group">
+          <button type="button" @click="open = !open"
+                  class="w-full flex items-center gap-2 px-4 py-2.5 pr-20 text-xs font-medium text-gray-500 hover:text-gray-800">
+            <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-gray-400">{{ t.msg_tool_label }}</span>
+            <span class="font-mono text-gray-700">{{ m.tool_name or m.tool_call_id or t.common_none }}</span>
+            <span class="text-gray-300">·</span>
+            <span class="text-gray-400 font-normal">{{ m.timestamp|timestamp_fmt if m.timestamp else '' }}</span>
+            <span class="ml-auto shrink-0 text-gray-400">{{ t.msg_expand if not open else t.msg_collapse }}</span>
+          </button>
+          <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+                onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
+                class="absolute top-1.5 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+            <button type="submit" class="px-1.5 py-0.5 rounded-md text-[11px] font-medium
+              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-400 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
+              title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+              {{ t.msg_unhide if m.hidden else t.msg_hide }}
+            </button>
+          </form>
+          <div x-show="!open" x-cloak class="px-4 pb-3 text-xs text-gray-400 whitespace-pre-wrap break-words line-clamp-2">{{ m.content|truncate(300, True, '…') or '' }}</div>
+          <pre id="msg-{{ loop.index0 }}" x-show="open" x-cloak
+               class="px-4 pb-3 text-xs text-gray-600 whitespace-pre-wrap break-words font-mono overflow-x-auto">{{ m.content or '' }}</pre>
+        </div>
+      </div>
+      {% else %}
+      <div class="relative text-center group">
+        <span class="inline-block text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">{{ m.content or '' }}</span>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+              onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
+              class="absolute -right-16 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button type="submit" class="p-1 rounded-md text-[11px] font-medium
+            {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
+            title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+            {{ t.msg_unhide if m.hidden else t.msg_hide }}
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="py-16 text-center text-sm text-gray-400">{{ t.msg_no_messages }}</div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination (bottom) -->
+  {{ pagination_bar('mt-6 pt-4 border-t border-gray-200') }}
+</div>
+
+<script>
+function copyMessage(btn, id) {
+  var el = document.getElementById(id);
+  var text = el ? el.textContent.trim() : '';
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function () { flashCopied(btn); }, fallback);
+  } else {
+    fallback();
+    flashCopied(btn);
+  }
+}
+function flashCopied(btn) {
+  var orig = btn.innerHTML;
+  btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+  setTimeout(function () { btn.innerHTML = orig; }, 1500);
+}
+</script>
+{% endblock %}
