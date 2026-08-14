@@ -58,6 +58,13 @@ jinja_env.filters["timestamp_fmt"] = timestamp_fmt
 
 def get_lang():
     if _current_request:
+        # Logged-in users follow their account preference (lang claim in the
+        # JWT, set at login and refreshed on switch); guests fall back to the
+        # cookie so the landing page remembers the last choice per browser.
+        token = _current_request.cookies.get("hsync_token")
+        payload = verify_jwt(token) if token else None
+        if payload and payload.get("lang"):
+            return payload["lang"]
         return _current_request.cookies.get("lang", "zh-CN")
     return "zh-CN"
 def render(template_name, context=None):
@@ -166,7 +173,8 @@ def init_db():
             is_active BOOLEAN DEFAULT TRUE,
             created_at DOUBLE PRECISION,
             last_login_at DOUBLE PRECISION,
-            must_change_password INTEGER DEFAULT 0
+            must_change_password INTEGER DEFAULT 0,
+            lang TEXT DEFAULT 'zh-CN'
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS workspaces (
             id SERIAL PRIMARY KEY,
@@ -270,6 +278,10 @@ def init_db():
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden INTEGER DEFAULT 0")
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_at DOUBLE PRECISION")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 0")
+        # Account-level language preference (Web UI): persisted on the user so
+        # it follows the account across devices; landing page still uses the
+        # cookie. Read via the lang claim inside the JWT.
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'zh-CN'")
         c.execute("SELECT COUNT(*) FROM users")
         if c.fetchone()[0] == 0:
             admin_pw = secrets.token_urlsafe(12)
@@ -339,12 +351,13 @@ def consume_invite(code, user_id):
 # Authentication
 # ============================================================
 
-def create_jwt(user_id, username, is_admin, display_name=""):
+def create_jwt(user_id, username, is_admin, display_name="", lang="zh-CN"):
     payload = {
         "sub": str(user_id),
         "username": username,
         "is_admin": is_admin,
         "display_name": display_name,
+        "lang": lang,
         "iat": int(time.time()),
         "exp": int(time.time()) + TOKEN_EXPIRE_HOURS * 3600,
     }
@@ -460,7 +473,7 @@ async def web_login_post(request: Request):
             return render("login.html", {"error": "login_invalid"})
         now = datetime.now().timestamp()
         c.execute("UPDATE users SET last_login_at = %s WHERE id = %s", (now, user["id"]))
-        token = create_jwt(user["id"], user["username"], user.get("is_admin", False), user.get("display_name", ""))
+        token = create_jwt(user["id"], user["username"], user.get("is_admin", False), user.get("display_name", ""), user.get("lang", "zh-CN"))
         target = "/web/change-password?forced=1" if user.get("must_change_password") else "/web/"
         response = RedirectResponse(url=target, status_code=303)
         response.set_cookie(key="hsync_token", value=token, httponly=True, max_age=TOKEN_EXPIRE_HOURS * 3600, samesite="lax")
@@ -607,6 +620,19 @@ async def web_set_language(lang: str, request: Request):
     referer = request.headers.get("referer", "/web/")
     response = RedirectResponse(url=referer, status_code=303)
     response.set_cookie(key="lang", value=lang, max_age=365*24*3600, samesite="lax")
+    token = request.cookies.get("hsync_token")
+    payload = verify_jwt(token) if token else None
+    if payload:
+        # Logged in: persist the preference on the account and re-issue the
+        # JWT so the current session follows immediately (get_lang reads the
+        # lang claim). Guests only get the cookie above.
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE users SET lang = %s WHERE id = %s", (lang, int(payload["sub"])))
+        new_token = create_jwt(payload["sub"], payload.get("username", ""),
+                               payload.get("is_admin", False), payload.get("display_name", ""), lang)
+        response.set_cookie(key="hsync_token", value=new_token, httponly=True,
+                            max_age=TOKEN_EXPIRE_HOURS * 3600, samesite="lax")
     return response
 @app.get("/web/logout")
 async def web_logout():
@@ -1643,7 +1669,7 @@ async def api_login(request: Request):
             raise HTTPException(status_code=401, detail="login_invalid")
         now = datetime.now().timestamp()
         c.execute("UPDATE users SET last_login_at = %s WHERE id = %s", (now, user["id"]))
-        token = create_jwt(user["id"], user["username"], user.get("is_admin", False))
+        token = create_jwt(user["id"], user["username"], user.get("is_admin", False), lang=user.get("lang", "zh-CN"))
     return {"token": token, "username": username, "display_name": user.get("display_name"), "is_admin": user.get("is_admin"), "must_change_password": bool(user.get("must_change_password"))}
 
 @app.get("/api/me")

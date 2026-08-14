@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+venv/
+
+# Local scratch (test cookies etc.)
+jar*.txt
 
 # Environment & secrets (NEVER commit these)
 .env
