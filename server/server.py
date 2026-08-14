@@ -677,11 +677,9 @@ async def web_workspace_detail(ws_id: int, request: Request):
     nav_ws = get_nav_workspaces(user["sub"])
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        # View access: workspace owner or admin (same policy as the session viewer).
-        if user.get("is_admin"):
-            c.execute("SELECT * FROM workspaces WHERE id = %s", (ws_id,))
-        else:
-            c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        # View access: workspace owner only. Admins have no read access to
+        # other users' session lists or message contents.
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
         ws = c.fetchone()
     if not ws:
         return RedirectResponse(url="/web/", status_code=303)
@@ -846,10 +844,7 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
     size = min(max(size, 1), 100)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if user.get("is_admin"):
-            c.execute("SELECT * FROM workspaces WHERE id = %s", (ws_id,))
-        else:
-            c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
         ws = c.fetchone()
         if not ws:
             return RedirectResponse(url="/web/", status_code=303)
@@ -916,10 +911,7 @@ async def web_session_export(ws_id: int, sid: str, request: Request):
         return RedirectResponse(url="/web/login")
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if user.get("is_admin"):
-            c.execute("SELECT * FROM workspaces WHERE id = %s", (ws_id,))
-        else:
-            c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
         ws = c.fetchone()
         if not ws:
             return RedirectResponse(url="/web/", status_code=303)
@@ -930,18 +922,22 @@ async def web_session_export(ws_id: int, sid: str, request: Request):
         c.execute("SELECT * FROM messages WHERE session_id = %s AND workspace_id = %s "
                   "ORDER BY timestamp ASC, id ASC", (sid, ws_id))
         messages = [dict(r) for r in c.fetchall()]
+    t = get_translations(get_lang())
+    role_names = {"user": t["msg_filter_user"], "assistant": t["msg_filter_assistant"],
+                  "tool": t["msg_filter_tool"], "system": t["msg_filter_system"]}
     title = sess["title"] or sid
     lines = [f"# {title}", "",
-             f"- 工作空间: {ws['name']}",
-             f"- 模型: {sess['model'] or '-'}",
-             f"- 开始时间: {_msg_ts(sess['started_at'])}",
-             f"- 消息数: {len(messages)}", ""]
+             f"- {t['admin_workspace']}: {ws['name']}",
+             f"- {t['ws_model']}: {sess['model'] or '-'}",
+             f"- {t['msg_started']}: {_msg_ts(sess['started_at'])}",
+             f"- {t['ws_messages']}: {len(messages)}", ""]
     for m in messages:
         ts = _msg_ts(m["timestamp"])
+        role = role_names.get(m["role"], m["role"])
         if m["role"] == "tool":
-            lines.append(f"## tool · {m['tool_name'] or m['tool_call_id'] or 'tool'} ({ts})")
+            lines.append(f"## {role} · {m['tool_name'] or m['tool_call_id'] or 'tool'} ({ts})")
         else:
-            lines.append(f"## {m['role']} ({ts})")
+            lines.append(f"## {role} ({ts})")
         lines.append("")
         lines.append((m["content"] or "").strip() or "-")
         lines.append("")
@@ -962,10 +958,7 @@ async def web_workspace_export(ws_id: int, request: Request):
         return RedirectResponse(url="/web/login")
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if user.get("is_admin"):
-            c.execute("SELECT * FROM workspaces WHERE id = %s", (ws_id,))
-        else:
-            c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
         ws = c.fetchone()
         if not ws:
             return RedirectResponse(url="/web/", status_code=303)
@@ -1288,9 +1281,12 @@ async def web_admin_workspaces(request: Request):
     nav_ws = get_nav_workspaces(user["sub"])
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""SELECT w.*, u.username as owner_username, u.display_name as owner_name,
+        # api_key intentionally excluded: keys belong to the workspace owner.
+        c.execute("""SELECT w.id, w.name, w.user_id, w.description, w.created_at,
+            u.username as owner_username, u.display_name as owner_name,
             (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.id) as session_count,
-            (SELECT COUNT(*) FROM messages m WHERE m.workspace_id = w.id) as message_count
+            (SELECT COUNT(*) FROM messages m WHERE m.workspace_id = w.id) as message_count,
+            (SELECT MAX(st.last_sync_at) FROM sync_state st WHERE st.workspace_id = w.id) as last_sync_at
             FROM workspaces w JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC""")
         all_ws = [dict(r) for r in c.fetchall()]
         c.execute("SELECT COUNT(*) as cnt FROM sessions")
@@ -1728,7 +1724,11 @@ async def api_admin_toggle_user(uid: int, user: dict = Depends(require_admin)):
 async def api_admin_workspaces(user: dict = Depends(require_admin)):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("SELECT w.*, u.username as owner FROM workspaces w JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC")
+        # Never expose api_key to admins: keys belong to the workspace owner.
+        c.execute("""SELECT w.id, w.name, w.user_id, w.description, w.created_at,
+            u.username as owner,
+            (SELECT MAX(st.last_sync_at) FROM sync_state st WHERE st.workspace_id = w.id) as last_sync_at
+            FROM workspaces w JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC""")
         return [dict(r) for r in c.fetchall()]
 
 # ============================================================

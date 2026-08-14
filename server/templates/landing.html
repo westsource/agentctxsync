@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ lang }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Contexts Sync — 跨设备 · 跨 Agent 的会话同步</title>
-<meta name="description" content="Agent Contexts Sync 是一个开源工具，让 Hermes、Codex、opencode、Reasonix、OpenClaw 等 AI Agent 跨设备、跨工具共享同一会话池。">
+<title>{{ t.lp_title }}</title>
+<meta name="description" content="{{ t.lp_meta_desc }}">
 <style>
   /* ============================================================
      配色体系与 base.html / login.html 一致（Tailwind 色板）：
@@ -58,6 +58,8 @@
     background: var(--accent); color: #fff; font-weight: 500; transition: background .15s;
   }
   .nav-cta:hover { background: var(--accent-hover); }
+  .lang-switch { font-size: 12px; color: var(--muted); text-decoration: none; margin-left: 10px; }
+  .lang-switch:hover { color: var(--accent); }
 
   /* ---------- Hero ---------- */
   .hero { padding: 90px 0 70px; text-align: center; position: relative; overflow: hidden; }
@@ -198,38 +200,41 @@
   <div class="wrap">
     <div class="logo">
       <span class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></span>
-      Agent Contexts Sync <small>· 开源</small>
+      Agent Contexts Sync <small>{{ t.lp_nav_oss }}</small>
     </div>
     <div class="nav-links">
-      <a href="#features">特性</a>
-      <a href="#agents">支持的 Agent</a>
-      <a href="#usage">快速开始</a>
-      <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">开源</a>
+      <a href="#features">{{ t.lp_nav_features }}</a>
+      <a href="#agents">{{ t.lp_nav_agents }}</a>
+      <a href="#usage">{{ t.lp_nav_quickstart }}</a>
+      <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
     </div>
-    <a class="nav-cta" href="/web/">进入系统</a>
+    <a class="nav-cta" href="/web/">{{ t.lp_enter }}</a>
+    <a href="/web/set-language/zh-CN" class="lang-switch" {% if lang == 'zh-CN' %}style="color:var(--accent);font-weight:600"{% endif %}>中文</a>
+    <span class="lang-switch" style="color:var(--muted-2)">|</span>
+    <a href="/web/set-language/en" class="lang-switch" {% if lang == 'en' %}style="color:var(--accent);font-weight:600"{% endif %}>EN</a>
   </div>
 </nav>
 
 <!-- ========== Hero ========== -->
 <header class="hero">
   <div class="wrap">
-    <span class="badge">✦ 完全开源 · MIT License</span>
-    <h1>让所有 AI Agent<br>共享同一个 <span class="grad">上下文空间</span></h1>
-    <p class="sub">Agent Contexts Sync 把同一工作区里 Hermes、Codex、opencode 等 Agent 的会话集中共享、跨设备同步——在公司电脑上的对话，回家自动接上；Web 上随时查看、搜索、导出任何 Agent 的会话。</p>
+    <span class="badge">{{ t.lp_badge }}</span>
+    <h1>{{ t.lp_hero_l1 }}<br>{{ t.lp_hero_l2a }}<span class="grad">{{ t.lp_hero_l2b }}</span></h1>
+    <p class="sub">{{ t.lp_hero_sub }}</p>
     <div class="actions">
-      <a class="btn btn-primary" href="/web/">进入系统 →</a>
-      <a class="btn btn-ghost" href="#features">了解更多</a>
+      <a class="btn btn-primary" href="/web/">{{ t.lp_enter_cta }}</a>
+      <a class="btn btn-ghost" href="#features">{{ t.lp_learn_more }}</a>
     </div>
-    <p class="hint">$ python mcp/server.py &nbsp;·&nbsp; 启动即自动同步</p>
+    <p class="hint">{{ t.lp_hint }}</p>
 
     <div class="terminal">
       <div class="bar"><i></i><i></i><i></i><span>agentctxsync — sync</span></div>
-      <pre><span class="c">$</span> python mcp/server.py <span class="c"># 启动 MCP 客户端</span>
-<span class="c">→</span> 启动时自动增量拉取 · 之后每 5 分钟自动同步
-<span class="c">→</span> 也可由 Agent 调用 <span class="y">hermes_sync_full</span> 手动触发
-<span class="g">✓ 同步完成</span> — 增量合并 · 幂等去重
+      <pre><span class="c">$</span> python mcp/server.py <span class="c"># {{ t.lp_term_start }}</span>
+<span class="c">→</span> {{ t.lp_term_pull }}
+<span class="c">→</span> {{ t.lp_term_manual }}<span class="y">hermes_sync_full</span>
+<span class="g">✓ {{ t.lp_term_done }}</span> {{ t.lp_term_merge }}
 <span class="y">local:</span> 12 sessions / 348 messages
-<span class="y">remote:</span> 128 sessions / 3,462 messages <span class="b">· 5 个 Agent 共享</span></pre>
+<span class="y">remote:</span> 128 sessions / 3,462 messages <span class="b">{{ t.lp_term_agents }}</span></pre>
     </div>
   </div>
 </header>
@@ -239,39 +244,39 @@
   <div class="wrap">
     <div class="section-head">
       <div class="tag">Features</div>
-      <h2>同步只是开始</h2>
-      <p>面向 AI 重度用户的会话基础设施：安全、隔离、可控。</p>
+      <h2>{{ t.lp_feat_title }}</h2>
+      <p>{{ t.lp_feat_sub }}</p>
     </div>
     <div class="features">
       <div class="feat">
         <div class="icon">🔀</div>
-        <h3>跨 Agent 同步</h3>
-        <p>Hermes、Codex、opencode、Reasonix、OpenClaw 的会话进入同一工作区集中共享；每个客户端按 Agent 隔离同步，Web 统一查看、搜索、导出。</p>
+        <h3>{{ t.lp_feat1_t }}</h3>
+        <p>{{ t.lp_feat1_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">🖥️</div>
-        <h3>跨设备无缝</h3>
-        <p>办公室的对话，回家的电脑自动拉到。增量同步 + 水位线去重，秒级完成，幂等安全。</p>
+        <h3>{{ t.lp_feat2_t }}</h3>
+        <p>{{ t.lp_feat2_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">🔐</div>
-        <h3>数据自主掌控</h3>
-        <p>自托管部署，数据全部留在你自己的服务器。多工作区隔离，每个工作区独立 API Key。</p>
+        <h3>{{ t.lp_feat3_t }}</h3>
+        <p>{{ t.lp_feat3_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">👥</div>
-        <h3>多租户隔离</h3>
-        <p>用户 → 工作区两级模型，团队共享一个服务端，彼此完全隔离；邀请码注册，谁进来你说了算。</p>
+        <h3>{{ t.lp_feat4_t }}</h3>
+        <p>{{ t.lp_feat4_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">🧩</div>
-        <h3>适配器架构</h3>
-        <p>新增 Agent 只需写一个适配器文件，服务端与同步引擎零改动。Claude Code、Cursor……随时接入。</p>
+        <h3>{{ t.lp_feat5_t }}</h3>
+        <p>{{ t.lp_feat5_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">🔄</div>
-        <h3>自动更新</h3>
-        <p>客户端定时从服务端拉取新版本，逐文件校验后原子替换，重启 Agent 即生效，回滚有备份。</p>
+        <h3>{{ t.lp_feat6_t }}</h3>
+        <p>{{ t.lp_feat6_d }}</p>
       </div>
     </div>
   </div>
@@ -282,8 +287,8 @@
   <div class="wrap">
     <div class="section-head">
       <div class="tag">Supported Agents</div>
-      <h2>主流 Agent 开箱即用</h2>
-      <p>每个 Agent 独立部署一个客户端实例，接入同一工作区即互相同步。</p>
+      <h2>{{ t.lp_agents_title }}</h2>
+      <p>{{ t.lp_agents_sub }}</p>
     </div>
     <div class="agents">
       <span class="agent-pill"><span class="emoji">✨</span> Hermes</span>
@@ -291,7 +296,7 @@
       <span class="agent-pill"><span class="emoji">⚡</span> opencode</span>
       <span class="agent-pill"><span class="emoji">🧠</span> Reasonix</span>
       <span class="agent-pill"><span class="emoji">🐾</span> OpenClaw</span>
-      <span class="agent-pill" style="opacity:.55"><span class="emoji">＋</span> 更多待接入</span>
+      <span class="agent-pill" style="opacity:.55"><span class="emoji">＋</span> {{ t.lp_more_agents }}</span>
     </div>
   </div>
 </section>
@@ -301,25 +306,25 @@
   <div class="wrap">
     <div class="section-head">
       <div class="tag">Quick Start</div>
-      <h2>三分钟接入</h2>
-      <p>一个开源项目该有的接入体验：一条命令、一个配置。</p>
+      <h2>{{ t.lp_start_title }}</h2>
+      <p>{{ t.lp_start_sub }}</p>
     </div>
     <div class="steps">
       <div class="step">
-        <h3>部署服务端</h3>
-        <p>在自己的服务器上一键部署，生成工作区与 API Key：<br><code>bash deploy-server.sh</code></p>
+        <h3>{{ t.lp_step1_t }}</h3>
+        <p>{{ t.lp_step1_d }}<br><code>bash deploy-server.sh</code></p>
       </div>
       <div class="step">
-        <h3>配置客户端</h3>
-        <p>为每个 Agent 下载对应客户端包，填入工作区 Key：<br><code>export HERMES_SYNC_API_KEY=ws_xxx</code></p>
+        <h3>{{ t.lp_step2_t }}</h3>
+        <p>{{ t.lp_step2_d }}<br><code>export HERMES_SYNC_API_KEY=ws_xxx</code></p>
       </div>
       <div class="step">
-        <h3>重启 Agent</h3>
-        <p>启动时自动增量拉取，远程为空时自动推送本地数据完成首次配对，之后每 5 分钟自动同步。</p>
+        <h3>{{ t.lp_step3_t }}</h3>
+        <p>{{ t.lp_step3_d }}</p>
       </div>
       <div class="step">
-        <h3>Web 管理</h3>
-        <p>浏览器打开管理界面：会话查看器（Markdown 渲染）、一键导出/导入、设备状态一目了然。</p>
+        <h3>{{ t.lp_step4_t }}</h3>
+        <p>{{ t.lp_step4_d }}</p>
       </div>
     </div>
   </div>
@@ -330,15 +335,15 @@
   <div class="wrap">
     <div class="section-head">
       <div class="tag">Open Source</div>
-      <h2>代码全部公开</h2>
-      <p class="big">客户端 MIT 许可 · 服务端源代码公开 · 自托管免费</p>
-      <p>Agent Contexts Sync 承诺：个人自托管永远免费，代码透明可审计。加入社区，一起把 Agent 的上下文变成你的资产。</p>
+      <h2>{{ t.lp_oss_title }}</h2>
+      <p class="big">{{ t.lp_oss_big }}</p>
+      <p>{{ t.lp_oss_sub }}</p>
     </div>
     <div class="os-grid">
-      <div class="os-item"><div class="num">5</div><div class="lbl">支持的 Agent</div></div>
-      <div class="os-item"><div class="num">3 层</div><div class="lbl">Web UI · API · 同步引擎</div></div>
-      <div class="os-item"><div class="num">33</div><div class="lbl">自动化测试用例</div></div>
-      <div class="os-item"><div class="num">0 元</div><div class="lbl">自托管成本（软件）</div></div>
+      <div class="os-item"><div class="num">5</div><div class="lbl">{{ t.lp_os_agents_lbl }}</div></div>
+      <div class="os-item"><div class="num">3 层</div><div class="lbl">{{ t.lp_os_layers_lbl }}</div></div>
+      <div class="os-item"><div class="num">33</div><div class="lbl">{{ t.lp_os_tests_lbl }}</div></div>
+      <div class="os-item"><div class="num">0 元</div><div class="lbl">{{ t.lp_os_cost_lbl }}</div></div>
     </div>
   </div>
 </section>
@@ -346,21 +351,21 @@
 <!-- ========== CTA ========== -->
 <div class="wrap">
   <div class="cta-band">
-    <h2>让 Agent 记住你的世界</h2>
-    <p>从今天开始，你的每个 AI 助手都拥有完整的上下文记忆——跨设备、跨工具、不丢失。</p>
-    <a class="btn btn-primary" href="/web/">进入系统 →</a>
+    <h2>{{ t.lp_cta_title }}</h2>
+    <p>{{ t.lp_cta_sub }}</p>
+    <a class="btn btn-primary" href="/web/">{{ t.lp_enter_cta }}</a>
   </div>
 </div>
 
 <!-- ========== 页脚 ========== -->
 <footer>
   <div class="links">
-    <a href="#features">特性</a>
-    <a href="#agents">支持的 Agent</a>
-    <a href="#usage">快速开始</a>
-    <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">开源</a>
+    <a href="#features">{{ t.lp_nav_features }}</a>
+    <a href="#agents">{{ t.lp_nav_agents }}</a>
+    <a href="#usage">{{ t.lp_nav_quickstart }}</a>
+    <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
   </div>
-  <p>Agent Contexts Sync · 开源项目 · 个人自托管免费</p>
+  <p>{{ t.lp_footer }}</p>
 </footer>
 
 </body>

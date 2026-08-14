@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ t.admin_all_workspaces }} - Agent Contexts Sync{% endblock %}
 {% block content %}
 <!-- Header -->
@@ -36,9 +36,9 @@
         <tr class="border-b border-gray-200">
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_workspace }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_owner }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_api_key }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_sessions_col }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_messages }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_created }}</th>
         </tr>
       </thead>
@@ -46,15 +46,17 @@
         {% for ws in all_workspaces %}
         <tr class="hover:bg-gray-100/50 transition-colors">
           <td class="px-6 py-4">
+            {% if ws.user_id|string == user.sub %}
             <a href="/web/workspace/{{ ws.id }}" class="font-medium text-gray-900 hover:text-sky-600 transition-colors">{{ ws.name }}</a>
+            {% else %}
+            <span class="font-medium text-gray-900">{{ ws.name }}</span>
+            {% endif %}
             {% if ws.description %}<p class="text-xs text-gray-400 mt-0.5">{{ ws.description }}</p>{% endif %}
           </td>
           <td class="px-6 py-4 text-sm text-gray-500">{{ ws.owner_name or ws.owner_username or t.common_none }}</td>
-          <td class="px-6 py-4">
-            <code class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{{ ws.api_key[:20] }}...</code>
-          </td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-600">{{ ws.session_count }}</span></td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ ws.message_count }}</span></td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ ws.last_sync_at|timestamp_fmt if ws.last_sync_at else t.common_never }}</td>
           <td class="px-6 py-4 text-sm text-gray-500">{{ ws.created_at|timestamp_fmt if ws.created_at else t.common_none }}</td>
         </tr>
         {% endfor %}
