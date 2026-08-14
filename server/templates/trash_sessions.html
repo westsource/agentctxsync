@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ t.ws_trash_sessions }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<!-- Back link -->
+<a href="/web/workspace/{{ ws.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-6">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+  {{ t.ws_trash_back }}
+</a>
+
+<div class="bg-white border border-gray-200 rounded-xl">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+    <h2 class="text-lg font-semibold text-gray-900 inline-flex items-center gap-2">
+      <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      {{ t.ws_trash_sessions }}
+      <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">{{ trash_sessions|length }}</span>
+    </h2>
+    <span class="text-xs text-gray-400">{{ ws.name }}</span>
+  </div>
+  {% if trash_sessions %}
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_title }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_model }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_started }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_actions }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for s in trash_sessions %}
+        <tr class="hover:bg-gray-100/50 transition-colors">
+          <td class="px-6 py-4 text-sm text-gray-500 max-w-md truncate">{{ s.title or s.id }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.model or '-' }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.message_count }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500">{{ s.started_at|timestamp_fmt }}</td>
+          <td class="px-6 py-4">
+            <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/unhide"
+                  class="inline" onsubmit="return confirm('{{ t.ws_unhide_confirm }}')">
+              <button type="submit" class="text-xs font-medium text-emerald-600 hover:text-emerald-500 transition-colors" title="{{ t.ws_unhide_hint }}">
+                {{ t.ws_unhide }}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-6 py-16 text-center">
+    <svg class="w-10 h-10 mx-auto text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+    <p class="text-sm text-gray-400">{{ t.ws_trash_empty }}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

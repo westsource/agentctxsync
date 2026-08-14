@@ -826,10 +826,14 @@ async def web_workspace_detail(ws_id: int, request: Request):
             p["sessions"] = [{"id": k, "title": v} for k, v in seen.items()]
             p["session_count"] = len(p["sessions"])
             projects.append(p)
+        # Deleted (soft-hidden) session count for the trash entry badge.
+        c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 1", (ws_id,))
+        trash_count = c.fetchone()["cnt"]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": f"workspace_{ws_id}",
            "ws": dict(ws), "sessions": sessions, "devices": devices,
            "sort": sort, "dir": dir, "page": page, "pages": pages, "size": size, "total": total,
            "profile": profile, "profile_options": profile_options, "show_hidden": show_hidden, "q": q,
+           "trash_count": trash_count,
            "projects": projects}
     return render("workspace_detail.html", ctx)
 
@@ -915,11 +919,16 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
             m["content_md"] = md_to_html(m.get("content"))
         else:
             m["content_md"] = ""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT COUNT(*) AS cnt FROM messages WHERE session_id = %s AND workspace_id = %s AND COALESCE(hidden,0) = 1",
+                  (sid, ws_id))
+        trash_count = c.fetchone()["cnt"]
     ctx = {
         "user": user, "workspaces": nav_ws, "active_page": f"workspace_{ws_id}",
         "ws": dict(ws), "session": dict(sess), "messages": messages,
         "total": total, "page": page, "pages": pages, "role": role, "size": size,
-        "show_hidden": show_hidden, "q": q,
+        "show_hidden": show_hidden, "q": q, "trash_count": trash_count,
     }
     return render("session_messages.html", ctx)
 
@@ -1044,6 +1053,62 @@ async def web_session_unhide(ws_id: int, sid: str, request: Request):
                   "WHERE id = %s AND workspace_id = %s", (sid, ws_id))
         conn.commit()
     return RedirectResponse(url=f"/web/workspace/{ws_id}", status_code=303)
+
+@app.get("/web/workspace/{ws_id}/trash", response_class=HTMLResponse)
+async def web_workspace_trash(ws_id: int, request: Request):
+    """Session trash: deleted (soft-hidden) sessions, fully recoverable."""
+    try:
+        user = get_current_user(request)
+    except:
+        return RedirectResponse(url="/web/login")
+    nav_ws = get_nav_workspaces(user["sub"])
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # View access: workspace owner only (same policy as the session list).
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        ws = c.fetchone()
+        if not ws:
+            return RedirectResponse(url="/web/", status_code=303)
+        c.execute("""SELECT s.*, (SELECT COUNT(*) FROM messages m
+                       WHERE m.workspace_id = s.workspace_id AND m.session_id = s.id) AS message_count
+                     FROM sessions s WHERE s.workspace_id = %s AND COALESCE(s.hidden,0) = 1
+                     ORDER BY COALESCE(s.hidden_at, s.last_synced_at, s.started_at) DESC""", (ws_id,))
+        trash_sessions = [dict(r) for r in c.fetchall()]
+    return render("trash_sessions.html", {"user": user, "workspaces": nav_ws,
+                                          "active_page": f"workspace_{ws_id}",
+                                          "ws": dict(ws), "trash_sessions": trash_sessions})
+
+@app.get("/web/workspace/{ws_id}/session/{sid}/trash", response_class=HTMLResponse)
+async def web_session_trash(ws_id: int, sid: str, request: Request):
+    """Message trash: deleted (soft-hidden) messages of one session."""
+    try:
+        user = get_current_user(request)
+    except:
+        return RedirectResponse(url="/web/login")
+    nav_ws = get_nav_workspaces(user["sub"])
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        ws = c.fetchone()
+        if not ws:
+            return RedirectResponse(url="/web/", status_code=303)
+        c.execute("SELECT * FROM sessions WHERE id = %s AND workspace_id = %s", (sid, ws_id))
+        sess = c.fetchone()
+        if not sess:
+            return RedirectResponse(url=f"/web/workspace/{ws_id}", status_code=303)
+        c.execute("""SELECT * FROM messages
+                     WHERE session_id = %s AND workspace_id = %s AND COALESCE(hidden,0) = 1
+                     ORDER BY timestamp ASC, id ASC""", (sid, ws_id))
+        trash_messages = [dict(r) for r in c.fetchall()]
+    for m in trash_messages:
+        if m.get("role") in ("user", "assistant"):
+            m["content_md"] = md_to_html(m.get("content"))
+        else:
+            m["content_md"] = ""
+    return render("trash_messages.html", {"user": user, "workspaces": nav_ws,
+                                          "active_page": f"workspace_{ws_id}",
+                                          "ws": dict(ws), "session": dict(sess),
+                                          "trash_messages": trash_messages})
 
 @app.post("/web/workspace/{ws_id}/session/{sid}/message/{mid}/hide")
 async def web_message_hide(ws_id: int, sid: str, mid: int, request: Request):

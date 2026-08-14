@@ -123,6 +123,7 @@ User (admin / user)
 - **Workspaces**: each user can create multiple workspaces, each with its own API key
 - **Isolation**: sessions and messages are fully isolated between different workspaces
 - **Same workspace**: all devices under the same workspace sync completely
+- **Admin scope**: admins manage users, invite codes, and global workspace metadata/controls — but **cannot view any user's workspace content, sessions, or messages**. Workspace data (session lists, message contents, projects) is readable only by its owner; admin pages expose metadata and management actions only.
 
 ## Quick Start
 
@@ -351,7 +352,7 @@ POST /api/workspaces/{id}/regen-key  # 重新生成 API key
 ```
 GET  /api/admin/users           # 所有用户
 POST /api/admin/users/{uid}/toggle   # 启用/禁用用户
-GET  /api/admin/workspaces      # 所有 workspace
+GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/消息）
 ```
 
 ### Web UI (browser access)
@@ -382,7 +383,7 @@ POST /web/admin/user/create                       # 创建用户
 GET  /web/admin/user/{uid}/edit                   # 编辑用户
 POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
-GET  /web/admin/workspaces                        # 所有空间管理
+GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
 GET  /web/admin/invites                           # 邀请管理
 POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
 POST /web/admin/invite/{id}/revoke                # 撤销邀请码
@@ -452,4 +453,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) — how to set up a dev environment, code
 
 ## License
 
-[MIT](LICENSE) © 2026 道荣（黄超）、露（张渊）
+[MIT](LICENSE) © 2026 道荣（黄超）、露（张渊） · [中文版](LICENSE.zh-CN.md)
