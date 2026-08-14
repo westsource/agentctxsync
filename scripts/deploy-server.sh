@@ -29,7 +29,7 @@ cp -r ../mcp /opt/hermes-sync-mcp/mcp
 if [ ! -d /opt/hermes-sync-mcp/venv ]; then
     python3 -m venv /opt/hermes-sync-mcp/venv
 fi
-/opt/hermes-sync-mcp/venv/bin/pip install fastapi uvicorn psycopg2-binary jinja2 markdown -q
+/opt/hermes-sync-mcp/venv/bin/pip install fastapi uvicorn psycopg2-binary jinja2 markdown python-multipart -q
 
 # 4. Generate JWT secret if not set; require PG DSN + master key
 if [ -z "$HERMES_SYNC_JWT_SECRET" ]; then

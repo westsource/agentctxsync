@@ -58,8 +58,16 @@
     background: var(--accent); color: #fff; font-weight: 500; transition: background .15s;
   }
   .nav-cta:hover { background: var(--accent-hover); }
-  .lang-switch { font-size: 12px; color: var(--muted); text-decoration: none; margin-left: 10px; }
-  .lang-switch:hover { color: var(--accent); }
+  .lang-switch {
+    display: flex; gap: 2px; padding: 2px; margin-left: 10px;
+    border: 1px solid var(--border); background: #fff; border-radius: 999px;
+  }
+  .lang-switch a {
+    padding: 4px 12px; border-radius: 999px; font-size: 12px;
+    color: var(--muted); text-decoration: none; transition: color .15s, background .15s;
+  }
+  .lang-switch a:hover { color: var(--accent); }
+  .lang-switch a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
   /* ---------- Hero ---------- */
   .hero { padding: 90px 0 70px; text-align: center; position: relative; overflow: hidden; }
@@ -209,9 +217,10 @@
       <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
     </div>
     <a class="nav-cta" href="/web/">{{ t.lp_enter }}</a>
-    <a href="/web/set-language/zh-CN" class="lang-switch" {% if lang == 'zh-CN' %}style="color:var(--accent);font-weight:600"{% endif %}>中文</a>
-    <span class="lang-switch" style="color:var(--muted-2)">|</span>
-    <a href="/web/set-language/en" class="lang-switch" {% if lang == 'en' %}style="color:var(--accent);font-weight:600"{% endif %}>EN</a>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <a href="/web/set-language/zh-CN" class="{% if lang == 'zh-CN' %}active{% endif %}">中文</a>
+      <a href="/web/set-language/en" class="{% if lang == 'en' %}active{% endif %}">EN</a>
+    </div>
   </div>
 </nav>
 

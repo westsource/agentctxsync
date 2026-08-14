@@ -141,7 +141,7 @@ bash ../scripts/deploy-server.sh
 - Web UI: `http://<SERVER_IP>:8765/web/`
 - 首次启动自动创建默认管理员 `admin`（随机密码，打印在服务端日志，**首次登录强制修改**）及其默认工作区（含 API Key，见服务端日志）
 
-> 服务器 Python 依赖：`fastapi` `uvicorn` `psycopg2-binary` `jinja2` `markdown`（`deploy-server.sh` 已包含，Markdown/Jinja2 用于 Web UI 渲染）。
+> 服务器 Python 依赖：`fastapi` `uvicorn` `psycopg2-binary` `jinja2` `markdown` `python-multipart`（`deploy-server.sh` 已包含，Markdown/Jinja2 用于 Web UI 渲染，python-multipart 用于 Web 表单解析）。
 >
 > 更详细的服务器部署、运维与备份说明见 [docs/server-deployment.md](docs/server-deployment.md)。
 
