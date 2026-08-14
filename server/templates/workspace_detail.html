@@ -101,6 +101,7 @@
 <div class="bg-white border border-gray-200 rounded-xl">
   <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
     <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_recent_sessions }}</h2>
+    <div class="flex items-center gap-2">
     <form method="GET" action="/web/workspace/{{ ws.id }}" class="flex items-center gap-2">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="dir" value="{{ dir }}">
@@ -114,16 +115,17 @@
         <option value="{{ p }}" {% if profile == p %}selected{% endif %}>{{ p }}</option>
         {% endfor %}
       </select>
-      <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-        <input type="checkbox" name="show_hidden" value="1"
-               {% if show_hidden %}checked{% endif %} onchange="this.form.submit()"
-               class="rounded border-gray-300 text-sky-600 focus:ring-sky-500">
-        {{ t.ws_show_hidden }}
-      </label>
       <input type="search" name="q" value="{{ q }}" placeholder="{{ t.ws_search_placeholder }}"
              class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 w-40 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
              onchange="this.form.submit()">
     </form>
+    <a href="/web/workspace/{{ ws.id }}/trash"
+       class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-sky-600 hover:border-sky-300 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      {{ t.ws_trash_sessions }}
+      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-sky-100 text-sky-700">{{ trash_count }}</span>{% endif %}
+    </a>
+    </div>
   </div>
   <div class="overflow-x-auto">
     <table class="w-full">

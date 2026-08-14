@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ t.msg_trash }} - Agent Contexts Sync{% endblock %}
+{% block content %}
+<!-- Back link -->
+<a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-6">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+  {{ t.msg_trash_back }}
+</a>
+
+<div class="bg-white border border-gray-200 rounded-xl">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
+    <h2 class="text-lg font-semibold text-gray-900 inline-flex items-center gap-2">
+      <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      {{ t.msg_trash }}
+      <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">{{ trash_messages|length }}</span>
+    </h2>
+    <span class="text-xs text-gray-400 max-w-xs truncate">{{ session.title or session.id }}</span>
+  </div>
+  {% if trash_messages %}
+  <div class="divide-y divide-gray-100">
+    {% for m in trash_messages %}
+    <div class="px-6 py-4 group">
+      <div class="flex items-center gap-2 mb-1.5">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase
+          {% if m.role == 'user' %}bg-sky-100 text-sky-700
+          {% elif m.role == 'assistant' %}bg-emerald-100 text-emerald-700
+          {% elif m.role == 'tool' %}bg-gray-100 text-gray-600
+          {% else %}bg-gray-100 text-gray-500{% endif %}">{{ m.role }}</span>
+        <span class="text-[11px] text-gray-400">{{ m.timestamp|timestamp_fmt }}</span>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/unhide"
+              class="inline ml-auto" onsubmit="return confirm('{{ t.msg_unhide_confirm }}')">
+          <button type="submit" class="text-xs font-medium text-emerald-600 hover:text-emerald-500 transition-colors" title="{{ t.msg_unhide }}">
+            {{ t.msg_unhide }}
+          </button>
+        </form>
+      </div>
+      <div class="text-sm text-gray-600 whitespace-pre-wrap break-words line-clamp-3">
+        {% if m.content_md %}{{ m.content_md|safe }}{% else %}{{ m.content or '' }}{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-6 py-16 text-center">
+    <svg class="w-10 h-10 mx-auto text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+    <p class="text-sm text-gray-400">{{ t.ws_trash_empty }}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

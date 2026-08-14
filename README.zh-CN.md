@@ -123,6 +123,7 @@ User (admin / user)
 - **Workspaces**: 每个用户可创建多个 workspace，每个 workspace 有独立 API key
 - **隔离**: 不同 workspace 之间的会话和消息完全隔离
 - **同 workspace**: 同一 workspace 下的所有设备完全同步
+- **管理员权限边界**: 管理员可管理用户、邀请码与全局工作区（元数据与开关），但**无法查看任何用户的空间内容、会话或消息**——空间数据（会话列表、消息内容、项目）仅对所属用户可见，管理页面只暴露元数据与管理操作。
 
 ## 快速开始
 
@@ -380,7 +381,7 @@ POST /api/workspaces/{id}/regen-key  # 重新生成 API key
 ```
 GET  /api/admin/users           # 所有用户
 POST /api/admin/users/{uid}/toggle   # 启用/禁用用户
-GET  /api/admin/workspaces      # 所有 workspace
+GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/消息）
 ```
 
 ### Web UI（浏览器访问）
@@ -411,7 +412,7 @@ POST /web/admin/user/create                       # 创建用户
 GET  /web/admin/user/{uid}/edit                   # 编辑用户
 POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
-GET  /web/admin/workspaces                        # 所有空间管理
+GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
 GET  /web/admin/invites                           # 邀请管理
 POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
 POST /web/admin/invite/{id}/revoke                # 撤销邀请码
@@ -477,4 +478,4 @@ POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 
 ## License
 
-[MIT](LICENSE) © 2026 道荣（黄超）、露（张渊）
+[MIT](LICENSE) © 2026 道荣（黄超）、露（张渊） · [中文版](LICENSE.zh-CN.md)
