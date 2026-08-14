@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ ws.name }} - Agent Contexts Sync{% endblock %}
 {% block content %}
 {% macro sortable(label, key) %}
@@ -225,7 +225,7 @@
         {% for p in projects %}
         <tr class="hover:bg-gray-100/50 transition-colors">
           <td class="px-6 py-4 font-medium text-gray-900 text-sm">{{ p.name or p.id }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500"><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{{ p.slug }}</code></td>
+          <td class="px-6 py-4 text-sm text-gray-500"><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded" title="{{ p.slug }}">{{ p.slug[:5] }}</code></td>
           <td class="px-6 py-4 text-sm text-gray-500">
             {% if p.folders %}
             {% for f in p.folders %}<div class="truncate max-w-md">{{ f.path }}{% if f.is_primary %} <span class="text-[10px] text-sky-500">★</span>{% endif %}</div>{% endfor %}
