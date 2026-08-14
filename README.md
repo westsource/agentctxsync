@@ -472,3 +472,7 @@ POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 | `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite 锁竞争（见上节） | 升级 SQLite 或设 `HERMES_SYNC_AUTO_SYNC=0` |
 | 客户端一直不更新 | `HERMES_SYNC_AUTO_UPDATE=0` 或服务端不可达 | 检查 `mcp-stderr.log` 的 `Update check` 日志 |
 | 下载包注册后报认证失败 | `<YOUR_API_KEY>` 未替换为真实 Key | 在接入帮助页复制对应工作区 Key |
+
+## License
+
+[MIT](LICENSE) © 2026 道荣（黄超）、露（张渊）
