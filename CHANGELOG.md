@@ -1,0 +1,73 @@
+# Changelog
+
+本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
+版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
+
+## [2026.08.16.4] - 2026-08-16
+
+### Added
+- **全池同步（full-pool sync）**：客户端不再局限于本机已有档案，服务端会话池全量下发、按 id 前缀路由回各 Agent 本地存储
+- **推送续传（push continuations）**：会话跨设备续写时，追加消息正确合并到远端已有会话
+- **WorkBuddy 引导（onboarding）**：新用户接入 WorkBuddy 的一站式引导流程
+- **拉取重试**：本地存储锁冲突时自动重试（`fix(mcp): retry pull write on local-store lock`）
+
+### Fixed
+- WorkBuddy 驱动器根路径 cwd 的 slug 化（末尾不再出现多余连字符）
+- 本地存储写锁竞争导致拉取偶发失败
+
+### Changed
+- UI/UX 打磨：会话列表、状态展示、交互细节优化
+
+## [2026.08.16.3] - 2026-08-16
+
+### Added
+- **三步接入帮助向导（help wizard）**：下载客户端 → 注册 → 验证，逐步引导
+- **下载时服务端地址预填**：客户端 zip 内 README 自动填入当前服务器地址（Key 仍为占位符防泄露）
+- i18n 清理与补充
+
+### Changed
+- 帮助页结构与文案重构
+
+## [2026.08.16.2] - 2026-08-16
+
+### Added
+- **WorkBuddy 适配器**：第 6 个受支持的 Agent（canonical id 前缀 `workbuddy:`）
+- **全部会话页（all-sessions）**：跨 Workspace 聚合浏览所有会话
+- **配额机制（quota）**：按用户/Workspace 的会话存储配额控制
+- UI / i18n 大版本重构
+
+## [2026.08.15.1] - 2026-08-15
+
+### Added
+- **隐藏 → 删除重命名**：会话/消息的 soft-hide 语义升级为回收站（trash）
+- 会话/消息回收站（可恢复，数据不物理删除）
+
+### Fixed
+- 补充遗漏的 trash/delete 翻译键（i18n）
+
+## [2026.08.14.1] - 2026-08-14
+
+### Added
+- **MIT License**（中英双语 LICENSE 文件）
+- **英文 README + 简体中文镜像**，双语文档结构
+- **CONTRIBUTING 贡献指南**
+
+### Changed
+- 项目 slug 列截断为 5 字符（带悬浮提示）
+- 账号级语言偏好（记忆用户选择，不再每次会话重置）
+- 管理端权限收紧（admin 操作校验强化）
+- 内联静态资源：Tailwind / Alpine.js 本地化（离线可用）
+
+## [2026.08.13.1] - 2026-08-13
+
+### Added
+- **开源发布**（clean history 重写）：Agent Contexts Sync v1 初始版本
+- 跨设备、跨 Agent 会话同步（Hermes / Codex / opencode / Reasonix / OpenClaw / WorkBuddy）
+- 多租户架构：多用户 + 多 Workspace 隔离 + 独立 API Key
+- Web 管理界面：登录/注册（邀请码）、会话查看器、管理后台、中英双语
+- 客户端自动更新（SHA256 校验 + 原子替换 + 备份回滚）
+- 项目同步（projects.db）、数据导出/导入（Markdown / JSON.gz）
+
+---
+
+> 本项目的完整开发历史在开源前已重写为干净历史；`2026.08.13.1` 为开源发布基线版本。
