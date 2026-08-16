@@ -29,7 +29,23 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from adapters import get_adapter, available_agents
+from adapters.base import AGENT_PREFIXES
 import updater
+
+
+def _owner_agent(canonical_id: str) -> str:
+    """Which agent owns a canonical session id.
+
+    Bare ids and `<hermes-profile>:` ids belong to hermes (profiles are
+    not agent prefixes); the six known agent prefixes map to their agents.
+    Used by push_sessions to re-push only locally-owned sessions.
+    """
+    if ":" in canonical_id:
+        prefix = canonical_id.split(":", 1)[0] + ":"
+        for agent, pfx in AGENT_PREFIXES.items():
+            if pfx == prefix:
+                return agent
+    return "hermes"
 
 SYNC_SERVER = os.environ.get("HERMES_SYNC_SERVER", "http://localhost:8765")
 SYNC_API_KEY = os.environ.get("HERMES_SYNC_API_KEY", "hsk_placeholder")
@@ -109,7 +125,66 @@ def _release_lock(lock_path: Path | None = None):
     except OSError:
         pass
 
-server = Server("hermes-session-sync")
+class _SyncServer(Server):
+    """MCP server that keeps a handle on the active session so background
+    sync tasks can push log notifications (notifications/message) to the
+    host agent. Hosts may or may not surface them in their UI — they are
+    best-effort; failures are swallowed."""
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.active_session = None
+        self._session_ready = asyncio.Event()
+
+    async def run(self, read_stream, write_stream, initialization_options,
+                  raise_exceptions: bool = False, stateless: bool = False):
+        # Mirrors mcp.server.Server.run (mcp SDK 1.28.1) so we can capture
+        # the ServerSession for background notifications.
+        from contextlib import AsyncExitStack
+        import anyio
+        from mcp.server.session import ServerSession
+        async with AsyncExitStack() as stack:
+            lifespan_context = await stack.enter_async_context(self.lifespan(self))
+            self.active_session = await stack.enter_async_context(
+                ServerSession(read_stream, write_stream, initialization_options,
+                              stateless=stateless))
+            self._session_ready.set()
+            task_support = (self._experimental_handlers.task_support
+                            if self._experimental_handlers else None)
+            if task_support is not None:
+                task_support.configure_session(self.active_session,
+                                               stateless=stateless)
+                await stack.enter_async_context(task_support.run())
+            async with anyio.create_task_group() as tg:
+                try:
+                    async for message in self.active_session.incoming_messages:
+                        tg.start_soon(self._handle_message, message,
+                                      self.active_session, lifespan_context,
+                                      raise_exceptions)
+                finally:
+                    tg.cancel_scope.cancel()
+            self.active_session = None
+
+
+server = _SyncServer("hermes-session-sync")
+
+
+async def _notify_host(message: str, level: str = "info"):
+    """Best-effort MCP log notification after background sync. Waits up to
+    30s for the session (startup sync may finish before the stdio handshake)
+    and never raises: hosts that don't surface log notifications just ignore
+    them."""
+    try:
+        await asyncio.wait_for(server._session_ready.wait(), timeout=30)
+        if server.active_session is None:
+            return
+        from mcp.types import (LoggingMessageNotification,
+                               LoggingMessageNotificationParams)
+        await server.active_session.send_notification(LoggingMessageNotification(
+            params=LoggingMessageNotificationParams(
+                level=level, logger="hermes-sync", data=message)))
+    except Exception:
+        pass
 
 def log(msg):
     sys.stderr.write(f"[hermes-sync] {msg}\n")
@@ -183,7 +258,9 @@ def pull_sessions(last_sync_at=None, limit=None):
         result = api_call("POST", "/pull", {
             "device_id": DEVICE_ID,
             "last_sync_at": last_sync_at, "limit": page_limit, "offset": fetched,
-            "agent": AGENT,
+            # Full-pool pull: no agent filter. Every client in the workspace
+            # pulls ALL sessions (every agent) and pushes only its own; the
+            # server merges by canonical id.
         })
         if "error" in result:
             if fetched == 0:
@@ -226,10 +303,16 @@ def push_sessions():
     sessions_data = adapter.read_sessions(limit=50)
     if not sessions_data:
         return {"message": "No local sessions to push"}
-    # Tag every session with its agent type so the server can store it in
-    # the shared workspace pool alongside other agents.
+    # Push EVERYTHING the local store holds, own sessions and foreign ones
+    # pulled from the shared pool. A foreign session may have been continued
+    # locally (e.g. a hermes session edited in workbuddy gains new messages)
+    # and those additions MUST flow back to the server. Tag each session
+    # with the agent that OWNS its canonical id: the server never overwrites
+    # agent_type on re-push and dedupes messages by (session_id, role,
+    # timestamp), so re-pushing pulled content is idempotent and only
+    # locally-added messages insert.
     for s in sessions_data:
-        s["agent_type"] = adapter.agent_type
+        s["agent_type"] = _owner_agent(str(s["id"]))
 
     # Batch pushes so each request stays small and fast: the remote server
     # does a per-message dedup SELECT for every row, so one giant request
@@ -346,7 +429,15 @@ async def periodic_sync():
             result = await loop.run_in_executor(None, full_sync)
             imported = result.get("pull", {}).get("imported", 0)
             pushed = result.get("push", {}).get("imported", 0) + result.get("push", {}).get("updated", 0)
+            msgs = result.get("pull", {}).get("new_messages", 0)
             log(f"Periodic sync: pulled {imported} sessions, pushed {pushed} sessions")
+            if "error" in result.get("pull", {}) or "error" in result.get("push", {}):
+                await _notify_host(f"Sync finished with errors: {result}",
+                                   level="warning")
+            else:
+                await _notify_host(
+                    f"Sync complete: pulled {imported} session(s), "
+                    f"pushed {pushed} session(s), {msgs} new message(s)")
             # projects sync (same cycle, best-effort)
             try:
                 pp = await loop.run_in_executor(None, push_projects)
@@ -393,17 +484,25 @@ async def background_startup_sync():
                 push_result = await loop.run_in_executor(None, push_sessions)
                 log(f"Bootstrap push: {push_result}")
         log(f"Initial pull: {result}")
+        if "error" in result:
+            await _notify_host(
+                f"Startup sync failed: {result['error']}", level="warning")
+        else:
+            await _notify_host(
+                f"Startup sync complete: pulled {result.get('imported', 0)} "
+                f"session(s), {result.get('new_messages', 0)} new message(s)")
     except Exception as e:
         log(f"Initial pull failed: {e}")
+        await _notify_host(f"Startup sync failed: {e}", level="warning")
     finally:
         _release_lock()
 
 def _run_update_check():
     if not AUTO_UPDATE:
-        return
+        return False
     if not _try_acquire_lock(UPDATE_LOCK_FILE):
         log("Update check skipped: another server process holds the update lock")
-        return
+        return False
     try:
         # synchronous urllib work; callers run this in an executor
         applied = updater.check_and_update(
@@ -411,8 +510,10 @@ def _run_update_check():
         if applied:
             log(f"Client updated to {updater.local_version(VERSION_FILE)}; "
                 f"restart the agent to activate")
+        return applied
     except Exception as e:
         log(f"Update check error: {e}")
+        return False
     finally:
         _release_lock(UPDATE_LOCK_FILE)
 
@@ -423,10 +524,20 @@ async def background_update_check():
         log("Client auto-update disabled (HERMES_SYNC_AUTO_UPDATE=0)")
         return
     await asyncio.sleep(15)  # after the host agent's startup burst
-    await asyncio.get_event_loop().run_in_executor(None, _run_update_check)
+    applied = await asyncio.get_event_loop().run_in_executor(
+        None, _run_update_check)
+    if applied:
+        await _notify_host(
+            f"Client updated to {updater.local_version(VERSION_FILE)} — "
+            f"restart the agent to activate", level="notice")
     while True:
         await asyncio.sleep(UPDATE_INTERVAL)
-        await asyncio.get_event_loop().run_in_executor(None, _run_update_check)
+        applied = await asyncio.get_event_loop().run_in_executor(
+            None, _run_update_check)
+        if applied:
+            await _notify_host(
+                f"Client updated to {updater.local_version(VERSION_FILE)} — "
+                f"restart the agent to activate", level="notice")
 
 async def main():
     asyncio.create_task(background_startup_sync())

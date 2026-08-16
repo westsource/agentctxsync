@@ -26,7 +26,7 @@ The server distinguishes profiles purely by the id prefix (session key is
 import os
 from pathlib import Path
 
-from .base import SQLiteAdapter
+from .base import SQLiteAdapter, AGENT_PREFIXES
 
 
 class HermesAdapter(SQLiteAdapter):
@@ -182,7 +182,11 @@ class HermesAdapter(SQLiteAdapter):
     def write_sessions(self, sessions: list[dict]) -> dict:
         """Pull view: route each canonical session to the profile that owns
         its id prefix.  Sessions whose profile does not exist locally (other
-        machines' profiles) are skipped; other agents are never touched.
+        machines' profiles) are skipped.  Foreign-agent sessions
+        (codex:/workbuddy:/...) land in the default profile with their
+        canonical id intact — hermes' pass-through id handling round-trips
+        them verbatim, and push_sessions never re-pushes them (owner
+        filter).
         """
         if not self._aggregate:
             return super().write_sessions(sessions)
@@ -197,7 +201,13 @@ class HermesAdapter(SQLiteAdapter):
             # default (bare) ids are the legacy hermes namespace
             target = route.get(":")  # default profile: '' prefix -> ':'
             if ":" in cid:
-                target = route.get(cid.split(":", 1)[0] + ":")
+                prefix = cid.split(":", 1)[0] + ":"
+                target = route.get(prefix)
+                if target is None and prefix in AGENT_PREFIXES.values():
+                    # known foreign agent (codex:/opencode:/reasonix:/
+                    # openclaw:/workbuddy:): store in the default profile
+                    # with the canonical id intact
+                    target = route.get(":")
             if target is None:
                 skipped += 1
                 continue

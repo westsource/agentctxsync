@@ -111,7 +111,7 @@
         <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
         <div class="flex flex-wrap items-center gap-2 mb-3">
           {% if agent.downloadable %}
-          <button type="button" @click.stop="download()"
+          <button type="button" @click.stop="download('{{ agent_key }}')"
                   :disabled="!wsList.length"
                   class="inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20 disabled:opacity-40 disabled:cursor-not-allowed">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
@@ -317,9 +317,11 @@ function helpWizard() {
       this.step = n;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    download() {
+    download(agentKey) {
       if (!this.wsList.length) { alert('{{ t.help_select_ws }}'); return; }
-      location.href = '/web/download/mcp-client?ws_id=' + this.wsId + '&agent=' + this.agent;
+      var target = agentKey || this.agent;
+      this.agent = target;
+      location.href = '/web/download/mcp-client?ws_id=' + this.wsId + '&agent=' + target;
       this.step = 2;
     },
     copyText(text, btn) { copyRaw(text, btn); }

@@ -647,7 +647,17 @@ async def web_login_post(request: Request):
             return render("login.html", {"error": "login_invalid"})
         now = datetime.now().timestamp()
         c.execute("UPDATE users SET last_login_at = %s WHERE id = %s", (now, user["id"]))
-        token = create_jwt(user["id"], user["username"], user.get("is_admin", False), user.get("display_name", ""), user.get("lang", "zh-CN"))
+        # If the guest picked a language on the landing page (lang cookie),
+        # adopt it as the account preference so the logged-in session (JWT
+        # lang claim) follows it; otherwise keep the stored preference.
+        cookie_lang = request.cookies.get("lang")
+        if cookie_lang not in ("zh-CN", "en"):
+            cookie_lang = None
+        lang = cookie_lang or user.get("lang", "zh-CN")
+        if cookie_lang and cookie_lang != user.get("lang"):
+            c.execute("UPDATE users SET lang = %s WHERE id = %s",
+                      (cookie_lang, user["id"]))
+        token = create_jwt(user["id"], user["username"], user.get("is_admin", False), user.get("display_name", ""), lang)
         target = "/web/change-password?forced=1" if user.get("must_change_password") else "/web/"
         response = RedirectResponse(url=target, status_code=303)
         response.set_cookie(key="hsync_token", value=token, httponly=True, max_age=TOKEN_EXPIRE_HOURS * 3600, samesite="lax")
@@ -1759,7 +1769,7 @@ from agents import AGENTS
 # stay in AGENTS (registry) for development, but their MCP client
 # distribution and help-page onboarding are taken offline until validated.
 # Re-enable an agent by adding its key here.
-PUBLIC_AGENTS = ("hermes",)
+PUBLIC_AGENTS = ("hermes", "workbuddy")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
@@ -1773,7 +1783,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.08.15.1"
+CLIENT_VERSION = "2026.08.16.2"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -1788,46 +1798,39 @@ def _client_archive_files():
                 files.append((f"mcp/adapters/{name}", os.path.join(ad, name)))
     return files
 
-def _client_manifest_files():
-    """[{path, sha256, size}] for every shipped file (path relative to mcp/)."""
-    manifest = []
-    for arcname, src in _client_archive_files():
-        try:
-            with open(src, "rb") as f:
-                data = f.read()
-        except OSError:
-            continue
-        rel = arcname[len("mcp/"):] if arcname.startswith("mcp/") else arcname
-        manifest.append({"path": rel, "sha256": hashlib.sha256(data).hexdigest(),
-                         "size": len(data)})
-    return manifest
-
-# The client zip ships mcp/server.py with its SYNC_SERVER default rewritten
-# to the serving server's address (configured PUBLIC_URL, or per-request
-# base_url). The manifest hash must therefore be computed over the shipped
-# bytes, not the raw repo file — otherwise client-side verification fails.
+# The client zip ships mcp/server.py with two defaults rewritten at build
+# time: SYNC_SERVER -> the serving server's address (configured PUBLIC_URL,
+# or per-request base_url) and HERMES_SYNC_AGENT -> the agent the archive
+# was downloaded for. The manifest hash must therefore be computed over the
+# shipped bytes, not the raw repo file — otherwise client-side verification
+# fails.
 _SYNC_SERVER_RE = re.compile(
     r'(SYNC_SERVER = os\.environ\.get\("HERMES_SYNC_SERVER", )"[^"]*"')
+_SYNC_AGENT_RE = re.compile(
+    r'(AGENT = os\.environ\.get\("HERMES_SYNC_AGENT", )"[^"]*"')
 
 
-def _ship_bytes(arcname: str, src: str, default_server: str) -> bytes:
+def _ship_bytes(arcname: str, src: str, default_server: str,
+                agent: str = "hermes") -> bytes:
     """Exact bytes shipped inside a client archive for one file."""
     if arcname == "mcp/server.py":
         text = open(src, encoding="utf-8").read()
         text = _SYNC_SERVER_RE.sub(
             lambda m: m.group(1) + json.dumps(default_server), text)
+        text = _SYNC_AGENT_RE.sub(
+            lambda m: m.group(1) + json.dumps(agent), text)
         return text.encode("utf-8")
     with open(src, "rb") as f:
         return f.read()
 
 
-def _client_manifest_files(default_server: str):
+def _client_manifest_files(default_server: str, agent: str = "hermes"):
     """[{path, sha256, size}] for every shipped file, hashed over the
-    bytes actually placed in the archive (server.py default rewritten)."""
+    bytes actually placed in the archive (server.py defaults rewritten)."""
     manifest = []
     for arcname, src in _client_archive_files():
         try:
-            data = _ship_bytes(arcname, src, default_server)
+            data = _ship_bytes(arcname, src, default_server, agent)
         except OSError:
             continue
         rel = arcname[len("mcp/"):] if arcname.startswith("mcp/") else arcname
@@ -1844,13 +1847,14 @@ def _build_client_zip(agent: str, default_server: str,
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, src in _client_archive_files():
             try:
-                zf.writestr(arcname, _ship_bytes(arcname, src, default_server))
+                zf.writestr(arcname, _ship_bytes(arcname, src, default_server,
+                                                 agent))
             except OSError:
                 continue
         if readme:
             zf.writestr("mcp/README.md", readme)
         zf.writestr("manifest.json", json.dumps(
-            {"version": CLIENT_VERSION, "files": _client_manifest_files(default_server)},
+            {"version": CLIENT_VERSION, "files": _client_manifest_files(default_server, agent)},
             ensure_ascii=False))
     return buf.getvalue()
 
@@ -1996,7 +2000,7 @@ async def web_download_mcp_client(request: Request, ws_id: int = 0, agent: str =
     return Response(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="hermes-sync-mcp-client-{agent}.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="agentctxsync-mcp-client-{agent}.zip"'},
     )
 
 
@@ -2015,7 +2019,7 @@ async def api_client_manifest(request: Request, agent: str = "hermes", v: str = 
     default_server = _client_default_server(str(request.base_url).rstrip("/"))
     return {"version": CLIENT_VERSION,
             "update_available": v != CLIENT_VERSION,
-            "files": _client_manifest_files(default_server)}
+            "files": _client_manifest_files(default_server, agent)}
 
 @app.get("/api/client/download")
 async def api_client_download(request: Request, agent: str = "hermes",
@@ -2028,7 +2032,7 @@ async def api_client_download(request: Request, agent: str = "hermes",
     return Response(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="hermes-sync-mcp-client-{agent}.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="agentctxsync-mcp-client-{agent}.zip"'},
     )
 
 

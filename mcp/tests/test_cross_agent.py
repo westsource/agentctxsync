@@ -80,12 +80,13 @@ class CrossAgentTest(unittest.TestCase):
         a = ReasonixAdapter(sessions_dir=sessions_dir)
         stats = a.write_sessions(self._hermes_sessions())
         self.assertEqual(stats["imported"], 1)
-        # the hermes session lands in the local store (displayable) ...
+        # the hermes session lands in the local store (displayable) and is
+        # read back too (push view): a foreign session continued locally
+        # must push its locally-added messages; push_sessions tags it by
+        # owner and the server dedupes, so re-pushing is idempotent.
         self.assertTrue((sessions_dir / "hermes-uuid-1.jsonl").exists())
-        # ... but read_sessions() (the PUSH view) skips it: it is a foreign
-        # (other-agent) session and must never be re-pushed as reasonix.
         back = {s["id"]: s for s in a.read_sessions()}
-        self.assertNotIn("hermes-uuid-1", back)
+        self.assertIn("hermes-uuid-1", back)
 
 
 if __name__ == "__main__":

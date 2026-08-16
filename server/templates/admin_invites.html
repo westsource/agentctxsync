@@ -67,7 +67,7 @@
             <td class="px-6 py-4 text-sm text-gray-500">{{ inv.created_at|timestamp_fmt if inv.created_at else t.common_none }}</td>
             <td class="px-6 py-4 text-right whitespace-nowrap">
               {% if not inv.used and not inv.revoked and not (inv.expires_at and inv.expires_at < now) %}
-              <button type="button" onclick="copyInviteLink(this, '{{ base_url }}web/register?code={{ inv.code }}', '{{ t.invites_copy_intro }}')"
+              <button type="button" onclick="copyInviteLink(this, '{{ base_url }}web/register?code={{ inv.code }}', '{{ t.invites_copy_intro }}', '{{ t.invites_copy_code.format(inv.code) }}')"
                       class="text-sm text-[#6E56CF] hover:text-[#5B45B9] transition-colors mr-3">{{ t.invites_copy_link }}</button>
               <form method="POST" action="/web/invite/{{ inv.id }}/revoke" class="inline" onsubmit="return confirm('{{ t.invites_revoke }}?')">
                 <button type="submit" class="text-sm text-[#F2994A] hover:text-[#E08A3C] transition-colors">{{ t.invites_revoke }}</button>
@@ -128,9 +128,10 @@
 </div>
 
 <script>
-function copyInviteLink(btn, url, intro) {
-  // Copies the intro sentence plus the registration link (two lines).
-  var text = (intro ? intro + '\n' : '') + url;
+function copyInviteLink(btn, url, intro, code) {
+  // Copies the intro sentence plus the invite code and registration link
+  // (three lines: intro / invite code / url).
+  var text = (intro ? intro + '\n' : '') + (code ? code + '\n' : '') + url;
   // navigator.clipboard requires a secure context (HTTPS); this site runs on
   // plain HTTP, so fall back to the legacy execCommand('copy') textarea trick.
   function fallback() {
