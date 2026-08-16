@@ -13,7 +13,9 @@ Agent Contexts Sync MCP Server (multi-agent)
 import asyncio
 import json
 import os
+import sqlite3
 import sys
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -280,7 +282,23 @@ def pull_sessions(last_sync_at=None, limit=None):
             break
         prev_page_ids = page_ids
 
-        stats = adapter.write_sessions(sessions)
+        # Retry the write a few times when the local store is locked by the
+        # host agent (Hermes on SQLite < 3.51.3 uses journal_mode=DELETE,
+        # where a write contends with concurrent readers). Each attempt
+        # fails fast (busy_timeout=5s); short gaps between attempts catch
+        # brief idle windows instead of deferring to the next sync cycle.
+        stats = None
+        for gap in (0, 2, 5, 10):
+            if gap:
+                log(f"Local store locked during pull write; "
+                    f"retrying in {gap}s...")
+                time.sleep(gap)
+            try:
+                stats = adapter.write_sessions(sessions)
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e).lower() or gap == 10:
+                    raise
         imported += stats.get("imported", 0)
         new_messages += stats.get("new_messages", 0)
 
