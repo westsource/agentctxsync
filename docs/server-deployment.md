@@ -183,7 +183,7 @@ gunzip -c /opt/hermes-sync-mcp/backups/agentctxsync_XXXXXXXX_XXXXXX.sql.gz | doc
 | POST | /web/workspace/{id}/import | 导入备份 (JSON/JSON.gz) |
 | GET | /web/workspace/{id}/delete | 删除工作区 |
 | POST | /web/workspace/{id}/regen-key | 重新生成 API Key |
-| GET | /web/help-hermes | 接入帮助页 |
+| GET | /web/help | 接入帮助页（旧入口 /web/help-hermes 301 跳转） |
 | GET | /web/download/mcp-client?ws_id={id}&agent=X | 下载 MCP 客户端 zip |
 | GET | /web/invites | 邀请管理 (所有登录用户) |
 | POST | /web/invite/create | 创建邀请码 |

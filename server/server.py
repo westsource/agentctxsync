@@ -33,6 +33,18 @@ PG_DSN = os.environ.get("HERMES_SYNC_PG_DSN")
 MASTER_API_KEY = os.environ.get("HERMES_SYNC_MASTER_KEY")
 JWT_SECRET = os.environ.get("HERMES_SYNC_JWT_SECRET") or secrets.token_hex(32)
 TOKEN_EXPIRE_HOURS = int(os.environ.get("HERMES_SYNC_TOKEN_EXPIRE", "24"))
+# Canonical public address baked into shipped client packages and shown on
+# the help page. When set, every client download (regardless of which
+# address the request arrived on) gets this as its SYNC_SERVER default —
+# the mechanism for migrating existing clients to a new domain. When empty,
+# the per-request base_url is used ("download from X -> default X").
+PUBLIC_URL = os.environ.get("HERMES_SYNC_PUBLIC_URL", "").strip().rstrip("/")
+
+
+def _client_default_server(server_url: str) -> str:
+    """SYNC_SERVER default shipped to clients: the configured public URL
+    when set, otherwise the address the current request arrived on."""
+    return PUBLIC_URL or server_url
 
 _MISSING = [k for k, v in (("HERMES_SYNC_PG_DSN", PG_DSN),
                             ("HERMES_SYNC_MASTER_KEY", MASTER_API_KEY)) if not v]
@@ -1790,18 +1802,55 @@ def _client_manifest_files():
                          "size": len(data)})
     return manifest
 
-def _build_client_zip(agent: str) -> bytes:
-    """Client archive bytes (mcp/ package + manifest.json at the top level)."""
+# The client zip ships mcp/server.py with its SYNC_SERVER default rewritten
+# to the serving server's address (configured PUBLIC_URL, or per-request
+# base_url). The manifest hash must therefore be computed over the shipped
+# bytes, not the raw repo file — otherwise client-side verification fails.
+_SYNC_SERVER_RE = re.compile(
+    r'(SYNC_SERVER = os\.environ\.get\("HERMES_SYNC_SERVER", )"[^"]*"')
+
+
+def _ship_bytes(arcname: str, src: str, default_server: str) -> bytes:
+    """Exact bytes shipped inside a client archive for one file."""
+    if arcname == "mcp/server.py":
+        text = open(src, encoding="utf-8").read()
+        text = _SYNC_SERVER_RE.sub(
+            lambda m: m.group(1) + json.dumps(default_server), text)
+        return text.encode("utf-8")
+    with open(src, "rb") as f:
+        return f.read()
+
+
+def _client_manifest_files(default_server: str):
+    """[{path, sha256, size}] for every shipped file, hashed over the
+    bytes actually placed in the archive (server.py default rewritten)."""
+    manifest = []
+    for arcname, src in _client_archive_files():
+        try:
+            data = _ship_bytes(arcname, src, default_server)
+        except OSError:
+            continue
+        rel = arcname[len("mcp/"):] if arcname.startswith("mcp/") else arcname
+        manifest.append({"path": rel, "sha256": hashlib.sha256(data).hexdigest(),
+                         "size": len(data)})
+    return manifest
+
+
+def _build_client_zip(agent: str, default_server: str,
+                      readme: str | None = None) -> bytes:
+    """Client archive bytes (mcp/ package + manifest.json at the top level).
+    ``readme``, when given, is written as mcp/README.md inside the archive."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, src in _client_archive_files():
             try:
-                with open(src, "rb") as f:
-                    zf.writestr(arcname, f.read())
+                zf.writestr(arcname, _ship_bytes(arcname, src, default_server))
             except OSError:
                 continue
+        if readme:
+            zf.writestr("mcp/README.md", readme)
         zf.writestr("manifest.json", json.dumps(
-            {"version": CLIENT_VERSION, "files": _client_manifest_files()},
+            {"version": CLIENT_VERSION, "files": _client_manifest_files(default_server)},
             ensure_ascii=False))
     return buf.getvalue()
 
@@ -1876,26 +1925,38 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
         "或用 `HERMES_SYNC_UPDATE_INTERVAL` 调整检查间隔）。\n"
     )
 
-@app.get("/web/help-hermes", response_class=HTMLResponse)
-async def web_help_hermes(request: Request):
+@app.get("/web/help-hermes")
+async def web_help_hermes_legacy(request: Request):
+    """Legacy route: keep old links working via a permanent redirect."""
+    return RedirectResponse(url="/web/help", status_code=301)
+
+@app.get("/web/help", response_class=HTMLResponse)
+async def web_help(request: Request):
     try:
         user = get_current_user(request)
     except:
         return RedirectResponse(url="/web/login")
     nav_ws = get_nav_workspaces(user["sub"])
     ws_list = get_user_workspaces(user["sub"])
-    server_url = str(request.base_url).rstrip("/")
+    # The address shown/shipped: configured public URL, else this request's.
+    server_url = _client_default_server(str(request.base_url).rstrip("/"))
     lang = get_lang()
     # agents registry uses "zh"/"en" keys; get_lang() returns "zh-CN"/"en"
     agent_lang = "en" if lang.startswith("en") else "zh"
     # Per-agent install cards: pick the language, substitute the register
     # command into <REGISTER> steps and keep placeholders for user values.
     agents_ctx = {}
-    for key in PUBLIC_AGENTS:
-        a = AGENTS[key]
+    for key, a in AGENTS.items():
         entry = {"label": a["label"], "desc": a["desc"][agent_lang],
                  "store": a["store"][agent_lang], "verify": a["verify"],
-                 "uninstall": a.get("uninstall", {}).get(agent_lang, "")}
+                 "uninstall": a.get("uninstall", {}).get(agent_lang, ""),
+                 "downloadable": key in PUBLIC_AGENTS,
+                 # register template with a __WS_KEY__ placeholder that the
+                 # help page fills in client-side with the selected
+                 # workspace's API key (wizard step 2).
+                 "register": a["register"][agent_lang]
+                     .replace("<KEY>", "__WS_KEY__")
+                     .replace("<SERVER>", server_url)}
         steps = []
         for step in a["install"][agent_lang]:
             s = dict(step)
@@ -1926,24 +1987,14 @@ async def web_download_mcp_client(request: Request, ws_id: int = 0, agent: str =
             c.execute("SELECT * FROM workspaces WHERE user_id = %s ORDER BY created_at DESC LIMIT 1", (user["sub"],))
         ws = c.fetchone()
     if not ws:
-        return RedirectResponse(url="/web/help-hermes")
+        return RedirectResponse(url="/web/help")
     server_url = str(request.base_url).rstrip("/")
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for arcname, src in _client_archive_files():
-            try:
-                with open(src, "rb") as f:
-                    zf.writestr(arcname, f.read())
-            except OSError:
-                continue
-        zf.writestr("manifest.json", json.dumps(
-            {"version": CLIENT_VERSION, "files": _client_manifest_files()},
-            ensure_ascii=False))
-        zf.writestr("mcp/README.md",
-                    _build_readme(agent, "<YOUR_API_KEY>", ws["name"], server_url))
-    buf.seek(0)
+    default_server = _client_default_server(server_url)
+    data = _build_client_zip(
+        agent, default_server,
+        readme=_build_readme(agent, "<YOUR_API_KEY>", ws["name"], default_server))
     return Response(
-        content=buf.getvalue(),
+        content=data,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="hermes-sync-mcp-client-{agent}.zip"'},
     )
@@ -1954,24 +2005,26 @@ async def web_download_mcp_client(request: Request, ws_id: int = 0, agent: str =
 # ============================================================
 
 @app.get("/api/client/manifest")
-async def api_client_manifest(agent: str = "hermes", v: str = "",
+async def api_client_manifest(request: Request, agent: str = "hermes", v: str = "",
                               ws: dict = Depends(get_workspace_by_api_key)):
     """Lightweight version check: the client sends its local version via ``v``
     and gets update_available + the file manifest (sha256/size) without
     downloading the whole archive."""
     if agent not in PUBLIC_AGENTS:
         raise HTTPException(status_code=404, detail=f"Agent {agent!r} is not publicly released yet")
+    default_server = _client_default_server(str(request.base_url).rstrip("/"))
     return {"version": CLIENT_VERSION,
             "update_available": v != CLIENT_VERSION,
-            "files": _client_manifest_files()}
+            "files": _client_manifest_files(default_server)}
 
 @app.get("/api/client/download")
-async def api_client_download(agent: str = "hermes",
+async def api_client_download(request: Request, agent: str = "hermes",
                               ws: dict = Depends(get_workspace_by_api_key)):
     """Client archive zip with an embedded manifest.json for verification."""
     if agent not in PUBLIC_AGENTS:
         raise HTTPException(status_code=404, detail=f"Agent {agent!r} is not publicly released yet")
-    data = _build_client_zip(agent)
+    default_server = _client_default_server(str(request.base_url).rstrip("/"))
+    data = _build_client_zip(agent, default_server)
     return Response(
         content=data,
         media_type="application/zip",
