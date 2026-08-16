@@ -259,7 +259,7 @@ Hermes 桌面应用支持多档案（profile）：每个命名档案是**完全�
 - **Push 全量合并**：推送时读取本机全部档案的 `state.db`，default 会话保持裸 id，
   命名档案会话带 `<profile>:` 前缀，合并为一份列表上报。
 - **Pull 按档案路由**：拉取时按 id 前缀路由回各档案的 `state.db`；本机不存在的档案
-  （其他电脑独有的档案）或非 hermes agent 的会话直接跳过，不写入本地。
+  （其他电脑独有的档案）直接跳过；其他 agent 的会话以完整 canonical id 存入 default 档案——每个客户端拉取**整个工作空间会话池**，并推送本地持有的全部会话（服务端按 canonical id 合并；`agent_type` 按会话归属保留、消息按 `(session_id, role, timestamp)` 去重，因此本地续写的其他 agent 会话只会把新增消息推上去）。
 
 ### 跨电脑同步示例
 
@@ -344,13 +344,14 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 - 周期性自动同步（默认 300 秒）
 - 单写者锁：双 `serve` 实例只允许一个进程运行后台同步，避免本地存储竞争；自动更新使用独立更新锁
 - 消息去重基于 `(session_id, role, timestamp)` 三元组，跨设备幂等
+- 后台同步完成后会向宿主 Agent 发送 MCP 日志通知（`notifications/message`，logger=`hermes-sync`）；宿主是否在界面显示取决于其 App——Web 端是确定可见的通道
 
 ## API 端点
 
 ### Sync API（API Key 认证，格式 `ws_xxx`）
 ```
 GET  /health                    # 健康检查
-POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量、agent 过滤）
+POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量；全量池——不过滤 agent）
 POST /push                      # 推送会话（upsert + 消息去重；按服务端真实列过滤；agent_type/meta）
 GET  /status/{device_id}        # 同步状态（设备最近同步时间、会话/消息总数）
 GET  /sessions                  # 列出会话（最近 50 条，含 agent_type）

@@ -404,6 +404,17 @@ class SQLiteAdapter(Adapter):
             msgs = s.pop("messages", [])
             s_data = {k: v for k, v in s.items()
                       if k in s_cols and v is not None}
+            # Foreign sessions (pulled from the shared pool) may lack
+            # columns the local schema declares NOT NULL (e.g. hermes'
+            # `source`). Backfill them so inserts never violate constraints:
+            # REAL/time columns get `now`, anything else gets "".
+            for _name, _typ, _notnull, _dflt in (
+                    (r[1], r[2], r[3], r[4])
+                    for r in c.execute(
+                        f"PRAGMA table_info({self.table_sessions})")):
+                if _notnull and _dflt is None and _name not in s_data:
+                    s_data[_name] = now if (
+                        "time" in _name.lower() or _typ == "REAL") else ""
             c.execute(f"SELECT id FROM {self.table_sessions} WHERE id = ?",
                       (sid,))
             if "last_synced_at" in s_cols:

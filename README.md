@@ -247,7 +247,7 @@ Scan:
 
 - **Zero server changes**: sessions of different profiles are distinguished purely by the id prefix, and the `profile_name` column is filled in with the profile name as a bonus.
 - **Push merges everything**: on push, the client reads `state.db` from every local profile — default sessions keep their bare ids, named-profile sessions carry a `<profile>:` prefix — and merges them into a single list to report.
-- **Pull routes per profile**: on pull, sessions are routed back to each profile's `state.db` by id prefix; sessions of profiles that don't exist locally (profiles unique to other machines) or of non-hermes agents are skipped and not written locally.
+- **Pull routes per profile**: on pull, sessions are routed back to each profile's `state.db` by id prefix; sessions of profiles that don't exist locally (profiles unique to other machines) are skipped. Sessions from other agents are stored in the default profile with their canonical id intact — every client pulls the **full workspace pool** and pushes everything it holds (the server merges by canonical id; `agent_type` is preserved per session and messages dedupe by `(session_id, role, timestamp)`, so a foreign session continued locally pushes only its newly-added messages).
 
 ### Cross-Computer Sync Example
 
@@ -314,13 +314,14 @@ Background behavior:
 - Periodic auto-sync (default 300 seconds)
 - Single-writer lock: with two `serve` instances, only one process runs background sync, avoiding local storage races; auto-update uses a separate update lock
 - Message dedup is based on the `(session_id, role, timestamp)` triple, idempotent across devices
+- Background sync completion sends an MCP log notification (`notifications/message`, logger `hermes-sync`) to the host agent; whether the host surfaces it in the UI is host-dependent — the Web UI is the guaranteed visibility channel
 
 ## API Endpoints
 
 ### Sync API (API Key auth, format `ws_xxx`)
 ```
 GET  /health                    # 健康检查
-POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量、agent 过滤）
+POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量；全量池——不过滤 agent）
 POST /push                      # 推送会话（upsert + 消息去重；按服务端真实列过滤；agent_type/meta）
 GET  /status/{device_id}        # 同步状态（设备最近同步时间、会话/消息总数）
 GET  /sessions                  # 列出会话（最近 50 条，含 agent_type）

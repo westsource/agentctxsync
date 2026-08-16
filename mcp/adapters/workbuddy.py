@@ -301,7 +301,14 @@ class WorkBuddyAdapter(Adapter):
             msgs = s.pop("messages", []) or []
             cwd = str(s.get("cwd") or Path.home())
             # WorkBuddy refuses to open sessions whose cwd is missing.
-            Path(cwd).mkdir(parents=True, exist_ok=True)
+            # Foreign sessions may carry paths that don't exist on this
+            # machine (another device's cwd) — fall back to a local dir
+            # instead of aborting the whole pull.
+            try:
+                Path(cwd).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                cwd = str(Path.home() / "hermes-sync-foreign")
+                Path(cwd).mkdir(parents=True, exist_ok=True)
             path = self._session_path(cwd, local_id)
             stats = self._write_jsonl(path, cwd, local_id, msgs,
                                       s.get("title"))

@@ -72,7 +72,10 @@ class ReasonixAdapterTest(unittest.TestCase):
         content = (self.sessions / "rx-001.jsonl").read_text(encoding="utf-8")
         self.assertNotIn("while running", content)
 
-    def test_foreign_sessions_not_pushed(self):
+    def test_foreign_sessions_read_back(self):
+        """Foreign (pulled) sessions stay in the push view: they may have
+        been continued locally and their new messages must flow back;
+        push_sessions tags them by owner and the server dedupes."""
         # A session pulled from the remote (bare id, no reasonix: prefix)
         # lands in the local dir but must NOT be read back for push.
         self.tmp2 = tempfile.TemporaryDirectory()
@@ -97,7 +100,7 @@ class ReasonixAdapterTest(unittest.TestCase):
                               "timestamp": 2.0}]}])
             ids = [s["id"] for s in a.read_sessions()]
             self.assertIn("reasonix:rx-001", ids)
-            self.assertNotIn("20260801_221942_0be785", ids)
+            self.assertIn("20260801_221942_0be785", ids)
         finally:
             self.tmp2.cleanup()
 

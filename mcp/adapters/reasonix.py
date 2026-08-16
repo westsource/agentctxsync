@@ -70,9 +70,10 @@ class ReasonixAdapter(JSONLAdapter):
             return set()
 
     def read_sessions(self, limit: int | None = None) -> list[dict]:
-        """Local sessions to push: everything EXCEPT pulled-foreign ones."""
-        foreign = self._foreign_ids()
-        paths = [(p, lid) for p, lid in self._session_paths() if lid not in foreign]
+        """Push view: all local sessions, foreign ones included (they may
+        have been continued locally; push_sessions tags each by its owner
+        and the server dedupes, so only locally-added messages flow up)."""
+        paths = self._session_paths()
         if limit:
             paths = paths[:limit]
         sessions = []
