@@ -1,4 +1,4 @@
-# Translations for Agent Contexts Sync Web UI
+# Translations for Agent Context Sync Web UI
 # Default: zh-CN (Simplified Chinese)
 
 TRANSLATIONS = {
@@ -107,6 +107,8 @@ TRANSLATIONS = {
         "ws_model": "模型",
         "ws_messages": "消息数",
         "ws_msg_count": "消息",
+        "ws_session_created": "创建",
+        "ws_session_updated": "更新",
         "ws_no_sessions": "暂无会话",
         "ws_sessions_count": "共 %s 个会话",
         "ws_new_24h": "最近 24h 新增 %s 个",
@@ -159,7 +161,7 @@ TRANSLATIONS = {
         "admin_owner": "所有者",
         
         # Login
-        "login_title": "登录 Agent Contexts Sync",
+        "login_title": "登录 Agent Context Sync",
         "login_subtitle": "登录您的账户",
         "login_username": "用户名",
         "login_password": "密码",
@@ -207,7 +209,7 @@ TRANSLATIONS = {
         "invites_generate_btn": "生成",
         "invites_copy_link": "复制邀请链接",
         "invites_copy_code": "邀请码：{0}",
-        "invites_copy_intro": "诚邀你加入 Agent Contexts Sync——跨设备、跨 Agent（Hermes / Codex / opencode / Reasonix / OpenClaw / WorkBuddy）自动同步 AI 会话。点击下方链接注册（邀请码一次性使用，请勿转发）：",
+        "invites_copy_intro": "诚邀你加入 Agent Context Sync——跨设备、跨 Agent（Hermes / Codex / opencode / Reasonix / OpenClaw / WorkBuddy）自动同步 AI 会话。点击下方链接注册（邀请码一次性使用，请勿转发）：",
         "invites_never": "永久",
         "invites_plan": "授予套餐",
         "plan_free": "免费版",
@@ -290,8 +292,8 @@ TRANSLATIONS = {
         "profile_updated": "信息已更新",
 
         # Landing Page
-        "lp_title": "Agent Contexts Sync — 跨设备 · 跨 Agent 的会话同步",
-        "lp_meta_desc": "Agent Contexts Sync 是一个开源工具，让 Hermes、Codex、opencode、Reasonix、OpenClaw 等 AI Agent 跨设备、跨工具共享同一会话池。",
+        "lp_title": "Agent Context Sync — 跨设备 · 跨 Agent 的会话同步",
+        "lp_meta_desc": "Agent Context Sync 是一个开源工具，让 Hermes、Codex、opencode、Reasonix、OpenClaw 等 AI Agent 跨设备、跨工具共享同一会话池。",
         "lp_nav_oss": "· 开源",
         "lp_nav_features": "特性",
         "lp_nav_agents": "支持的 Agent",
@@ -303,7 +305,7 @@ TRANSLATIONS = {
         "lp_hero_l1": "让所有 AI Agent",
         "lp_hero_l2a": "共享同一个 ",
         "lp_hero_l2b": "上下文空间",
-        "lp_hero_sub": "Agent Contexts Sync 把同一工作区里 Hermes、Codex、opencode 等 Agent 的会话集中共享、跨设备同步——在公司电脑上的对话，回家自动接上；Web 上随时查看、搜索、导出任何 Agent 的会话。",
+        "lp_hero_sub": "Agent Context Sync 把同一工作区里 Hermes、Codex、opencode 等 Agent 的会话集中共享、跨设备同步——在公司电脑上的对话，回家自动接上；Web 上随时查看、搜索、导出任何 Agent 的会话。",
         "lp_learn_more": "了解更多",
         "lp_hint": "$ python mcp/server.py &nbsp;·&nbsp; 启动即自动同步",
         "lp_term_start": "启动 MCP 客户端",
@@ -341,14 +343,14 @@ TRANSLATIONS = {
         "lp_step4_d": "浏览器打开管理界面：会话查看器（Markdown 渲染）、一键导出/导入、设备状态一目了然。",
         "lp_oss_title": "代码全部公开",
         "lp_oss_big": "客户端 MIT 许可 · 服务端源代码公开 · 自托管免费",
-        "lp_oss_sub": "Agent Contexts Sync 承诺：个人自托管永远免费，代码透明可审计。加入社区，一起把 Agent 的上下文变成你的资产。",
+        "lp_oss_sub": "Agent Context Sync 承诺：个人自托管永远免费，代码透明可审计。加入社区，一起把 Agent 的上下文变成你的资产。",
         "lp_os_agents_lbl": "支持的 Agent",
         "lp_os_layers_lbl": "Web UI · API · 同步引擎",
         "lp_os_tests_lbl": "自动化测试用例",
         "lp_os_cost_lbl": "自托管成本（软件）",
         "lp_cta_title": "让 Agent 记住你的世界",
         "lp_cta_sub": "从今天开始，你的每个 AI 助手都拥有完整的上下文记忆——跨设备、跨工具、不丢失。",
-        "lp_footer": "Agent Contexts Sync · 开源项目 · 个人自托管免费",
+        "lp_footer": "Agent Context Sync · 开源项目 · 个人自托管免费",
     },
     "en": {
         # Sidebar
@@ -455,6 +457,8 @@ TRANSLATIONS = {
         "ws_model": "Model",
         "ws_messages": "Messages",
         "ws_msg_count": "messages",
+        "ws_session_created": "Created",
+        "ws_session_updated": "Updated",
         "ws_no_sessions": "No sessions yet.",
         "ws_sessions_count": "%s sessions",
         "ws_new_24h": "%s new in 24h",
@@ -507,7 +511,7 @@ TRANSLATIONS = {
         "admin_owner": "Owner",
         
         # Login
-        "login_title": "Login to Agent Contexts Sync",
+        "login_title": "Login to Agent Context Sync",
         "login_subtitle": "Sign in to your account",
         "login_username": "Username",
         "login_password": "Password",
@@ -555,7 +559,7 @@ TRANSLATIONS = {
         "invites_generate_btn": "Generate",
         "invites_copy_link": "Copy Invite Link",
         "invites_copy_code": "Invite code: {0}",
-        "invites_copy_intro": "Join Agent Contexts Sync — your AI conversations sync automatically across devices AND agents (Hermes / Codex / opencode / Reasonix / OpenClaw / WorkBuddy). Click the link below to register (single-use invite code, please do not share):",
+        "invites_copy_intro": "Join Agent Context Sync — your AI conversations sync automatically across devices AND agents (Hermes / Codex / opencode / Reasonix / OpenClaw / WorkBuddy). Click the link below to register (single-use invite code, please do not share):",
         "invites_never": "Never",
         "invites_plan": "Granted Plan",
         "plan_free": "Free",
@@ -638,8 +642,8 @@ TRANSLATIONS = {
         "profile_updated": "Profile updated",
 
         # Landing Page
-        "lp_title": "Agent Contexts Sync — cross-device, cross-agent session sync",
-        "lp_meta_desc": "Agent Contexts Sync is an open-source tool that lets AI agents — Hermes, Codex, opencode, Reasonix, OpenClaw and more — share one session pool across devices and tools.",
+        "lp_title": "Agent Context Sync — cross-device, cross-agent session sync",
+        "lp_meta_desc": "Agent Context Sync is an open-source tool that lets AI agents — Hermes, Codex, opencode, Reasonix, OpenClaw and more — share one session pool across devices and tools.",
         "lp_nav_oss": "· Open Source",
         "lp_nav_features": "Features",
         "lp_nav_agents": "Agents",
@@ -651,7 +655,7 @@ TRANSLATIONS = {
         "lp_hero_l1": "Let every AI agent",
         "lp_hero_l2a": "share one ",
         "lp_hero_l2b": "context space",
-        "lp_hero_sub": "Agent Contexts Sync pools sessions from Hermes, Codex, opencode and other agents into one workspace and syncs them across devices — conversations started at the office are waiting when you get home, and any agent's sessions can be viewed, searched or exported on the web.",
+        "lp_hero_sub": "Agent Context Sync pools sessions from Hermes, Codex, opencode and other agents into one workspace and syncs them across devices — conversations started at the office are waiting when you get home, and any agent's sessions can be viewed, searched or exported on the web.",
         "lp_learn_more": "Learn more",
         "lp_hint": "$ python mcp/server.py &nbsp;·&nbsp; syncs automatically on start",
         "lp_term_start": "start the MCP client",
@@ -689,14 +693,14 @@ TRANSLATIONS = {
         "lp_step4_d": "Open the management UI in your browser: session viewer with Markdown rendering, one-click export/import, and a clear device overview.",
         "lp_oss_title": "Fully open code",
         "lp_oss_big": "MIT-licensed client · open server source · free self-hosting",
-        "lp_oss_sub": "Agent Contexts Sync promises: free forever for personal self-hosting, transparent and auditable code. Join the community and turn your agents' context into an asset.",
+        "lp_oss_sub": "Agent Context Sync promises: free forever for personal self-hosting, transparent and auditable code. Join the community and turn your agents' context into an asset.",
         "lp_os_agents_lbl": "supported agents",
         "lp_os_layers_lbl": "Web UI · API · sync engine",
         "lp_os_tests_lbl": "automated tests",
         "lp_os_cost_lbl": "self-hosting cost (software)",
         "lp_cta_title": "Let your agents remember your world",
         "lp_cta_sub": "From today, every AI assistant you use has full context memory — across devices, across tools, never lost.",
-        "lp_footer": "Agent Contexts Sync · open-source project · free for personal self-hosting",
+        "lp_footer": "Agent Context Sync · open-source project · free for personal self-hosting",
     }
 }
 

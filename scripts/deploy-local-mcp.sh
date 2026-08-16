@@ -1,5 +1,5 @@
 ﻿#!/bin/bash
-# Agent Contexts Sync - Local MCP Server Deployment (multi-agent)
+# Agent Context Sync - Local MCP Server Deployment (multi-agent)
 # Run on the local machine where the agent is installed.
 # Prerequisites:
 #   1. Create a workspace on the server Web UI
@@ -20,7 +20,7 @@ HERMES_PYTHON="${HERMES_PYTHON:-$HERMES_HOME/hermes-agent/venv/Scripts/python.ex
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MCP_SRC="$(cd "$SCRIPT_DIR/../mcp" && pwd)"
 
-echo "=== Agent Contexts Sync MCP Deployment ==="
+echo "=== Agent Context Sync MCP Deployment ==="
 echo "Agent: $AGENT"
 echo "Server: $SERVER"
 echo "Install dir: $MCP_DIR"

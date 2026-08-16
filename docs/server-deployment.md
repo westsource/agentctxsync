@@ -1,4 +1,4 @@
-# Agent Contexts Sync — 服务端部署指南
+# Agent Context Sync — 服务端部署指南
 
 ## 1. 服务器信息
 
@@ -97,7 +97,7 @@ YOUR_SERVER_IP
 ```ini
 # /etc/systemd/system/hermes-sync.service
 [Unit]
-Description=Agent Contexts Sync MCP Server
+Description=Agent Context Sync MCP Server
 After=network.target
 
 [Service]

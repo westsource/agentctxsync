@@ -52,7 +52,7 @@ if _MISSING:
     raise SystemExit(f"Missing required environment variable(s): {', '.join(_MISSING)}. "
                      f"See server/.env.example for the full list.")
 
-app = FastAPI(title="Agent Contexts Sync")
+app = FastAPI(title="Agent Context Sync")
 
 from fastapi.staticfiles import StaticFiles
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -1869,7 +1869,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
         .replace("<KEY>", api_key).replace("<SERVER>", server_url)
     if is_en:
         return (
-            f"# Agent Contexts Sync MCP Client ({agent['label']})\n\n"
+            f"# Agent Context Sync MCP Client ({agent['label']})\n\n"
             f"Workspace: **{ws_name}**  \u00b7  Sync server: `{server_url}`\n\n"
             "This client connects your agent to the sync server above so sessions "
             "sync across devices and across agents (Hermes / Codex / opencode / "
@@ -2169,7 +2169,7 @@ async def health():
         with get_conn() as conn:
             c = conn.cursor()
             c.execute("SELECT 1")
-        return {"status": "ok", "service": "hermes-session-sync", "backend": "postgresql", "auth": "multi-tenant", "name": "Agent Contexts Sync"}
+        return {"status": "ok", "service": "hermes-session-sync", "backend": "postgresql", "auth": "multi-tenant", "name": "Agent Context Sync"}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 

@@ -1,5 +1,5 @@
 """
-Multi-agent adapter contract for Agent Contexts Sync.
+Multi-agent adapter contract for Agent Context Sync.
 
 Canonical (wire) model
 ======================

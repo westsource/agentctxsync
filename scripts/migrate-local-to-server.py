@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Contexts Sync - SQLite to PostgreSQL Migration Script
+Agent Context Sync - SQLite to PostgreSQL Migration Script
 Migrates local Hermes state.db sessions to the remote sync server.
 Usage:
   python migrate-local-to-server.py <workspace_api_key> [server_url]
