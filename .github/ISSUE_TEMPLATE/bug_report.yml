@@ -1,0 +1,69 @@
+name: Bug Report
+description: 报告一个缺陷 / Report a bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间报告问题！请尽量提供完整信息，帮助我们快速定位。
+        Thanks for taking the time to report a bug!
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: 客户端或服务端版本号（如 2026.08.16.4，或 `mcp/updater.py` 中的 CLIENT_VERSION）
+      placeholder: "2026.08.16.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: 组件 / Component
+      description: 问题出在哪个部分？
+      options:
+        - MCP 客户端 (mcp/)
+        - 服务端 API (server/)
+        - Web UI
+        - Hermes 适配器
+        - Codex 适配器
+        - opencode 适配器
+        - Reasonix 适配器
+        - OpenClaw 适配器
+        - WorkBuddy 适配器
+        - 文档
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象 / What happened
+      description: 描述你期望发生什么，实际发生了什么
+      placeholder: 期望：… 实际：…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 如何复现？请尽量具体
+      placeholder: |
+        1. 启动…
+        2. 调用…
+        3. 观察到…
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 相关日志（mcp-stderr.log、服务端日志、错误消息）。注意不要包含 API Key 等敏感信息！
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: OS、Agent 类型与版本、Python 版本
+      placeholder: |
+        OS: Windows 11
+        Agent: Hermes 桌面版 / Codex CLI x.x
+        Python: 3.12
