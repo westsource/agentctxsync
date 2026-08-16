@@ -77,6 +77,7 @@ AGENT_PREFIXES = {
     "opencode": "opencode:",
     "reasonix": "reasonix:",
     "openclaw": "openclaw:",
+    "workbuddy": "workbuddy:",
 }
 
 CANONICAL_SESSION_FIELDS = (

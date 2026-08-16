@@ -1,20 +1,22 @@
 ﻿{% extends "base.html" %}
 {% block title %}{{ t.register_title }}{% endblock %}
 {% block content_full %}
-<div class="w-full max-w-sm" x-data="{ loading: false }">
-  <div class="text-center mb-8">
-    <div class="w-14 h-14 rounded-2xl bg-sky-500 flex items-center justify-center mx-auto mb-4"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></div>
-    <h1 class="text-2xl font-bold text-gray-900">Agent Contexts Sync</h1>
-    <p class="text-gray-500 text-sm mt-1">{{ t.register_subtitle }}</p>
-  </div>
+<div x-data="{ loading: false }">
+  <div class="bg-white rounded-3xl p-8 shadow-2xl">
+    <div class="flex flex-col items-center mb-6">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 8px 20px rgba(94,84,207,.35)">
+        <svg width="28" height="28" viewBox="0 0 44 44" fill="none"><path d="M11.5 13.1 C14.1 8 19.3 5.5 22 5.5 C24.7 5.5 29.9 8 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M32.5 13.1 C32.3 15.6 30.4 17.1 28.1 17.1 C30.1 15.9 31.5 14.4 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.5 30.9 C29.9 36 24.7 38.5 22 38.5 C19.3 38.5 14.1 36 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M11.5 30.9 C11.7 33.4 13.6 34.9 15.9 34.9 C13.9 33.7 12.5 32.2 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="22" r="4.5" fill="#FFD166"/></svg>
+      </div>
+      <h1 class="text-xl font-bold text-gray-900">Agent Contexts Sync</h1>
+      <p class="text-gray-400 text-sm mt-1">{{ t.register_subtitle }}</p>
+    </div>
 
-  <div class="bg-white border border-gray-200 rounded-2xl p-8">
     {% if error %}
-    <div class="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm">
+    <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 text-red-600 border border-red-100 text-sm">
       {{ t[error] if error in t else error }}
     </div>
     {% endif %}
-    <div id="pwd-mismatch" class="hidden mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-600 border border-red-200 text-sm">
+    <div id="pwd-mismatch" class="hidden mb-4 px-4 py-3 rounded-xl bg-red-50 text-red-600 border border-red-100 text-sm">
       {{ t.pwd_mismatch }}
     </div>
 
@@ -22,30 +24,30 @@
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_username }}</label>
         <input type="text" name="username" required autofocus
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
       </div>
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_display_name }}</label>
         <input type="text" name="display_name"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
       </div>
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_password }}</label>
         <input type="password" name="password" required minlength="6"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
       </div>
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_confirm_password }}</label>
         <input type="password" name="confirm_password" required minlength="6"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
       </div>
       <div class="mb-6">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_invite_code }}</label>
         <input type="text" name="invite_code" required value="{{ code or '' }}"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
       </div>
       <button type="submit" :disabled="loading"
-              class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-medium rounded-lg transition-colors text-sm">
+              class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm shadow-lg shadow-[#6E56CF]/30">
         <span x-show="!loading">{{ t.register_submit }}</span>
         <span x-show="loading" x-cloak>{{ t.register_submitting }}</span>
       </button>
@@ -53,12 +55,12 @@
   </div>
 
   <div class="mt-6 text-center">
-    <a href="/web/login" class="text-sm text-gray-500 hover:text-sky-600 transition-colors">{{ t.register_back_to_login }}</a>
+    <a href="/web/login" class="text-sm text-white/80 hover:text-white transition-colors">{{ t.register_back_to_login }}</a>
   </div>
   <div class="mt-4 text-center">
-    <a href="/web/set-language/zh-CN" class="text-xs text-gray-400 hover:text-sky-600 transition-colors mr-2">中文</a>
-    <span class="text-gray-300">|</span>
-    <a href="/web/set-language/en" class="text-xs text-gray-400 hover:text-sky-600 transition-colors ml-2">EN</a>
+    <a href="/web/set-language/zh-CN" class="text-xs text-white/60 hover:text-white transition-colors mr-2">中文</a>
+    <span class="text-white/30">|</span>
+    <a href="/web/set-language/en" class="text-xs text-white/60 hover:text-white transition-colors ml-2">EN</a>
   </div>
 </div>
 

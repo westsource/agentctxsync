@@ -36,11 +36,11 @@ YOUR_SERVER_IP
 
 ### 表结构
 
-**users** — id, username, password_hash, display_name, is_admin, is_active, created_at, last_login_at
+**users** — id, username, password_hash, display_name, is_admin, is_active, created_at, last_login_at, plan (free/unlimited), must_change_password, lang
 
 **workspaces** — id, name, user_id, api_key, description, created_at
 
-**invites** — id, code (HSYNC-XXXXXXXX), created_by, used, used_by, revoked, expires_at, note, created_at
+**invites** — id, code (HSYNC-XXXXXXXX), created_by, used, used_by, revoked, expires_at, note, created_at, grant_plan (free/unlimited)
 
 **sessions** — id, workspace_id, title, model, message_count, started_at, hidden/hidden_at (软隐藏), pinned (置顶), profile_name (来源档案), agent_type, meta, ... (共 52 列)
 
@@ -245,3 +245,54 @@ gunzip -c /opt/hermes-sync-mcp/backups/agentctxsync_XXXXXXXX_XXXXXX.sql.gz | doc
 1. **JWT Secret 每次重启会重新生成** — 已登录用户会失效，建议设置固定值
 2. **备份脚本依赖 Docker** — 通过 `docker exec agentctxsync-db pg_dump` 导出
 3. **服务自动重启** — systemd 配置了 `Restart=always`，崩溃后 5 秒自动重启
+
+## 11. 配额机制（plan / quota_config）
+
+server 内置一套**通用配额执法机制**：策略存于数据库、执法在 server，两者通过数据库解耦，改动即时生效（server 每次 push 读取配置，无缓存、无重启）。
+
+- **users.plan** — `free` | `unlimited`（默认 `free`；存量用户自动补 `free`）
+- **invites.grant_plan** — 邀请码注册授予的套餐（默认 `unlimited`，创建邀请码时可选）
+- **quota_config** — 按 plan 配置：
+  - `max_sessions`：该套餐用户的全局活跃会话数上限（NULL = 不限；默认 free = 200）
+  - `allowed_agents`：允许同步的 Agent 类型白名单（NULL / 空数组 = 全部允许）
+- **audit_log** — 审计事件表（`quota_rejected` 由 server 写入；`plan_changed` 等运营操作由运营侧写入）
+
+### 执法行为
+
+- `POST /push` 只对**新建会话**拦截：agent 白名单 + 用户全局活跃会话数（`archived=0`，跨该用户所有 Workspace 汇总）。
+- 已有会话的更新与拉取不受影响，降低配额不会破坏已同步的数据池。
+- 超限返回 HTTP `403`，`detail` 为 `agent_not_allowed` / `quota_exceeded_sessions`，并在 `audit_log` 记录 `quota_rejected`（含 user/workspace/device/code/detail）。
+- 未知 plan（quota_config 无对应行）按**不限制**处理（宽松失败，不误伤合法同步）。
+- Master API Key 不受配额限制。
+
+### 自部署用户如何调整配额
+
+配额管理界面属于运营侧（私有），自部署用户直接改数据库即可：
+
+```sql
+-- 某用户改为无限版
+UPDATE users SET plan = 'unlimited' WHERE username = '...';
+-- 免费版会话上限改为 500
+UPDATE quota_config SET max_sessions = 500 WHERE plan = 'free';
+-- 免费版只允许 Hermes 同步
+UPDATE quota_config SET allowed_agents = ARRAY['hermes'] WHERE plan = 'free';
+```
+
+### 运营只读账号（最小权限）
+
+运营侧只读消费统计数据，不读取会话内容。表级授权无法排除单列，若要彻底隔离会话内容（`content` / `reasoning` / `system_prompt`），请改用列级授权：
+
+```sql
+CREATE ROLE ops_reader LOGIN PASSWORD '<强密码>';
+GRANT CONNECT ON DATABASE agentctxsync TO ops_reader;
+GRANT USAGE ON SCHEMA public TO ops_reader;
+-- 业务表只读
+GRANT SELECT ON users, workspaces, invites, sessions, messages,
+      sync_state, projects, project_folders, project_remap,
+      quota_config, audit_log TO ops_reader;
+-- 仅配置表可写（套餐调整；server 侧无权写配置）
+GRANT UPDATE (plan) ON users TO ops_reader;
+GRANT UPDATE (max_sessions, allowed_agents) ON quota_config TO ops_reader;
+```
+
+> 运营侧改动 plan / quota_config 后，下一次 push 即生效。

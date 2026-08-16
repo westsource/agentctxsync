@@ -7,6 +7,18 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 import psycopg2
 import psycopg2.extras
+# Agent clients (opencode, workbuddy, ...) send the canonical `meta` field as a
+# plain dict; the sessions/messages tables store it in a jsonb column.
+# register_default_jsonb() only handles the read direction -- without an
+# adapter for the dict type every /push carrying meta 500s with
+# "can't adapt type 'dict'". Register dict -> Json once, globally.
+psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)
+
+def _pg_val(v):
+    """psycopg2 无法直接绑定 dict/list 参数时兜底：序列化为 JSON 字符串。
+    配合上方 register_adapter(dict, Json) 双保险，确保 /push 携带 meta 等
+    复合字段不会以 "can't adapt type 'dict'" 500。"""
+    return json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
 import uvicorn
 import jinja2
 from translations import get_translations
@@ -53,7 +65,17 @@ def timestamp_fmt(value):
     except:
         return str(value)
 
+def msg_time_fmt(value):
+    """Message bubble timestamp: HH:MM only (viewer design)."""
+    if not value:
+        return ""
+    try:
+        return datetime.fromtimestamp(float(value)).strftime("%H:%M")
+    except:
+        return str(value)
+
 jinja_env.filters["timestamp_fmt"] = timestamp_fmt
+jinja_env.filters["msg_time"] = msg_time_fmt
 
 
 def get_lang():
@@ -282,6 +304,41 @@ def init_db():
         # it follows the account across devices; landing page still uses the
         # cookie. Read via the lang claim inside the JWT.
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'zh-CN'")
+        # ---- Quota / plan (generic enforcement, policy lives in DB) ----
+        # plan: 'free' | 'unlimited'. Existing rows default to 'free'. The
+        # operator (private ops backend) writes plan/quota_config directly to
+        # the DB; the server only READS them on push, so policy changes apply
+        # immediately with no API coupling and no restart.
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'free'")
+        # grant_plan: plan granted to a user who registers with this invite.
+        c.execute("ALTER TABLE invites ADD COLUMN IF NOT EXISTS grant_plan TEXT DEFAULT 'unlimited'")
+        # Per-plan limits. max_sessions NULL = unlimited; allowed_agents NULL
+        # or empty = every agent allowed. The default 'free' cap of 200 keeps
+        # the mechanism useful out of the box; the allowlist stays open until
+        # an operator configures one.
+        c.execute("""CREATE TABLE IF NOT EXISTS quota_config (
+            plan TEXT PRIMARY KEY,
+            max_sessions INTEGER,
+            allowed_agents TEXT[]
+        )""")
+        # Operational audit trail: quota rejections + plan changes. Read by
+        # the private ops backend; the open-source side only writes to it.
+        c.execute("""CREATE TABLE IF NOT EXISTS audit_log (
+            id SERIAL PRIMARY KEY,
+            ts DOUBLE PRECISION,
+            event TEXT,
+            user_id INTEGER,
+            workspace_id INTEGER,
+            device_id TEXT,
+            code TEXT,
+            detail TEXT
+        )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)")
+        c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
+            VALUES ('free', 200, NULL) ON CONFLICT (plan) DO NOTHING""")
+        c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
+            VALUES ('unlimited', NULL, NULL) ON CONFLICT (plan) DO NOTHING""")
         c.execute("SELECT COUNT(*) FROM users")
         if c.fetchone()[0] == 0:
             admin_pw = secrets.token_urlsafe(12)
@@ -345,6 +402,89 @@ def consume_invite(code, user_id):
         if c.rowcount != 1:
             return "register_used_code"
     return None
+
+
+def plan_limits(plan, conn=None):
+    """Read (max_sessions, allowed_agents) for a plan from quota_config.
+
+    A missing row (e.g. an unknown plan value) resolves to NO limits so the
+    sync service fails open instead of blocking legitimate pushes. Pass an
+    open connection to stay inside the caller's transaction.
+    """
+    def _query(c):
+        c.execute("SELECT max_sessions, allowed_agents FROM quota_config WHERE plan = %s", (plan,))
+        return c.fetchone()
+    if conn is not None:
+        row = _query(conn.cursor())
+    else:
+        with get_conn() as conn:
+            row = _query(conn.cursor())
+    if not row:
+        return None, None
+    return row[0], row[1]
+
+
+def quota_check(max_sessions, allowed_agents, existing_count, new_agents):
+    """Pure quota gate for a push's NEW sessions.
+
+    Returns (allowed, error_code).
+    - Agent allowlist: every new agent must be listed (empty/None = allow all).
+    - Session cap: existing active + new sessions must stay within
+      max_sessions (None = unlimited).
+    """
+    if allowed_agents:
+        for ag in new_agents:
+            if ag not in allowed_agents:
+                return False, "agent_not_allowed"
+    if max_sessions is not None and existing_count + len(new_agents) > max_sessions:
+        return False, "quota_exceeded_sessions"
+    return True, None
+
+
+def log_audit(conn, event, user_id, workspace_id, device_id, code, detail):
+    """Append one row to audit_log inside the caller's transaction."""
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO audit_log (ts, event, user_id, workspace_id, device_id, code, detail) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (datetime.now().timestamp(), event, user_id, workspace_id, device_id, code, detail))
+
+
+def invite_grant_plan(code):
+    """Plan granted to a user registering with this invite (default unlimited).
+
+    Unknown or invalid values fall back to 'unlimited' so registration never
+    fails because of a bad plan value; the operator fixes it afterwards.
+    """
+    grant_plan = "unlimited"
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT grant_plan FROM invites WHERE code = %s AND used = 0 AND revoked = 0", (code,))
+        r = c.fetchone()
+        if r and r[0] in ("free", "unlimited"):
+            grant_plan = r[0]
+    return grant_plan
+
+
+def quota_ui_active(conn=None):
+    """Whether the quota UI should be shown at all.
+
+    The quota mechanism is meant for deployments where a limited plan is
+    actually reachable through the invite/registration flow. When every
+    non-revoked invite grants 'unlimited' (the default deployment), the
+    dashboard usage panel and the invites grant-plan controls stay hidden:
+    admins and users never see plan/quota information. Enforcement itself
+    still applies server-side (an operator who later configures limits via
+    quota_config or flips a user's plan directly gets enforcement without
+    any UI change). Pass an open connection to stay inside a transaction.
+    """
+    def _query(c):
+        c.execute("SELECT 1 FROM invites WHERE revoked = 0 AND grant_plan != 'unlimited' LIMIT 1")
+        return c.fetchone() is not None
+    if conn is not None:
+        return _query(conn.cursor())
+    with get_conn() as conn:
+        return _query(conn.cursor())
 
 
 # ============================================================
@@ -423,6 +563,19 @@ def require_admin(user: dict = Depends(get_current_user)):
 # Web UI Routes
 # ============================================================
 
+def rel_sync_label(last_sync):
+    """相对同步时间标签：刚刚 / X 分钟前 / X 小时前 / X 天前 / 尚未同步"""
+    if not last_sync:
+        return "尚未同步"
+    diff = max(0, int(time.time() - last_sync))
+    if diff < 60:
+        return "刚刚同步"
+    if diff < 3600:
+        return f"{diff // 60} 分钟前同步"
+    if diff < 86400:
+        return f"{diff // 3600} 小时前同步"
+    return f"{diff // 86400} 天前同步"
+
 def get_user_workspaces(user_id):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -432,12 +585,21 @@ def get_user_workspaces(user_id):
     for ws in workspaces:
         with get_conn() as conn:
             c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM sessions WHERE workspace_id = %s", (ws["id"],))
-            sc = c.fetchone()[0]
-            c.execute("SELECT COUNT(DISTINCT device_id) FROM sync_state WHERE workspace_id = %s", (ws["id"],))
-            dc = c.fetchone()[0]
+            c.execute("""
+                SELECT
+                    (SELECT COUNT(*) FROM sessions WHERE workspace_id = %s) AS sc,
+                    (SELECT COUNT(DISTINCT device_id) FROM sync_state WHERE workspace_id = %s) AS dc,
+                    (SELECT COUNT(*) FROM messages WHERE workspace_id = %s) AS mc,
+                    (SELECT MAX(last_sync_at) FROM sync_state WHERE workspace_id = %s) AS last_sync
+            """, (ws["id"], ws["id"], ws["id"], ws["id"]))
+            row = c.fetchone()
+            sc, dc, mc, last_sync = row[0], row[1], row[2], row[3]
+            if not last_sync:
+                c.execute("SELECT MAX(last_synced_at) FROM sessions WHERE workspace_id = %s", (ws["id"],))
+                last_sync = c.fetchone()[0]
         result.append({"id": ws["id"], "name": ws["name"], "api_key": ws["api_key"],
-                        "description": ws.get("description", ""), "session_count": sc, "device_count": dc})
+                        "description": ws.get("description", ""), "session_count": sc, "device_count": dc,
+                        "message_count": mc, "last_sync_at": last_sync, "sync_label": rel_sync_label(last_sync)})
     return result
 
 def get_nav_workspaces(user_id):
@@ -499,12 +661,15 @@ async def web_register_submit(request: Request):
     if password != confirm:
         return RedirectResponse(url="/web/register?error=pwd_mismatch", status_code=303)
     now = datetime.now().timestamp()
+    # Resolve the plan granted by this invite BEFORE creating the user; the
+    # invite is consumed afterwards (a failed consume rolls the user back).
+    grant_plan = invite_grant_plan(code)
     with get_conn() as conn:
         c = conn.cursor()
         try:
-            c.execute("INSERT INTO users (username, password_hash, display_name, is_admin, created_at) "
-                      "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                      (username, hash_password(password), display_name, False, now))
+            c.execute("INSERT INTO users (username, password_hash, display_name, is_admin, created_at, plan) "
+                      "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                      (username, hash_password(password), display_name, False, now, grant_plan))
         except psycopg2.errors.UniqueViolation:
             return RedirectResponse(url="/web/register?error=register_user_exists", status_code=303)
         user_id = c.fetchone()[0]
@@ -536,9 +701,99 @@ async def web_dashboard(request: Request):
         total_sessions = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM messages WHERE workspace_id IN (SELECT id FROM workspaces WHERE user_id = %s)", (user["sub"],))
         total_messages = c.fetchone()[0]
+        # Quota usage shown to the user (mirrors the /push gate: active only).
+        # Hidden entirely when the deployment has no limited invite path
+        # (invites/registrations all unlimited) — admins and users stay
+        # unaware of the quota mechanism.
+        quota = None
+        if quota_ui_active(conn):
+            c.execute("SELECT plan FROM users WHERE id = %s", (user["sub"],))
+            prow = c.fetchone()
+            plan = (prow[0] if prow else None) or "free"
+            max_sessions, _ = plan_limits(plan, conn)
+            c.execute("""SELECT COUNT(*) FROM sessions s
+                         JOIN workspaces w ON s.workspace_id = w.id
+                         WHERE w.user_id = %s AND s.archived = 0""", (user["sub"],))
+            active_count = c.fetchone()[0]
+            quota = {"plan": plan, "max_sessions": max_sessions, "active_count": active_count}
+    # 最近同步的会话（跨工作空间，按同步/开始时间倒序取 6 条）
+    recent_sessions = []
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT s.id, s.workspace_id, s.title, s.agent_type, s.message_count,
+                   COALESCE(s.last_synced_at, s.started_at) AS synced_at,
+                   w.name AS workspace_name
+            FROM sessions s
+            JOIN workspaces w ON s.workspace_id = w.id
+            WHERE w.user_id = %s AND COALESCE(s.hidden, 0) = 0 AND COALESCE(s.archived, 0) = 0
+            ORDER BY synced_at DESC
+            LIMIT 6
+        """, (user["sub"],))
+        for r in c.fetchall():
+            r["sync_label"] = rel_sync_label(r.get("synced_at"))
+            recent_sessions.append(r)
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "dashboard",
-           "ws_list": ws_list, "total_sessions": total_sessions, "total_messages": total_messages}
+           "ws_list": ws_list, "total_sessions": total_sessions, "total_messages": total_messages,
+           "quota": quota, "recent_sessions": recent_sessions}
     return render("dashboard.html", ctx)
+
+@app.get("/web/all-sessions", response_class=HTMLResponse)
+async def web_all_sessions(request: Request):
+    """全部会话：跨工作空间统一列表，支持搜索/工作空间/Agent 筛选与分页。"""
+    try:
+        user = get_current_user(request)
+    except:
+        return RedirectResponse(url="/web/login")
+    nav_ws = get_nav_workspaces(user["sub"])
+    ws_options = get_user_workspaces(user["sub"])
+    params = request.query_params
+    q = (params.get("q") or "").strip()
+    ws_filter = (params.get("ws") or "").strip()
+    agent_filter = (params.get("agent") or "").strip()
+    try:
+        page = max(1, int(params.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+    size = params.get("size") or "20"
+    size = int(size) if size in ("20", "50", "100") else 20
+    AGENT_OPTIONS = sorted(AGENTS)
+    where = ["w.user_id = %s", "COALESCE(s.hidden, 0) = 0", "COALESCE(s.archived, 0) = 0"]
+    args = [user["sub"]]
+    if ws_filter and ws_filter.isdigit():
+        where.append("s.workspace_id = %s")
+        args.append(int(ws_filter))
+    if agent_filter:
+        where.append("s.agent_type = %s")
+        args.append(agent_filter)
+    if q:
+        where.append("(s.title ILIKE %s OR s.id ILIKE %s)")
+        like = f"%{q}%"
+        args += [like, like]
+    where_sql = " AND ".join(where)
+    sessions = []
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute(f"SELECT COUNT(*) AS total FROM sessions s JOIN workspaces w ON s.workspace_id = w.id WHERE {where_sql}", args)
+        total = c.fetchone()["total"]
+        c.execute(f"""
+            SELECT s.id, s.workspace_id, s.title, s.agent_type, s.model, s.message_count,
+                   COALESCE(s.last_synced_at, s.started_at) AS synced_at,
+                   w.name AS workspace_name
+            FROM sessions s JOIN workspaces w ON s.workspace_id = w.id
+            WHERE {where_sql}
+            ORDER BY synced_at DESC
+            LIMIT %s OFFSET %s
+        """, args + [size, (page - 1) * size])
+        for r in c.fetchall():
+            r["sync_label"] = rel_sync_label(r.get("synced_at"))
+            sessions.append(r)
+    pages = max(1, (total + size - 1) // size)
+    ctx = {"user": user, "workspaces": nav_ws, "active_page": "all_sessions",
+           "sessions": sessions, "total": total, "pages": pages, "page": page, "size": size,
+           "q": q, "ws_filter": ws_filter, "agent_filter": agent_filter,
+           "ws_options": ws_options, "agent_options": AGENT_OPTIONS}
+    return render("all_sessions.html", ctx)
 
 @app.get("/web/change-password", response_class=HTMLResponse)
 async def web_change_password_page(request: Request):
@@ -728,11 +983,21 @@ async def web_workspace_detail(ws_id: int, request: Request):
         page = max(1, int(request.query_params.get("page", "1")))
     except ValueError:
         page = 1
+    # Agent capsule filter: whitelist of known agent types.
+    agent = request.query_params.get("agent", "all")
+    if agent not in ("all", "hermes", "codex", "opencode", "reasonix", "openclaw"):
+        agent = "all"
+    if agent == "all":
+        agent_clause = ""
+    else:
+        agent_clause = " AND agent_type = %s"
     # Profile filter: inferred from the session id prefix (hermes sessions).
     #   bare id or 'default:' prefix  -> default profile
     #   '<name>:' prefix              -> named profile
     # non-hermes agents are never filtered by profile.
     profile = request.query_params.get("profile", "all")
+    if agent != "hermes":
+        profile = "all"  # profile only applies to hermes sessions
     if profile == "all":
         profile_clause = ""
     elif profile == "default":
@@ -753,8 +1018,9 @@ async def web_workspace_detail(ws_id: int, request: Request):
                          ELSE 'default' END AS profile""")
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        show_hidden = request.query_params.get("show_hidden", "0") == "1"
-        hide_clause = "" if show_hidden else " AND COALESCE(hidden,0) = 0"
+        # Deleted sessions are always hidden here (they live in the trash);
+        # the trash pages are the only place to view/restore them.
+        hide_clause = " AND COALESCE(hidden,0) = 0"
         q = (request.query_params.get("q") or "").strip()
         if q:
             # escape LIKE wildcards so user input is matched literally
@@ -763,12 +1029,15 @@ async def web_workspace_detail(ws_id: int, request: Request):
         else:
             esc = ""
             q_clause = ""
+        params: list = [ws_id]
+        if agent != "all":
+            params.append(agent)
         if q:
-            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {profile_clause}{hide_clause}{q_clause}",
-                      (ws_id,) + (esc, esc))
+            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{hide_clause}{q_clause}",
+                      params + [esc, esc])
         else:
-            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {profile_clause}{hide_clause}",
-                      (ws_id,))
+            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{hide_clause}",
+                      params)
         total = c.fetchone()["cnt"]
         pages = max(1, (total + size - 1) // size)
         if page > pages:
@@ -779,19 +1048,19 @@ async def web_workspace_detail(ws_id: int, request: Request):
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS last_msg_at,
                          (SELECT COUNT(*) FROM messages m
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS msg_count
-                         FROM sessions s WHERE s.workspace_id = %s {profile_clause}{hide_clause}{q_clause}
+                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{hide_clause}{q_clause}
                          ORDER BY COALESCE(s.pinned,0) DESC, {sort_col} {dir} NULLS LAST, s.id
                          LIMIT {size} OFFSET %s""",
-                      (ws_id,) + (esc, esc, (page - 1) * size))
+                      params + [esc, esc, (page - 1) * size])
         else:
             c.execute(f"""SELECT s.*{profile_sel},
                          (SELECT MAX(m.timestamp) FROM messages m
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS last_msg_at,
                          (SELECT COUNT(*) FROM messages m
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS msg_count
-                         FROM sessions s WHERE s.workspace_id = %s {profile_clause}{hide_clause}
+                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{hide_clause}
                          ORDER BY COALESCE(s.pinned,0) DESC, {sort_col} {dir} NULLS LAST, s.id
-                         LIMIT {size} OFFSET %s""", (ws_id, (page - 1) * size))
+                         LIMIT {size} OFFSET %s""", params + [(page - 1) * size])
         sessions = [dict(r) for r in c.fetchall()]
         # available profiles for the filter dropdown: hermes id prefixes
         c.execute("""SELECT DISTINCT split_part(id, ':', 1) AS pfx
@@ -829,10 +1098,17 @@ async def web_workspace_detail(ws_id: int, request: Request):
         # Deleted (soft-hidden) session count for the trash entry badge.
         c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 1", (ws_id,))
         trash_count = c.fetchone()["cnt"]
+        # Sessions created within the last 24 hours (drives the "new" badge).
+        # started_at is stored as unix epoch seconds (double precision).
+        c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s "
+                  "AND started_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours') "
+                  "AND COALESCE(hidden,0) = 0", (ws_id,))
+        new_24h = c.fetchone()["cnt"]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": f"workspace_{ws_id}",
            "ws": dict(ws), "sessions": sessions, "devices": devices,
            "sort": sort, "dir": dir, "page": page, "pages": pages, "size": size, "total": total,
-           "profile": profile, "profile_options": profile_options, "show_hidden": show_hidden, "q": q,
+           "profile": profile, "profile_options": profile_options, "q": q,
+           "agent": agent, "new_24h": new_24h,
            "trash_count": trash_count,
            "projects": projects}
     return render("workspace_detail.html", ctx)
@@ -887,9 +1163,8 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
         if role:
             where += " AND role = %s"
             params.append(role)
-        show_hidden = request.query_params.get("show_hidden", "0") == "1"
-        if not show_hidden:
-            where += " AND COALESCE(hidden,0) = 0"
+        # Deleted messages are always hidden here (they live in the trash).
+        where += " AND COALESCE(hidden,0) = 0"
         q = (request.query_params.get("q") or "").strip()
         if q:
             esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -928,10 +1203,10 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
         "user": user, "workspaces": nav_ws, "active_page": f"workspace_{ws_id}",
         "ws": dict(ws), "session": dict(sess), "messages": messages,
         "total": total, "page": page, "pages": pages, "role": role, "size": size,
-        "show_hidden": show_hidden, "q": q, "trash_count": trash_count,
+        "q": q, "trash_count": trash_count,
+        "sync_label": rel_sync_label(sess.get("last_synced_at")),
     }
     return render("session_messages.html", ctx)
-
 def _msg_ts(value):
     try:
         return datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M") if value else "-"
@@ -1204,7 +1479,7 @@ async def web_workspace_import(ws_id: int, request: Request):
                 continue
             sid = session["id"]
             messages = session.get("messages") or []
-            sd = {k: v for k, v in session.items()
+            sd = {k: _pg_val(v) for k, v in session.items()
                   if k != "messages" and k in sess_cols and v is not None}
             sd.pop("workspace_id", None)
             sd.pop("user_id", None)
@@ -1229,7 +1504,7 @@ async def web_workspace_import(ws_id: int, request: Request):
                     continue
                 role = msg.get("role")
                 ts = msg.get("timestamp")
-                md = {k: v for k, v in msg.items() if k in msg_cols and v is not None}
+                md = {k: _pg_val(v) for k, v in msg.items() if k in msg_cols and v is not None}
                 md["session_id"] = sid
                 md["workspace_id"] = ws_id
                 if role is not None and ts is not None:
@@ -1411,8 +1686,10 @@ async def web_invites(request: Request):
                          WHERE i.created_by = %s
                          ORDER BY i.created_at DESC""", (user["sub"],))
         invites = [dict(r) for r in c.fetchall()]
+        quota_ui = quota_ui_active(conn)
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_invites",
            "invites": invites, "now": datetime.now().timestamp(),
+           "quota_ui": quota_ui,
            "base_url": str(request.base_url)}
     return render("admin_invites.html", ctx)
 
@@ -1429,6 +1706,9 @@ async def web_create_invite(request: Request):
     from fastapi import Form
     body = await request.form()
     note = body.get("note", "").strip()
+    grant_plan = body.get("grant_plan", "unlimited").strip() or "unlimited"
+    if grant_plan not in ("free", "unlimited"):
+        grant_plan = "unlimited"
     try:
         expiry_days = int(body.get("expiry_days", "0") or 0)
     except ValueError:
@@ -1438,8 +1718,8 @@ async def web_create_invite(request: Request):
     expires_at = now + expiry_days * 86400 if expiry_days > 0 else None
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("INSERT INTO invites (code, created_by, expires_at, note, created_at) VALUES (%s, %s, %s, %s, %s)",
-                  (code, user["sub"], expires_at, note, now))
+        c.execute("INSERT INTO invites (code, created_by, expires_at, note, grant_plan, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                  (code, user["sub"], expires_at, note, grant_plan, now))
     return RedirectResponse(url="/web/invites", status_code=303)
 
 @app.post("/web/invite/{inv_id}/revoke", response_class=HTMLResponse)
@@ -1481,7 +1761,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.08.12.1"
+CLIENT_VERSION = "2026.08.15.1"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -1540,7 +1820,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
             f"Workspace: **{ws_name}**  \u00b7  Sync server: `{server_url}`\n\n"
             "This client connects your agent to the sync server above so sessions "
             "sync across devices and across agents (Hermes / Codex / opencode / "
-            "Reasonix / OpenClaw share the same workspace pool).\n\n"
+            "Reasonix / OpenClaw / WorkBuddy share the same workspace pool).\n\n"
             "## Files\n"
             "- `mcp/server.py` - the MCP server (stdio)\n"
             "- `mcp/run.sh` / `mcp/run.bat` - optional launchers\n"
@@ -1570,7 +1850,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
         f"# Hermes 会话同步 MCP 客户端（{agent['label']}）\n\n"
         f"工作空间：**{ws_name}**  \u00b7  同步服务器：`{server_url}`\n\n"
         "将该 Agent 接入同步服务器，实现跨设备、跨 Agent（Hermes / Codex / "
-        "opencode / Reasonix / OpenClaw 共享同一工作空间会话池）的会话同步。\n\n"
+        "opencode / Reasonix / OpenClaw / WorkBuddy 共享同一工作空间会话池）的会话同步。\n\n"
         "## 文件说明\n"
         "- `mcp/server.py` — MCP 服务端程序（stdio 模式）\n"
         "- `mcp/run.sh` / `mcp/run.bat` — 可选启动脚本\n"
@@ -1884,6 +2164,36 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     imp_s, imp_m, upd_s, dup_m = 0, 0, 0, 0
     with get_conn() as conn:
         c = conn.cursor()
+        # ---- Quota gate: enforce plan limits on NEW session writes. ----
+        # Existing sessions keep syncing (updates allowed); only new inserts
+        # are gated, so lowering a quota never breaks an already-synced pool.
+        # Master API key (user_id None) is never gated. Policy is read from
+        # the DB on every push, so an operator's change applies immediately.
+        if ws.get("user_id"):
+            c.execute("SELECT id FROM sessions WHERE workspace_id = %s", (wid,))
+            existing_ids = {r[0] for r in c.fetchall()}
+            new_agents = [s.get("agent_type") or "hermes" for s in sessions_data
+                          if s["id"] not in existing_ids]
+            if new_agents:
+                c.execute("SELECT plan FROM users WHERE id = %s", (ws["user_id"],))
+                prow = c.fetchone()
+                plan = (prow[0] if prow else None) or "free"
+                max_sessions, allowed_agents = plan_limits(plan, conn)
+                c.execute("""SELECT COUNT(*) FROM sessions s
+                             JOIN workspaces w ON s.workspace_id = w.id
+                             WHERE w.user_id = %s AND s.archived = 0""",
+                          (ws["user_id"],))
+                existing_count = c.fetchone()[0]
+                ok, code = quota_check(max_sessions, allowed_agents,
+                                       existing_count, new_agents)
+                if not ok:
+                    log_audit(conn, "quota_rejected", ws["user_id"], wid, device_id, code,
+                              f"plan={plan} active={existing_count} new={len(new_agents)} agents={new_agents}")
+                    # Commit the audit row BEFORE raising: the get_conn()
+                    # context manager rolls back on exception, which would
+                    # otherwise silently drop the rejection record.
+                    conn.commit()
+                    raise HTTPException(status_code=403, detail=code)
         # Only write columns that actually exist in the server schema: Hermes
         # (and other agents) evolve their local state.db with new columns
         # (e.g. system_prompt_hash) faster than this server's tables, and a
@@ -1899,7 +2209,7 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
             session_agent = session.get("agent_type") or "hermes"
             c.execute("SELECT id FROM sessions WHERE id = %s AND workspace_id = %s", (sid, wid))
             if c.fetchone():
-                sd = {k: v for k, v in session.items()
+                sd = {k: _pg_val(v) for k, v in session.items()
                       if k != "messages" and v is not None and k in sess_cols}
                 # agent_type records which agent CREATED the session; it is
                 # set once on INSERT and must never be overwritten by a
@@ -1918,7 +2228,7 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
                           list(sd.values()) + [sid, wid])
                 upd_s += 1
             else:
-                sd = {k: v for k, v in session.items()
+                sd = {k: _pg_val(v) for k, v in session.items()
                       if k != "messages" and v is not None and k in sess_cols}
                 sd.setdefault("agent_type", session_agent)
                 sd["last_synced_at"] = now
@@ -1960,7 +2270,7 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
                     if c.fetchone():
                         dup_m += 1
                         continue
-                md = {k: v for k, v in msg.items()
+                md = {k: _pg_val(v) for k, v in msg.items()
                       if v is not None and k in msg_cols}
                 md.setdefault("agent_type", session_agent)
                 md["session_id"] = sid

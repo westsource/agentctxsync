@@ -31,6 +31,7 @@ _ADAPTER_MODULES = {
     "opencode": "opencode",
     "reasonix": "reasonix",
     "openclaw": "openclaw",
+    "workbuddy": "workbuddy",
 }
 
 _adapter_cache: dict[str, type[Adapter]] = {}

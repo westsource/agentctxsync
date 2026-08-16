@@ -15,6 +15,12 @@ USER = "root"
 # Password is read from the environment so it never lands in git:
 #   $env:DEPLOY_SSH_PASSWORD = "..."  ; python scripts/deploy-remote.py
 PASSWORD = os.environ.get("DEPLOY_SSH_PASSWORD", "")
+# Remote deployment root; the server was renamed from hermes-sync-mcp to
+# agentctxsync, so deployments target /opt/agentctxsync nowadays.
+REMOTE = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/agentctxsync")
+# systemd service running the server (renamed from hermes-sync to
+# agentctxsync alongside the directory migration).
+SERVICE = os.environ.get("DEPLOY_SERVICE", "hermes-sync")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -35,40 +41,40 @@ def main():
 
     # 1. backup existing deployment (keep current behavior recoverable)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    run("mkdir -p /opt/hermes-sync-mcp/backups")
-    run(f"tar -czf /opt/hermes-sync-mcp/backups/pre-multiagent-{stamp}.tar.gz "
-        "-C /opt/hermes-sync-mcp server.py templates static client 2>/dev/null")
+    run(f"mkdir -p {REMOTE}/backups")
+    run(f"tar -czf {REMOTE}/backups/pre-multiagent-{stamp}.tar.gz "
+        f"-C {REMOTE} server.py templates static client 2>/dev/null")
     print(f"backup: pre-multiagent-{stamp}.tar.gz")
 
     # 2. upload server files
     srv = os.path.join(REPO, "server")
     for name in ("server.py", "agents.py", "translations.py"):
-        sftp.put(os.path.join(srv, name), f"/opt/hermes-sync-mcp/{name}")
+        sftp.put(os.path.join(srv, name), f"{REMOTE}/{name}")
         print(f"uploaded {name}")
     for name in os.listdir(os.path.join(srv, "templates")):
         if name.endswith(".html"):
             sftp.put(os.path.join(srv, "templates", name),
-                     f"/opt/hermes-sync-mcp/templates/{name}")
+                     f"{REMOTE}/templates/{name}")
     print("uploaded templates/*.html")
     for name in os.listdir(os.path.join(srv, "static")):
         sftp.put(os.path.join(srv, "static", name),
-                 f"/opt/hermes-sync-mcp/static/{name}")
+                 f"{REMOTE}/static/{name}")
     print("uploaded static/*")
 
     # 3. upload the mcp/ client package (download endpoint + adapters)
-    run("rm -rf /opt/hermes-sync-mcp/mcp")
-    run("mkdir -p /opt/hermes-sync-mcp/mcp/adapters")
+    run(f"rm -rf {REMOTE}/mcp")
+    run(f"mkdir -p {REMOTE}/mcp/adapters")
     mcp = os.path.join(REPO, "mcp")
     for name in ("server.py", "updater.py", "run.bat", "run.sh"):
-        sftp.put(os.path.join(mcp, name), f"/opt/hermes-sync-mcp/mcp/{name}")
+        sftp.put(os.path.join(mcp, name), f"{REMOTE}/mcp/{name}")
     for name in os.listdir(os.path.join(mcp, "adapters")):
         if name.endswith(".py"):
             sftp.put(os.path.join(mcp, "adapters", name),
-                     f"/opt/hermes-sync-mcp/mcp/adapters/{name}")
+                     f"{REMOTE}/mcp/adapters/{name}")
     print("uploaded mcp/ package")
 
     # 4. restart service (init_db runs the idempotent ALTER TABLE migration)
-    out, code = run("systemctl restart hermes-sync && sleep 4 && systemctl is-active hermes-sync")
+    out, code = run(f"systemctl restart {SERVICE} && sleep 4 && systemctl is-active {SERVICE}")
     print(f"service: {out} (exit {code})")
 
     # 5. verify /health

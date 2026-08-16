@@ -6,97 +6,130 @@
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <title>{% block title %}Agent Contexts Sync{% endblock %}</title>
   <script src="/static/tailwind.js"></script>
+  <script>
+    // Brand theme: map the entire `sky` scale to AgentCtxSync lavender (#6E56CF family)
+    // so every existing sky-* utility turns into the new brand color site-wide.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: {
+              50: '#f4f2fc',
+              100: '#e9e5f9',
+              200: '#d3ccf3',
+              300: '#b0a4ea',
+              400: '#8b79de',
+              500: '#6E56CF',
+              600: '#5B45B9',
+              700: '#4a3898',
+              800: '#3d2f7d',
+              900: '#332865'
+            }
+          }
+        }
+      }
+    }
+  </script>
   <script defer src="/static/alpine.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     .user-menu .user-dropdown { display: none; }
     .user-menu:hover .user-dropdown,
     .user-menu:focus-within .user-dropdown { display: block; }
+    body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   </style>
 </head>
-<body class="h-full bg-gray-50 text-gray-800 antialiased">
+<body class="h-full bg-[#F6F5FA] text-gray-800 antialiased">
 
 {% if user %}
 <div class="flex h-full">
   <!-- Sidebar -->
-  <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col">
+  <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col px-4 py-5">
     <!-- Logo -->
-    <div class="flex items-center gap-3 px-6 py-5 border-b border-gray-200">
-      <div class="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></div>
-      <span class="text-lg font-semibold text-gray-900">Agent Contexts Sync</span>
-    </div>
+    <a href="/web/" class="flex items-center gap-3 px-3 py-2 mb-4">
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 4px 12px rgba(94,84,207,.3)">
+        <svg width="20" height="20" viewBox="0 0 44 44" fill="none"><path d="M11.5 13.1 C14.1 8 19.3 5.5 22 5.5 C24.7 5.5 29.9 8 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M32.5 13.1 C32.3 15.6 30.4 17.1 28.1 17.1 C30.1 15.9 31.5 14.4 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.5 30.9 C29.9 36 24.7 38.5 22 38.5 C19.3 38.5 14.1 36 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M11.5 30.9 C11.7 33.4 13.6 34.9 15.9 34.9 C13.9 33.7 12.5 32.2 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="22" r="4.5" fill="#FFD166"/></svg>
+      </div>
+      <div class="min-w-0">
+        <span class="block text-[15px] font-semibold text-gray-900 leading-tight truncate">Agent Contexts Sync</span>
+      </div>
+    </a>
 
     <!-- Navigation -->
-    <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="/web/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'dashboard' %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+    <nav class="flex-1 space-y-1 overflow-y-auto">
+      <a href="/web/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'dashboard' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
         {{ t.nav_dashboard }}
       </a>
 
+      <a href="/web/all-sessions" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'all_sessions' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        {{ t.nav_all_sessions }}
+      </a>
+
       {% if workspaces %}
-      <div class="pt-2 pb-1">
-        <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.nav_workspaces }}</p>
+      <div class="pt-3 pb-1">
+        <p class="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ t.nav_workspaces }}</p>
       </div>
       {% endif %}
       {% for ws in workspaces %}
-      <a href="/web/workspace/{{ ws.id }}" class="flex items-center gap-3 pl-9 pr-3 py-2 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'workspace_' ~ ws.id %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <a href="/web/workspace/{{ ws.id }}" class="flex items-center gap-3 pl-9 pr-3 py-2 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'workspace_' ~ ws.id %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-        {{ ws.name }}
+        <span class="truncate">{{ ws.name }}</span>
       </a>
       {% endfor %}
 
       {% if user.is_admin %}
-      <div class="pt-4 pb-2">
-        <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.nav_admin }}</p>
+      <div class="pt-4 pb-1">
+        <p class="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ t.nav_admin }}</p>
       </div>
-      <a href="/web/admin/users" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'admin_users' %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <a href="/web/admin/users" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'admin_users' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
         {{ t.nav_user_management }}
       </a>
-      <a href="/web/admin/workspaces" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'admin_workspaces' %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <a href="/web/admin/workspaces" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'admin_workspaces' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         {{ t.nav_all_workspaces }}
       </a>
       {% endif %}
-      <a href="/web/invites" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'admin_invites' %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <a href="/web/invites" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'admin_invites' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
         {{ t.nav_invites }}
       </a>
-      <a href="/web/help-hermes" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-        {% if active_page == 'help_hermes' %}bg-sky-50 text-sky-600{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <a href="/web/help-hermes" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+        {% if active_page == 'help_hermes' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         {{ t.nav_hermes_help }}
       </a>
     </nav>
 
     <!-- User info + account menu (hover to open) -->
-    <div class="px-4 py-4 border-t border-gray-200">
+    <div class="pt-4 mt-2 border-t border-gray-100">
       <div class="user-menu relative">
-        <div class="flex items-center justify-between cursor-pointer">
+        <div class="flex items-center justify-between cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors">
           <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-600">
-              {{ (user.display_name or user.username)[0]|upper }}
-            </div>
-            <div>
-              <p class="text-sm font-medium text-gray-900 hover:text-sky-600 transition-colors" title="{{ t.nav_account_menu }}">{{ user.display_name or user.username }}</p>
-              <p class="text-xs text-gray-400">{{ user.username }}</p>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white shrink-0" style="background:linear-gradient(135deg,#6E56CF,#3D66C9)">{{ (user.display_name or user.username)[0]|upper }}</div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900 truncate" title="{{ t.nav_account_menu }}">{{ user.display_name or user.username }}</p>
+              <p class="text-xs text-gray-400 truncate">{{ user.username }}</p>
             </div>
           </div>
-          <a href="/web/logout" class="text-gray-400 hover:text-gray-600 transition-colors" title="{{ t.nav_logout }}">
+          <a href="/web/logout" class="text-gray-400 hover:text-gray-600 transition-colors shrink-0" title="{{ t.nav_logout }}">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
           </a>
         </div>
         <!-- Dropdown: language + edit profile (outer layer bridges the hover gap) -->
         <div class="user-dropdown" style="position:absolute;bottom:100%;left:0;width:12rem;z-index:60;padding-bottom:0.5rem;">
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:0.5rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);padding:0.375rem 0;">
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:0.75rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);padding:0.375rem 0;">
             <div class="px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider">{{ t.nav_language }}</div>
-            <a href="/web/set-language/zh-CN" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'zh-CN' %}bg-sky-50 text-sky-600{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">中文</a>
-            <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-sky-50 text-sky-600{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
+            <a href="/web/set-language/zh-CN" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'zh-CN' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">中文</a>
+            <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
             <div class="my-1 border-t border-gray-200"></div>
             <button type="button" onclick="document.getElementById('profileModal').classList.remove('hidden')" class="block w-full text-left px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.nav_edit_profile }}</button>
           </div>
@@ -139,29 +172,34 @@
 
 <!-- Edit Profile Modal (same fields as admin edit user, plus current-password check) -->
 <div id="profileModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onclick="if(event.target===this)this.classList.add('hidden')">
-  <div class="bg-white border border-gray-200 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-    <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ t.dash_account_settings }}</h3>
-    <form method="POST" action="/web/update-profile" class="space-y-4">
+  <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="text-[17px] font-semibold text-gray-900">{{ t.dash_account_settings }}</h3>
+      <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+      </button>
+    </div>
+    <form method="POST" action="/web/update-profile" class="px-6 py-5 space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
         <input type="text" name="display_name" value="{{ user.display_name or '' }}"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_new_password }}</label>
         <input type="password" name="new_password" placeholder="{{ t.admin_leave_empty }}" minlength="6"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
         <input type="password" name="old_password"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
       {% if user.is_admin %}
       <div>
         <label class="flex items-center gap-2 text-sm text-gray-500">
           <input type="checkbox" name="is_admin" value="true" checked {% if user.username == 'admin' %}disabled{% endif %}
-                 class="rounded border-slate-600 bg-gray-100 text-sky-500 focus:ring-sky-500">
+                 class="rounded border-slate-600 bg-gray-100 text-[#6E56CF] focus:ring-[#6E56CF]">
           {{ t.admin_admin_privileges }}
         </label>
         {% if user.username == 'admin' %}
@@ -170,17 +208,19 @@
       </div>
       {% endif %}
       <div class="flex justify-end gap-3 pt-2">
-        <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">{{ t.dash_cancel }}</button>
-        <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">{{ t.admin_save }}</button>
+        <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
+        <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_save }}</button>
       </div>
     </form>
   </div>
 </div>
 
 {% else %}
-<!-- No user - login page layout -->
-<div class="min-h-full flex items-center justify-center">
-  {% block content_full %}{% endblock %}
+<!-- No user - login/register page layout -->
+<div class="min-h-full flex items-center justify-center px-4" style="background:linear-gradient(150deg,#6E56CF 0%,#5B45B9 55%,#3D5AC9 100%)">
+  <div class="w-full max-w-md">
+    {% block content_full %}{% endblock %}
+  </div>
 </div>
 {% endif %}
 

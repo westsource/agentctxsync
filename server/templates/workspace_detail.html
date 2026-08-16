@@ -1,257 +1,463 @@
 {% extends "base.html" %}
 {% block title %}{{ ws.name }} - Agent Contexts Sync{% endblock %}
 {% block content %}
-{% macro sortable(label, key) %}
-  {% if sort == key %}
-  <a href="/web/workspace/{{ ws.id }}?sort={{ key }}&dir={{ 'asc' if dir == 'desc' else 'desc' }}"
-     class="inline-flex items-center gap-1 text-sky-600 hover:text-sky-500" title="{{ t.ws_sort_toggle }}">
-    {{ label }}
-    <span class="text-[10px]">{{ '▲' if dir == 'asc' else '▼' }}</span>
-  </a>
-  {% else %}
-  <a href="/web/workspace/{{ ws.id }}?sort={{ key }}&dir=desc"
-     class="inline-flex items-center gap-1 text-gray-400 hover:text-gray-600" title="{{ t.ws_sort_asc_hint }}">
-    {{ label }}
-  </a>
-  {% endif %}
-{% endmacro %}
-<!-- Back link -->
-<a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-6">
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-  {{ t.ws_back }}
-</a>
-
-<!-- Workspace Info -->
-<div class="bg-white border border-gray-200 rounded-xl mb-6">
-  <div class="px-6 py-4 border-b border-gray-200">
-    <h2 class="text-lg font-semibold text-gray-900">{{ ws.name }}</h2>
-  </div>
-  <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-    <div>
-      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_description }}</label>
-      <p class="text-sm text-gray-600">{{ ws.description or t.common_none }}</p>
+{% macro agent_color(a) -%}
+{%- if a == 'codex' -%}bg-[#E8F1FE] text-[#4285F4]
+{%- elif a == 'opencode' -%}bg-[#E9F9EF] text-[#34A853]
+{%- elif a == 'reasonix' -%}bg-[#FFF7E6] text-[#F2994A]
+{%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
+{%- else -%}bg-[#EDE9FB] text-[#6E56CF]
+{%- endif -%}
+{%- endmacro %}
+{% set filter_q = 'agent=' ~ agent ~ '&sort=' ~ sort ~ '&dir=' ~ dir ~ '&q=' ~ (q|urlencode) %}
+<!-- Page header（03 工作空间详情样式）-->
+<div class="mb-5">
+  <p class="text-xs text-gray-400">{{ t.ws_breadcrumb }}{{ ws.name }}</p>
+  <div class="flex items-center justify-between gap-4 mt-1.5">
+    <div class="flex items-center gap-3 min-w-0">
+      <h1 class="text-2xl font-bold text-gray-900 truncate">{{ ws.name }}</h1>
+      <button type="button" onclick="document.getElementById('devicesModal').classList.remove('hidden')"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E9F9EF] text-[#1E8E3E] text-[13px] font-medium hover:bg-[#D3EFDC] transition-colors shrink-0 cursor-pointer"
+              title="{{ t.ws_sync_devices }}">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 5.5C6 4.1 7.1 3 8.5 3H11.5C12.9 3 14 4.1 14 5.5V9.5C14 10.9 12.9 12 11.5 12H8.5C7.1 12 6 10.9 6 9.5V5.5Z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7.5 15H12.5M8.5 17.5H11.5"/></svg>
+        {{ t.ws_sync_devices_badge|format(devices|length) }}
+      </button>
+      {% if ws.description %}
+      <p class="text-xs text-gray-400 truncate hidden lg:block">{{ ws.description }}</p>
+      {% endif %}
     </div>
-    <div>
-      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_api_key }}</label>
-      <div class="flex items-center gap-2">
-        <code class="text-xs text-sky-600 bg-gray-100 px-2 py-1 rounded font-mono">{{ ws.api_key }}</code>
-        <button onclick="copyToClipboard(this)" data-copy="{{ ws.api_key }}" data-orig-title="{{ t.common_copy }}" data-copied-title="{{ t.common_copied }}" class="text-gray-400 hover:text-sky-600 transition-colors" title="{{ t.common_copy }}">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+    <div class="flex items-center gap-2.5 shrink-0">
+      <a href="/web/workspace/{{ ws.id }}/export"
+         class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 15 15"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.5 2V9.5M7.5 9.5L4.5 6.5M7.5 9.5L10.5 6.5"/><path stroke-linecap="round" stroke-width="1.5" d="M2.5 10.5V11.5C2.5 12.3 3.2 13 4 13H11C11.8 13 12.5 12.3 12.5 11.5V10.5"/></svg>
+        {{ t.ws_export_sessions }}
+      </a>
+      <form method="POST" action="/web/workspace/{{ ws.id }}/import" enctype="multipart/form-data" class="inline" id="import-form-{{ ws.id }}">
+        <input type="file" name="file" accept=".json,.gz,application/json,application/gzip" required
+               class="hidden" id="import-file-{{ ws.id }}"
+               onchange="document.getElementById('import-form-{{ ws.id }}').submit()">
+        <button type="button" onclick="document.getElementById('import-file-{{ ws.id }}').click()"
+                class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 15 15"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7.5 9.5V2M7.5 2L4.5 5M7.5 2L10.5 5"/><path stroke-linecap="round" stroke-width="1.5" d="M2.5 10.5V11.5C2.5 12.3 3.2 13 4 13H11C11.8 13 12.5 12.3 12.5 11.5V10.5"/></svg>
+          {{ t.ws_import_sessions }}
         </button>
-      </div>
-    </div>
-    <div>
-      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_created }}</label>
-      <p class="text-sm text-gray-600">{{ ws.created_at|timestamp_fmt if ws.created_at else t.common_none }}</p>
-    </div>
-    <div>
-      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ws_actions }}</label>
-      <div class="flex gap-2 flex-wrap">
-        <a href="/web/workspace/{{ ws.id }}/export"
-           class="inline-flex items-center justify-center h-7 px-3 text-xs bg-sky-600/10 text-sky-600 border border-sky-600/20 rounded-lg hover:bg-sky-600/20 transition-colors">{{ t.ws_export_sessions }}</a>
-        <form method="POST" action="/web/workspace/{{ ws.id }}/import" enctype="multipart/form-data" class="inline" id="import-form-{{ ws.id }}">
-          <input type="file" name="file" accept=".json,.gz,application/json,application/gzip" required
-                 class="hidden" id="import-file-{{ ws.id }}"
-                 onchange="document.getElementById('import-form-{{ ws.id }}').submit()">
-          <button type="button" onclick="document.getElementById('import-file-{{ ws.id }}').click()"
-                  class="inline-flex items-center justify-center h-7 px-3 text-xs bg-emerald-600/10 text-emerald-600 border border-emerald-600/20 rounded-lg hover:bg-emerald-600/20 transition-colors">{{ t.ws_import_sessions }}</button>
-        </form>
-        <form method="POST" action="/web/workspace/{{ ws.id }}/regen-key" class="inline"
-              onclick="return confirm('{{ t.common_confirm_regenerate }}')">
-          <button type="submit" class="inline-flex items-center justify-center h-7 px-3 text-xs bg-amber-600/10 text-amber-400 border border-amber-600/20 rounded-lg hover:bg-amber-600/20 transition-colors">{{ t.ws_regenerate_key }}</button>
-        </form>
-      </div>
+      </form>
+      <form method="POST" action="/web/workspace/{{ ws.id }}/regen-key" class="inline"
+            onclick="return confirm('{{ t.common_confirm_regenerate }}')">
+        <button type="submit"
+                class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] rounded-[10px] hover:bg-[#5B45B9] transition-colors shadow-md shadow-[#6E56CF]/25">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 15 15"><path stroke-linecap="round" stroke-width="1.5" d="M10.5 4.5H13V7H10.5"/><path stroke-linejoin="round" stroke-width="1.5" d="M10.8 7C10.3 9 8.8 10 6.5 10C4 10 2 8 2 5.5C2 3 4 1 6.5 1C8.6 1 10.5 2.4 10.8 7Z"/></svg>
+          {{ t.ws_regenerate_key }}
+        </button>
+      </form>
     </div>
   </div>
 </div>
 
-<!-- Sync Devices -->
-<div class="bg-white border border-gray-200 rounded-xl mb-6">
-  <div class="px-6 py-4 border-b border-gray-200">
-    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_sync_devices }}</h2>
+<!-- API Key 卡片（03 工作空间详情样式）-->
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4 mb-6">
+  <div class="w-9 h-9 rounded-[10px] bg-[#FFF7E6] flex items-center justify-center shrink-0">
+    <svg class="w-[18px] h-[18px] text-[#F2994A]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-width="1.8" d="M14.5 6.5H17V9H14.5"/><path stroke-linejoin="round" stroke-width="1.8" d="M14.7 9C14.2 12 12.3 13.5 9 13.5C5.5 13.5 3 11 3 7.5C3 4 5.5 1.5 9 1.5C12 1.5 14.6 3.2 14.7 9Z"/></svg>
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-gray-200">
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_device }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_sessions_synced }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages_synced }}</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for d in devices %}
-        <tr class="hover:bg-gray-100/50 transition-colors">
-          <td class="px-6 py-4 font-medium text-gray-900 text-sm">{{ d.device_id }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ d.last_sync_at|timestamp_fmt if d.last_sync_at else t.common_never }}</td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-600">{{ d.sessions_synced }}</span></td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ d.messages_synced }}</span></td>
-        </tr>
-        {% endfor %}
-        {% if not devices %}
-        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_devices }}</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Recent Sessions -->
-<div class="bg-white border border-gray-200 rounded-xl">
-  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
-    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_recent_sessions }}</h2>
-    <div class="flex items-center gap-2">
-    <form method="GET" action="/web/workspace/{{ ws.id }}" class="flex items-center gap-2">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="dir" value="{{ dir }}">
-      <input type="hidden" name="page" value="1">
-      <label class="text-xs text-gray-500">{{ t.ws_profile_filter }}</label>
-      <select name="profile" onchange="this.form.submit()"
-        class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        <option value="all" {% if profile == 'all' %}selected{% endif %}>{{ t.ws_profile_all }}</option>
-        <option value="default" {% if profile == 'default' %}selected{% endif %}>{{ t.ws_profile_default }}</option>
-        {% for p in profile_options %}
-        <option value="{{ p }}" {% if profile == p %}selected{% endif %}>{{ p }}</option>
-        {% endfor %}
-      </select>
-      <input type="search" name="q" value="{{ q }}" placeholder="{{ t.ws_search_placeholder }}"
-             class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 w-40 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-             onchange="this.form.submit()">
-    </form>
-    <a href="/web/workspace/{{ ws.id }}/trash"
-       class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-sky-600 hover:border-sky-300 transition-colors">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-      {{ t.ws_trash_sessions }}
-      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-sky-100 text-sky-700">{{ trash_count }}</span>{% endif %}
-    </a>
+  <div class="min-w-0 flex-1">
+    <p class="text-xs font-medium text-gray-400">{{ t.ws_api_key }}</p>
+    <div class="flex items-center gap-2 mt-0.5">
+      <code id="wsApiKeyValue" class="text-sm font-mono text-gray-700 break-all">{{ ws.api_key[:8] }}••••••••{{ ws.api_key[-4:] }}</code>
+      <button type="button" onclick="toggleApiKeyVisibility(this)" data-full="{{ ws.api_key }}" data-target="wsApiKeyValue" data-shown="0"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-[#6E56CF] hover:bg-[#EDE9FB] transition-colors shrink-0" title="{{ t.ws_api_key_show }}">
+        <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3" stroke-width="1.8"/></svg>
+        <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4L20 20M10.7 7.1A12 12 0 0 1 12 7c6 0 9.5 5 9.5 5a16.5 16.5 0 0 1-2.2 2.6M6.5 6.5A16.6 16.6 0 0 0 2.5 12s3.5 5 9.5 5c.9 0 1.7-.1 2.4-.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+      </button>
+      <button onclick="copyToClipboard(this)" data-copy="{{ ws.api_key }}" data-orig-title="{{ t.common_copy }}" data-copied-title="{{ t.common_copied }}"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F6F5FA] text-xs font-medium text-gray-600 hover:bg-[#EDE9FB] hover:text-[#6E56CF] transition-colors shrink-0" title="{{ t.common_copy }}">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 13 13"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke-width="1.3"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.3" d="M8.5 4.5V3C8.5 2.4 8.1 2 7.5 2H3C2.4 2 2 2.4 2 3V7.5C2 8.1 2.4 8.5 3 8.5H4.5"/></svg>
+        {{ t.common_copy }}
+      </button>
     </div>
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-gray-200">
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_title }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_agent }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_profile }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_model }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_messages, 'msg_count') }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_started, 'started_at') }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ sortable(t.ws_last_updated, 'last_msg_at') }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_actions }}</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for s in sessions %}
-        <tr class="hover:bg-gray-100/50 transition-colors">
-          <td class="px-6 py-4 font-medium text-gray-900 text-sm">
-            {% if s.pinned %}<span class="mr-1" title="{{ t.ws_pinned }}">📌</span>{% endif %}
-            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="hover:text-sky-600 transition-colors">{{ s.title or s.id }}</a>
-          </td>
-          <td class="px-6 py-4">
-            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-              {% if s.agent_type == 'codex' %}bg-orange-50 text-orange-600
-              {% elif s.agent_type == 'opencode' %}bg-emerald-50 text-emerald-600
-              {% elif s.agent_type == 'reasonix' %}bg-indigo-50 text-indigo-600
-              {% elif s.agent_type == 'openclaw' %}bg-rose-50 text-rose-600
-              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ s.agent_type or 'hermes' }}</span>
-          </td>
-          <td class="px-6 py-4">
-            {% if s.profile %}
-            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-              {% if s.profile == 'default' %}bg-gray-100 text-gray-600
-              {% else %}bg-sky-50 text-sky-600{% endif %}">{{ s.profile }}</span>
-            {% else %}<span class="text-gray-300">—</span>{% endif %}
-          </td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.model or t.common_none }}</td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-600">{{ s.msg_count }}</span></td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.last_msg_at|timestamp_fmt if s.last_msg_at else (s.last_synced_at|timestamp_fmt if s.last_synced_at else t.common_none) }}</td>
-          <td class="px-6 py-4">
-            <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/{{ 'unhide' if s.hidden else 'hide' }}"
-              class="inline" onsubmit="return confirm('{{ t.ws_hide_confirm if not s.hidden else t.ws_unhide_confirm }}')">
-              <button type="submit" class="text-xs font-medium
-                {% if s.hidden %}text-emerald-600 hover:text-emerald-500{% else %}text-gray-400 hover:text-red-500{% endif %} transition-colors"
-                title="{{ t.ws_hide_hint if not s.hidden else t.ws_unhide_hint }}">
-                {{ t.ws_unhide if s.hidden else t.ws_hide }}</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-        {% if not sessions %}
-        <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_sessions }}</td></tr>
+  <p class="text-xs text-gray-400 shrink-0 hidden md:block">{{ t.ws_api_key_hint }}</p>
+</div>
+
+<!-- Sync Devices 已迁移至顶部徽章触发的模态框（见页面底部 devicesModal） -->
+
+<!-- ===================== 会话列表（方案 A） ===================== -->
+<div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
+  <!-- 头部：标题 + 动态标签 + 排序 + 搜索 + 回收站 -->
+  <div class="px-6 pt-4 pb-3 border-b border-gray-100">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <h2 class="text-[17px] font-semibold text-gray-900 whitespace-nowrap">{{ t.ws_recent_sessions }}</h2>
+        {% if new_24h > 0 %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E9F9EF] text-[#1E8E3E] text-[11px] font-semibold whitespace-nowrap">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 16 16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 12V4M8 4L4.5 7.5M8 4L11.5 7.5"/></svg>
+          {{ t.ws_new_24h|format(new_24h) }}
+        </span>
         {% endif %}
-      </tbody>
-    </table>
+        <span class="text-xs text-gray-400 whitespace-nowrap">{{ t.ws_sessions_count|format(total) }}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- 排序 -->
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs text-gray-400">{{ t.ws_sort_label }}</span>
+          <select onchange="toggleSort(this)"
+                  class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 hover:border-[#6E56CF]/30 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] transition-colors">
+            <option value="last_msg_at" {% if sort == 'last_msg_at' %}selected{% endif %}>{{ t.ws_sort_recent }}</option>
+            <option value="started_at" {% if sort == 'started_at' %}selected{% endif %}>{{ t.ws_sort_started }}</option>
+            <option value="msg_count" {% if sort == 'msg_count' %}selected{% endif %}>{{ t.ws_sort_msgs }}</option>
+          </select>
+          <button type="button" onclick="toggleDir()" class="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors" title="{{ t.ws_sort_toggle }}">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 16 16">
+              {% if dir == 'asc' %}<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 3L4.5 7H11.5L8 3Z"/><path stroke-linecap="round" stroke-width="1.4" d="M8 13V7"/>
+              {% else %}<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 13L4.5 9H11.5L8 13Z"/><path stroke-linecap="round" stroke-width="1.4" d="M8 3V9"/>{% endif %}
+            </svg>
+          </button>
+        </div>
+        <!-- 搜索 -->
+        <form method="GET" action="/web/workspace/{{ ws.id }}" class="relative">
+          <input type="hidden" name="sort" value="{{ sort }}">
+          <input type="hidden" name="dir" value="{{ dir }}">
+          <input type="hidden" name="agent" value="{{ agent }}">
+          <input type="hidden" name="page" value="1">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5" stroke-width="1.6"/><path stroke-linecap="round" stroke-width="1.6" d="M13.5 13.5L17 17"/></svg>
+          <input type="search" name="q" value="{{ q }}" placeholder="{{ t.ws_search_placeholder }}"
+                 class="pl-9 pr-3 py-2 text-xs rounded-[10px] border border-gray-200 bg-[#F6F5FA] focus:bg-white w-44 text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF] transition-colors"
+                 onchange="this.form.submit()">
+        </form>
+        <!-- 回收站入口 -->
+        <a href="/web/workspace/{{ ws.id }}/trash"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          {{ t.ws_trash_sessions }}
+          {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ trash_count }}</span>{% endif %}
+        </a>
+      </div>
+    </div>
+    <!-- Agent 胶囊筛选 -->
+    <div class="flex flex-wrap items-center justify-between gap-3 mt-3.5">
+      {% set agent_options = [('all', t.ws_agent_all), ('hermes', 'Hermes'), ('codex', 'Codex'), ('opencode', 'opencode'), ('reasonix', 'Reasonix'), ('openclaw', 'OpenClaw')] %}
+      <div class="flex flex-wrap items-center gap-1.5">
+        {% for val, label in agent_options %}
+        <a href="/web/workspace/{{ ws.id }}?agent={{ val }}&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}"
+           class="px-3 py-1.5 rounded-full text-xs font-medium transition-all
+           {% if agent == val %}bg-[#6E56CF] text-white shadow-sm shadow-[#6E56CF]/30
+           {% else %}bg-[#F6F5FA] text-gray-500 hover:bg-[#EDE9FB] hover:text-[#6E56CF]{% endif %}">{{ label }}</a>
+        {% endfor %}
+      </div>
+      {% if agent == 'hermes' and (profile_options or profile != 'all') %}
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-gray-400">{{ t.ws_profile_filter }}</span>
+        <select onchange="location.href=this.value"
+                class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#6E56CF]">
+          <option value="/web/workspace/{{ ws.id }}?agent=hermes&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}&profile=all" {% if profile == 'all' %}selected{% endif %}>{{ t.ws_profile_all }}</option>
+          <option value="/web/workspace/{{ ws.id }}?agent=hermes&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}&profile=default" {% if profile == 'default' %}selected{% endif %}>{{ t.ws_profile_default }}</option>
+          {% for p in profile_options %}
+          <option value="/web/workspace/{{ ws.id }}?agent=hermes&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}&profile={{ p }}" {% if profile == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
   </div>
+
+  <!-- 会话分组列表 -->
+  <div class="p-4">
+    {% set pinned_list = sessions|selectattr('pinned')|list %}
+    {% set normal_list = sessions|rejectattr('pinned')|list %}
+    {% if pinned_list %}
+    <div class="flex items-center gap-2 px-1 pt-1 pb-2">
+      <svg class="w-3.5 h-3.5 text-[#F2994A]" fill="currentColor" viewBox="0 0 24 24"><path d="M10.8 2.5L15.5 7.2L11.5 9.5L8.5 12.5L5.5 12.5L2.5 15.5L5.5 12.5V9.5L8.5 6.5L10.8 2.5Z"/></svg>
+      <span class="text-[11px] font-semibold text-gray-500 tracking-wider">{{ t.ws_pinned_group }}</span>
+      <span class="h-px flex-1 bg-gray-100"></span>
+      <span class="text-[11px] text-gray-300">{{ pinned_list|length }}</span>
+    </div>
+    <div class="space-y-2.5">
+      {% for s in pinned_list %}
+      <div class="group relative flex items-center gap-4 pl-4 pr-3 py-3 rounded-xl hover:bg-[#F6F5FA] border border-transparent hover:border-[#6E56CF]/10 hover:shadow-[inset_3px_0_0_0_#6E56CF] transition-all">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="font-medium text-gray-900 hover:text-[#6E56CF] transition-colors truncate">{{ s.title or s.id }}</a>
+          </div>
+          <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+            <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
+            <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+            <span>{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            {% if s.model %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span><span class="truncate max-w-[160px]">{{ s.model }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold {{ agent_color(s.agent_type) }}">
+            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+          </span>
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 6.5C4 5.7 4.7 5 5.5 5H14.5C15.3 5 16 5.7 16 6.5V13C16 13.8 15.3 14.5 14.5 14.5H8.5L5.5 17V14.5H5.5C4.7 14.5 4 13.8 4 13V6.5Z"/></svg>
+            <span class="tabular-nums font-semibold text-gray-700">{{ s.msg_count }}</span>
+            <span class="text-gray-400">{{ t.ws_msg_count }}</span>
+          </span>
+        </div>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/hide"
+              class="shrink-0" onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
+          <button type="submit" class="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="{{ t.ws_hide_btn_hint }}">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </form>
+        <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if normal_list %}
+    <div class="flex items-center gap-2 px-1 pt-1 pb-2 {% if pinned_list %}mt-4{% endif %}">
+      <span class="text-[11px] font-semibold text-gray-500 tracking-wider">{{ t.ws_other_group }}</span>
+      <span class="h-px flex-1 bg-gray-100"></span>
+      <span class="text-[11px] text-gray-300">{{ normal_list|length }}</span>
+    </div>
+    <div class="space-y-2.5">
+      {% for s in normal_list %}
+      <div class="group relative flex items-center gap-4 pl-4 pr-3 py-3 rounded-xl hover:bg-[#F6F5FA] border border-transparent hover:border-[#6E56CF]/10 hover:shadow-[inset_3px_0_0_0_#6E56CF] transition-all">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            {% if s.pinned %}
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#FFF7E6] border border-[#F2994A]/25 shrink-0" title="{{ t.ws_pinned }}">
+              <svg class="w-3 h-3 text-[#F2994A]" fill="currentColor" viewBox="0 0 24 24"><path d="M10.8 2.5L15.5 7.2L11.5 9.5L8.5 12.5L5.5 12.5L2.5 15.5L5.5 12.5V9.5L8.5 6.5L10.8 2.5Z"/></svg>
+            </span>
+            {% endif %}
+            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="font-medium text-gray-900 hover:text-[#6E56CF] transition-colors truncate">{{ s.title or s.id }}</a>
+          </div>
+          <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+            <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
+            <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+            <span>{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            {% if s.model %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span><span class="truncate max-w-[160px]">{{ s.model }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold {{ agent_color(s.agent_type) }}">
+            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+          </span>
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 6.5C4 5.7 4.7 5 5.5 5H14.5C15.3 5 16 5.7 16 6.5V13C16 13.8 15.3 14.5 14.5 14.5H8.5L5.5 17V14.5H5.5C4.7 14.5 4 13.8 4 13V6.5Z"/></svg>
+            <span class="tabular-nums font-semibold text-gray-700">{{ s.msg_count }}</span>
+            <span class="text-gray-400">{{ t.ws_msg_count }}</span>
+          </span>
+        </div>
+        <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/hide"
+              class="shrink-0" onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
+          <button type="submit" class="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="{{ t.ws_hide_btn_hint }}">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </form>
+        <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not sessions %}
+    <div class="py-16 text-center text-gray-400 text-sm">{{ t.ws_no_sessions }}</div>
+    {% endif %}
+  </div>
+
+  <!-- 分页 -->
   {% if pages > 1 or total > size %}
-  <div class="flex items-center justify-between gap-3 px-6 py-3 border-t border-gray-200">
+  <div class="flex items-center justify-between gap-3 px-6 py-3 border-t border-gray-100">
     <div class="text-xs text-gray-400">{{ t.ws_page_info|format(total, page, pages) }}</div>
     <div class="flex items-center gap-2">
-      <select onchange="location.href='/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size=' + this.value + '&page=1'"
-              class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-sky-300 transition-colors">
+      <select onchange="setSize(this)"
+              class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-[#6E56CF]/30 transition-colors">
         <option value="20" {% if size == 20 %}selected{% endif %}>20 {{ t.ws_per_page }}</option>
         <option value="50" {% if size == 50 %}selected{% endif %}>50 {{ t.ws_per_page }}</option>
         <option value="100" {% if size == 100 %}selected{% endif %}>100 {{ t.ws_per_page }}</option>
       </select>
       {% if page > 1 %}
-      <a href="/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size={{ size }}&page={{ page - 1 }}"
-         class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
+      <a href="/web/workspace/{{ ws.id }}?{{ filter_q }}&size={{ size }}&page={{ page - 1 }}"
+         class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#6E56CF]/30 text-gray-600 hover:text-[#6E56CF] rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
       {% endif %}
       {% if page < pages %}
-      <a href="/web/workspace/{{ ws.id }}?sort={{ sort }}&dir={{ dir }}&size={{ size }}&page={{ page + 1 }}"
-         class="px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_next_page }}</a>
+      <a href="/web/workspace/{{ ws.id }}?{{ filter_q }}&size={{ size }}&page={{ page + 1 }}"
+         class="px-3 py-1.5 text-xs bg-[#6E56CF] hover:bg-[#5B45B9] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_next_page }}</a>
       {% endif %}
     </div>
   </div>
   {% endif %}
 </div>
 
-<!-- Projects -->
-<div class="bg-white border border-gray-200 rounded-xl mt-6">
-  <div class="px-6 py-4 border-b border-gray-200">
-    <h2 class="text-lg font-semibold text-gray-900">{{ t.ws_projects }}</h2>
+<!-- ===================== 项目列表（方案 B） ===================== -->
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm mt-6 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.ws_projects }}</h2>
+      <span class="text-xs text-gray-400">{{ t.ws_projects_count|format(projects|length) }}</span>
+    </div>
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-gray-200">
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_name }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_slug }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_folders }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_sessions }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_project_status }}</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for p in projects %}
-        <tr class="hover:bg-gray-100/50 transition-colors">
-          <td class="px-6 py-4 font-medium text-gray-900 text-sm">{{ p.name or p.id }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500"><code class="text-xs bg-gray-100 px-1.5 py-0.5 rounded" title="{{ p.slug }}">{{ p.slug[:5] }}</code></td>
-          <td class="px-6 py-4 text-sm text-gray-500">
-            {% if p.folders %}
-            {% for f in p.folders %}<div class="truncate max-w-md">{{ f.path }}{% if f.is_primary %} <span class="text-[10px] text-sky-500">★</span>{% endif %}</div>{% endfor %}
-            {% else %}<span class="text-gray-300">—</span>{% endif %}
-          </td>
-          <td class="px-6 py-4 text-sm text-gray-500">
-            {% if p.sessions %}
-            {% for s in p.sessions[:5] %}
-            <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="block truncate max-w-md text-sky-600 hover:text-sky-500">{{ s.title or s.id }}</a>
-            {% endfor %}
-            {% if p.session_count > 5 %}<span class="text-[11px] text-gray-400">+{{ p.session_count - 5 }} {{ t.ws_more }}</span>{% endif %}
-            {% else %}<span class="text-gray-300">—</span>{% endif %}
-          </td>
-          <td class="px-6 py-4">
-            {% if p.archived %}<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{{ t.ws_project_archived }}</span>
-            {% else %}<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ t.ws_project_active }}</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-        {% if not projects %}
-        <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_projects }}</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
+  <div class="p-5">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      {% for p in projects %}
+      {% set primary = p.folders|selectattr('is_primary')|list %}
+      {% if not primary and p.folders %}{% set primary = [p.folders[0]] %}{% endif %}
+      <div class="group relative rounded-2xl border p-5 transition-all duration-200
+        {% if p.archived %}border-gray-100 bg-[#F8F8FA] opacity-70
+        {% else %}border-[#ECEAF6] bg-white hover:border-[#6E56CF]/30 hover:shadow-lg hover:shadow-[#6E56CF]/8{% endif %}">
+        <div class="flex items-start gap-4">
+          <!-- 图标 -->
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center shrink-0
+            {% if p.archived %}bg-gray-100 text-gray-400
+            {% else %}bg-gradient-to-br from-[#6E56CF] to-[#9B8FEA] text-white shadow-md shadow-[#6E56CF]/25{% endif %}">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+          </div>
+          <!-- 信息 -->
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-semibold text-[15px] text-gray-900 truncate">{{ p.name or p.id }}</h3>
+              <code class="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-[#F6F5FA] text-gray-500 border border-gray-100 shrink-0">{{ p.slug[:5] }}</code>
+              {% if p.archived %}<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 shrink-0">{{ t.ws_project_archived }}</span>
+              {% else %}<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#E9F9EF] text-[#34A853] shrink-0">{{ t.ws_project_active }}</span>{% endif %}
+            </div>
+            <!-- 主路径 -->
+            <div class="flex items-center gap-1.5 mt-1.5 text-xs text-gray-400 truncate">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+              <span class="text-[11px] font-mono truncate">{{ primary[0].path if primary else t.common_none }}</span>
+            </div>
+            <!-- 关联会话预览 -->
+            <div class="mt-3 pt-3 border-t border-gray-50 space-y-1.5">
+              <p class="text-[10px] font-semibold text-gray-300 tracking-wider">{{ t.ws_related_sessions }}</p>
+              {% if p.sessions %}
+              {% for s in p.sessions[:2] %}
+              <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="flex items-center gap-2 text-xs text-gray-600 hover:text-[#6E56CF] transition-colors">
+                <span class="w-1.5 h-1.5 rounded-full {% if p.archived %}bg-gray-300{% else %}bg-[#6E56CF]/40{% endif %} shrink-0"></span>
+                <span class="truncate">{{ s.title or s.id }}</span>
+              </a>
+              {% endfor %}
+              {% if p.session_count > 2 %}
+              <a href="/web/workspace/{{ ws.id }}?q={{ (p.name or p.id)|urlencode }}" class="inline-flex items-center gap-1 text-[11px] font-medium text-[#6E56CF] hover:text-[#5B45B9] mt-0.5">
+                {{ t.ws_view_all_sessions|format(p.session_count) }}
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              </a>
+              {% endif %}
+              {% else %}
+              <span class="text-[11px] text-gray-300">{{ t.ws_no_related }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <!-- 会话数圆点指示（方案 C） -->
+          <div class="shrink-0 w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center border
+            {% if p.archived %}bg-gray-50 border-gray-100 text-gray-400
+            {% elif p.session_count > 0 %}bg-[#F6F5FA] border-[#EDE9FB] text-[#6E56CF]
+            {% else %}bg-[#F6F5FA] border-[#EDE9FB] text-gray-300{% endif %}">
+            <span class="text-lg font-bold leading-none">{{ p.session_count }}</span>
+            <span class="text-[10px] mt-1">{{ t.ws_session_label }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if not projects %}
+    <div class="py-16 text-center text-gray-400 text-sm">{{ t.ws_no_projects }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function toggleApiKeyVisibility(btn) {
+  var code = document.getElementById(btn.getAttribute('data-target'));
+  var full = btn.getAttribute('data-full');
+  var shown = btn.getAttribute('data-shown') === '1';
+  var eyeOpen = btn.querySelector('.eye-open');
+  var eyeClosed = btn.querySelector('.eye-closed');
+  if (shown) {
+    code.textContent = full.slice(0, 8) + '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + full.slice(-4);
+    btn.setAttribute('data-shown', '0');
+    btn.title = '{{ t.ws_api_key_show }}';
+    eyeOpen.classList.remove('hidden');
+    eyeClosed.classList.add('hidden');
+  } else {
+    code.textContent = full;
+    btn.setAttribute('data-shown', '1');
+    btn.title = '{{ t.ws_api_key_hide }}';
+    eyeOpen.classList.add('hidden');
+    eyeClosed.classList.remove('hidden');
+  }
+}
+function toggleSort(sel){
+  var url = new URL(location.href);
+  var v = sel.value;
+  if (url.searchParams.get('sort') === v) {
+    url.searchParams.set('dir', url.searchParams.get('dir') === 'asc' ? 'desc' : 'asc');
+  } else {
+    url.searchParams.set('sort', v);
+    url.searchParams.set('dir', 'desc');
+  }
+  url.searchParams.set('page', '1');
+  location.href = url.toString();
+}
+function toggleDir(){
+  var url = new URL(location.href);
+  url.searchParams.set('dir', url.searchParams.get('dir') === 'asc' ? 'desc' : 'asc');
+  url.searchParams.set('page', '1');
+  location.href = url.toString();
+}
+function setSize(sel){
+  var url = new URL(location.href);
+  url.searchParams.set('size', sel.value);
+  url.searchParams.set('page', '1');
+  location.href = url.toString();
+}
+</script>
+
+<!-- Devices Modal（顶部徽章触发） -->
+<div id="devicesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <h3 class="text-[17px] font-semibold text-gray-900">{{ t.ws_sync_devices }}</h3>
+        <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ devices|length }}</span>
+      </div>
+      <button type="button" onclick="document.getElementById('devicesModal').classList.add('hidden')"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+      </button>
+    </div>
+    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="bg-[#F9F8FD]">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_device }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_sessions_synced }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages_synced }}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for d in devices %}
+          <tr class="hover:bg-[#F9F8FD] transition-colors">
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-[#EDE9FB] flex items-center justify-center shrink-0">
+                  <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M6 5.5C6 4.1 7.1 3 8.5 3H11.5C12.9 3 14 4.1 14 5.5V9.5C14 10.9 12.9 12 11.5 12H8.5C7.1 12 6 10.9 6 9.5V5.5Z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7.5 15H12.5M8.5 17.5H11.5"/></svg>
+                </div>
+                <div>
+                  <p class="font-medium text-gray-900 text-sm font-mono">{{ d.device_id }}</p>
+                  <p class="text-[11px] text-gray-400 mt-0.5">{{ t.ws_device }}</p>
+                </div>
+              </div>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ d.last_sync_at|timestamp_fmt if d.last_sync_at else t.common_never }}</td>
+            <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.sessions_synced }}</span></td>
+            <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ d.messages_synced }}</span></td>
+          </tr>
+          {% endfor %}
+          {% if not devices %}
+          <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_devices }}</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="px-6 py-3 border-t border-gray-100 text-xs text-gray-400">{{ t.ws_sync_freq }}</div>
   </div>
 </div>
 {% endblock %}
