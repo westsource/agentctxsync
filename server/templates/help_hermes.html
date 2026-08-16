@@ -1,9 +1,27 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ t.help_title }} - Agent Contexts Sync{% endblock %}
 {% block content %}
-<div class="max-w-4xl">
-  <!-- Header -->
-  <div class="mb-6">
+{% macro agent_color(a) -%}
+{%- if a == 'codex' -%}bg-[#E8F1FE] text-[#4285F4]
+{%- elif a == 'opencode' -%}bg-[#E9F9EF] text-[#34A853]
+{%- elif a == 'reasonix' -%}bg-[#FFF7E6] text-[#F2994A]
+{%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
+{%- else -%}bg-[#EDE9FB] text-[#6E56CF]
+{%- endif -%}
+{%- endmacro %}
+<style>
+  [x-cloak] { display: none !important; }
+  pre { position: relative; }
+  .code-copy { position: absolute; top: 6px; right: 6px; padding: 1px 8px; border-radius: 6px; font-size: 11px; background: rgba(255,255,255,.1); color: #cbd5e1; cursor: pointer; transition: all .15s; }
+  .code-copy:hover { background: rgba(255,255,255,.22); color: #fff; }
+  .step-dot { transition: all .2s; }
+</style>
+
+<div class="max-w-4xl" x-data="helpWizard()" x-init="init()">
+  <!-- ========== 固定区：页头 + 步骤条 + 工作空间选择（滚动时保持不动） ========== -->
+  <div class="sticky top-0 z-30 bg-[#F6F5FA] pt-6 pb-4 border-b border-gray-200/60">
+    <!-- ========== 页头 ========== -->
+    <div class="mb-4">
     <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
       {{ t.common_back }}
@@ -12,41 +30,100 @@
     <p class="text-gray-400 text-sm mt-1">{{ t.help_subtitle }}</p>
   </div>
 
-  <!-- 1. Download + per-agent install & verify -->
-  <div class="mb-6">
+  <!-- ========== 步骤条（真实状态机） ========== -->
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm px-5 py-4 mb-3">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <button type="button" @click="goto(1)" class="flex items-center gap-2.5 text-sm font-medium transition-colors"
+              :class="step === 1 ? 'text-[#6E56CF]' : 'text-gray-500 hover:text-[#6E56CF]'">
+        <span class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+              :class="step > 1 ? 'bg-emerald-100 text-emerald-600' : (step === 1 ? 'bg-[#6E56CF] text-white' : 'bg-[#EDE9FB] text-[#6E56CF]')">
+          <span x-show="step > 1">✓</span><span x-show="step <= 1">1</span>
+        </span>
+        {{ t.help_flow_download }}
+      </button>
+      <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <button type="button" @click="goto(2)" class="flex items-center gap-2.5 text-sm font-medium transition-colors"
+              :class="step === 2 ? 'text-[#6E56CF]' : 'text-gray-500 hover:text-[#6E56CF]'">
+        <span class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+              :class="step > 2 ? 'bg-emerald-100 text-emerald-600' : (step === 2 ? 'bg-[#6E56CF] text-white' : 'bg-[#EDE9FB] text-[#6E56CF]')">
+          <span x-show="step > 2">✓</span><span x-show="step <= 2">2</span>
+        </span>
+        {{ t.help_flow_configure }}
+      </button>
+      <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <button type="button" @click="goto(3)" class="flex items-center gap-2.5 text-sm font-medium transition-colors"
+              :class="step === 3 ? 'text-[#6E56CF]' : 'text-gray-500 hover:text-[#6E56CF]'">
+        <span class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+              :class="step === 3 ? 'bg-[#6E56CF] text-white' : 'bg-[#EDE9FB] text-[#6E56CF]'">
+          <span>3</span>
+        </span>
+        {{ t.help_flow_verify }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== 全局工作空间选择（贯穿三步） ========== -->
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm px-5 py-4" x-show="wsList.length">
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="text-sm font-medium text-gray-700 shrink-0">{{ t.help_ws_label }}</span>
+      <select x-model="wsId" class="text-sm border border-gray-200 rounded-[10px] px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#6E56CF]">
+        <template x-for="w in wsList" :key="w.id">
+          <option :value="w.id" x-text="w.name"></option>
+        </template>
+      </select>
+      <span class="text-xs text-gray-400" x-show="selectedWs" x-text="'{{ t.help_key_section }}: ' + keyMasked(wsKey)"></span>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- ========== ① 下载客户端 ========== -->
+  <section x-show="step === 1" x-cloak class="mb-6">
     <div class="flex items-center gap-2.5 mb-1">
       <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0">
         <svg class="w-5 h-5 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
       </span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_download_section }}</h2>
     </div>
-    <p class="text-sm text-gray-400 mb-4">{{ t.help_download_desc }}</p>
+    <p class="text-sm text-gray-400 mb-4">{{ t.help_step1_hint }}</p>
+    <p class="text-sm text-amber-500 mb-4" x-show="!wsList.length">{{ t.dash_no_workspaces }} <a href="/web/" class="underline">{{ t.dash_create_workspace }}</a></p>
     <div class="grid grid-cols-1 gap-4">
       {% for agent_key, agent in agents.items() %}
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md hover:shadow-[#6E56CF]/5 hover:border-[#6E56CF]/20 transition-all">
-        <div class="flex items-center gap-3 mb-2">
-          <div class="w-10 h-10 rounded-xl bg-[#EDE9FB] flex items-center justify-center">
-            <svg class="w-5 h-5 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm transition-all cursor-pointer"
+           @click="selectAgent('{{ agent_key }}')"
+           :class="agent === '{{ agent_key }}' ? 'border-[#6E56CF]/40 ring-1 ring-[#6E56CF]/30 shadow-md' : 'hover:shadow-md hover:border-[#6E56CF]/20'">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 {{ agent_color(agent_key) }}">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
           </div>
-          <div class="min-w-0">
-            <h3 class="text-sm font-bold text-gray-900">{{ agent.label }}</h3>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm font-bold text-gray-900">{{ agent.label }}</h3>
+              {% if agent.downloadable %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-600">{{ t.help_flow_download }}</span>
+              {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-500">{{ t.help_badge_adapting }}</span>
+              {% endif %}
+            </div>
             <p class="text-xs text-gray-400 mt-0.5 truncate">{{ agent.desc }}</p>
           </div>
         </div>
-        <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
-        <div class="flex flex-wrap gap-2 mb-3">
-          {% for ws in ws_list %}
-          <a href="/web/download/mcp-client?ws_id={{ ws.id }}&agent={{ agent_key }}"
-             class="inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20">
+        <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          {% if agent.downloadable %}
+          <button type="button" @click.stop="download()"
+                  :disabled="!wsList.length"
+                  class="inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20 disabled:opacity-40 disabled:cursor-not-allowed">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
-            {{ t.help_download_for|format(ws.name) }}
-          </a>
+            {{ t.help_download_btn }}
+          </button>
+          <span class="text-xs text-amber-500" x-show="!wsList.length">{{ t.help_select_ws }}</span>
           {% else %}
-          <p class="text-sm text-gray-400">{{ t.dash_no_workspaces }}</p>
-          {% endfor %}
+          <span class="text-xs text-gray-400">{{ t.help_manual_note.replace('{0}', '<code class="text-gray-600 bg-[#F6F5FA] px-1 py-0.5 rounded border border-gray-100">' ~ agent_key ~ '</code>') | safe }}</span>
+          {% endif %}
         </div>
         <details class="group">
-          <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-[#6E56CF] hover:text-[#5B45B9]">
+          <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-[#6E56CF] hover:text-[#5B45B9] select-none">
             <svg class="w-4 h-4 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             {{ t.help_install_detail }}
           </summary>
@@ -57,101 +134,135 @@
                 <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ loop.index }}</span>
                 <span class="min-w-0 flex-1">
                   {% if step.text %}<span>{{ step.text | safe }}</span>{% endif %}
-                  {% if step.code %}<pre class="mt-2 px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ step.code }}</code></pre>{% endif %}
+                  {% if step.code %}<pre class="mt-2 px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ step.code }}</code></pre>{% endif %}
                 </span>
               </li>
               {% endfor %}
             </ol>
             <div>
-              {% if agent.uninstall %}
-              <p class="text-sm text-gray-600 mb-1">{{ t.help_uninstall }}</p>
-              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ agent.uninstall }}</code></pre>
-              <div class="h-3"></div>
-              {% endif %}
               <p class="text-sm text-gray-600 mb-1">{{ t.help_verify }}</p>
-              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 overflow-x-auto"><code>{{ agent.verify }}</code></pre>
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ agent.verify }}</code></pre>
             </div>
+            {% if agent.uninstall %}
+            <div>
+              <p class="text-sm text-gray-600 mb-1">{{ t.help_uninstall }}</p>
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ agent.uninstall }}</code></pre>
+              <div class="h-3"></div>
+            </div>
+            {% endif %}
           </div>
         </details>
       </div>
       {% endfor %}
     </div>
-  </div>
+  </section>
 
-  <!-- Workspace API keys -->
-  <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm mb-6">
-    <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#FFF7E6] flex items-center justify-center shrink-0">
-        <svg class="w-5 h-5 text-[#F2994A]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-width="1.8" d="M14.5 6.5H17V9H14.5"/><path stroke-linejoin="round" stroke-width="1.8" d="M14.7 9C14.2 12 12.3 13.5 9 13.5C5.5 13.5 3 11 3 7.5C3 4 5.5 1.5 9 1.5C12 1.5 14.6 3.2 14.7 9Z"/></svg>
-      </span>
-      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_ws_section }}</h2>
-    </div>
-    <p class="text-sm text-gray-400 mb-4">{{ t.help_ws_desc }}</p>
-    <div class="space-y-3">
-      {% for ws in ws_list %}
-      <div class="flex items-center gap-3 p-3 bg-[#F6F5FA] rounded-xl border border-gray-100">
+  <!-- ========== ② 配置 API Key + 注册命令 ========== -->
+  <section x-show="step === 2" x-cloak class="mb-6">
+    <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+      <div class="flex items-center gap-2.5 mb-1">
+        <span class="w-9 h-9 rounded-[10px] bg-[#FFF7E6] flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-[#F2994A]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-width="1.8" d="M14.5 6.5H17V9H14.5"/><path stroke-linejoin="round" stroke-width="1.8" d="M14.7 9C14.2 12 12.3 13.5 9 13.5C5.5 13.5 3 11 3 7.5C3 4 5.5 1.5 9 1.5C12 1.5 14.6 3.2 14.7 9Z"/></svg>
+        </span>
+        <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_key_section }}</h2>
+      </div>
+      <p class="text-sm text-gray-400 mb-4">{{ t.help_step2_hint }}</p>
+
+      <!-- 所选工作空间的 Key -->
+      <div class="flex items-center gap-3 p-3 bg-[#F6F5FA] rounded-xl border border-gray-100 mb-4" x-show="selectedWs">
         <div class="w-9 h-9 rounded-lg bg-[#EDE9FB] flex items-center justify-center shrink-0">
           <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
         </div>
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-medium text-gray-900">{{ ws.name }}</p>
+          <p class="text-sm font-medium text-gray-900" x-text="selectedWs.name"></p>
           <div class="flex items-center gap-1.5 mt-0.5">
-            <code id="helpApiKey-{{ ws.id }}" class="block text-xs text-gray-500 break-all font-mono">{{ ws.api_key[:8] }}••••••••{{ ws.api_key[-4:] }}</code>
-            <button type="button" onclick="toggleApiKeyVisibility(this)" data-full="{{ ws.api_key }}" data-target="helpApiKey-{{ ws.id }}" data-shown="0"
-                    class="shrink-0 p-1 rounded-md text-gray-400 hover:text-[#6E56CF] hover:bg-[#EDE9FB] transition-colors" title="{{ t.ws_api_key_show }}">
-              <svg class="eye-open w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3" stroke-width="1.8"/></svg>
-              <svg class="eye-closed w-3.5 h-3.5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4L20 20M10.7 7.1A12 12 0 0 1 12 7c6 0 9.5 5 9.5 5a16.5 16.5 0 0 1-2.2 2.6M6.5 6.5A16.6 16.6 0 0 0 2.5 12s3.5 5 9.5 5c.9 0 1.7-.1 2.4-.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+            <code id="helpApiKey" class="block text-xs text-gray-500 break-all font-mono" x-text="showKey ? wsKey : keyMasked(wsKey)"></code>
+            <button type="button" @click="showKey = !showKey"
+                    class="shrink-0 p-1 rounded-md text-gray-400 hover:text-[#6E56CF] hover:bg-[#EDE9FB] transition-colors" :title="showKey ? '{{ t.ws_api_key_hide }}' : '{{ t.ws_api_key_show }}'">
+              <svg x-show="!showKey" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3" stroke-width="1.8"/></svg>
+              <svg x-show="showKey" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4L20 20M10.7 7.1A12 12 0 0 1 12 7c6 0 9.5 5 9.5 5a16.5 16.5 0 0 1-2.2 2.6M6.5 6.5A16.6 16.6 0 0 0 2.5 12s3.5 5 9.5 5c.9 0 1.7-.1 2.4-.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
             </button>
           </div>
         </div>
-        <button type="button" onclick="copyKey(this, '{{ ws.api_key }}')"
+        <button type="button" @click="copyText(wsKey, $event.currentTarget)"
                 class="shrink-0 px-3 py-1.5 text-xs font-medium text-[#6E56CF] hover:text-[#5B45B9] border border-[#6E56CF]/20 hover:border-[#6E56CF]/40 rounded-lg transition-colors">{{ t.common_copy }}</button>
       </div>
-      {% endfor %}
-    </div>
-  </div>
 
-  <!-- Notes -->
-  <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-    <div class="flex items-center gap-2.5 mb-3">
-      <span class="w-9 h-9 rounded-[10px] bg-[#E8F1FE] flex items-center justify-center shrink-0">
-        <svg class="w-5 h-5 text-[#4285F4]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M12 11v5M12 7.5v.01"/></svg>
-      </span>
-      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_note_section }}</h2>
+      <!-- 注入 Key 的注册命令 -->
+      <div x-show="selectedWs && registerCmd">
+        <p class="text-sm text-gray-600 mb-1">{{ t.help_register_injected }}</p>
+        <div class="relative">
+          <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code id="helpRegisterCmd" x-text="registerCmd"></code></pre>
+        </div>
+        <button type="button" @click="copyText(registerCmd, $event.currentTarget)"
+                class="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          {{ t.common_copy }}
+        </button>
+      </div>
+      <p class="text-sm text-gray-400 mt-4" x-show="!wsList.length">{{ t.dash_no_workspaces }} <a href="/web/" class="underline">{{ t.dash_create_workspace }}</a></p>
     </div>
-    <ul class="space-y-2 text-sm text-gray-600">
-      <li class="flex gap-2"><span class="text-[#6E56CF]">•</span><span>{{ t.help_note_server }}<code class="text-xs bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{{ server_url }}</code></span></li>
-      <li class="flex gap-2"><span class="text-[#6E56CF]">•</span><span>{{ t.help_note_periodic }}</span></li>
-      <li class="flex gap-2"><span class="text-[#6E56CF]">•</span><span>{{ t.help_note_tools }}</span></li>
-    </ul>
-  </div>
+  </section>
+
+  <!-- ========== ③ 启动验证与常见问题 ========== -->
+  <section x-show="step === 3" x-cloak class="mb-6">
+    <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+      <div class="flex items-center gap-2.5 mb-1">
+        <span class="w-9 h-9 rounded-[10px] bg-[#E8F1FE] flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-[#4285F4]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M12 11v5M12 7.5v.01"/></svg>
+        </span>
+        <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_verify_section }}</h2>
+      </div>
+      <p class="text-sm text-gray-400 mb-4">{{ t.help_step3_hint }}</p>
+
+      <div x-show="selectedWs">
+        <p class="text-sm text-gray-600 mb-1" x-text="'{{ t.help_verify }}: ' + (agents[agent] ? agents[agent].label : '')"></p>
+        <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code x-text="agents[agent] ? agents[agent].verify : ''"></code></pre>
+      </div>
+
+      <div class="mt-4 space-y-2">
+        <p class="text-sm text-gray-600">{{ t.help_faq_4_d }} <code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100 font-mono text-xs">{{ server_url }}</code></p>
+        <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>curl -s {{ server_url }}/health</code></pre>
+      </div>
+
+      <div class="mt-5 space-y-2">
+        {% set faqs = [('help_faq_1_t', 'help_faq_1_d'), ('help_faq_2_t', 'help_faq_2_d'), ('help_faq_3_t', 'help_faq_3_d')] %}
+        {% for tkey, dkey in faqs %}
+        <details class="group rounded-xl border border-gray-100 bg-white px-4 py-3">
+          <summary class="cursor-pointer flex items-center justify-between text-sm font-medium text-gray-700 hover:text-[#6E56CF] transition-colors select-none">
+            {{ t[tkey] }}
+            <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </summary>
+          <p class="mt-2 text-[13px] text-gray-500">{{ t[dkey] }}</p>
+        </details>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
-function toggleApiKeyVisibility(btn) {
-  var code = document.getElementById(btn.getAttribute('data-target'));
-  var full = btn.getAttribute('data-full');
-  var shown = btn.getAttribute('data-shown') === '1';
-  var eyeOpen = btn.querySelector('.eye-open');
-  var eyeClosed = btn.querySelector('.eye-closed');
-  if (shown) {
-    code.textContent = full.slice(0, 8) + '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + full.slice(-4);
-    btn.setAttribute('data-shown', '0');
-    btn.title = '{{ t.ws_api_key_show }}';
-    eyeOpen.classList.remove('hidden');
-    eyeClosed.classList.add('hidden');
-  } else {
-    code.textContent = full;
-    btn.setAttribute('data-shown', '1');
-    btn.title = '{{ t.ws_api_key_hide }}';
-    eyeOpen.classList.add('hidden');
-    eyeClosed.classList.remove('hidden');
-  }
-}
-function copyKey(btn, val) {
+// 深色代码块右上角复制按钮（安装步骤等静态代码块）
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('pre code').forEach(function (code) {
+    var pre = code.closest('pre');
+    if (!pre || pre.dataset.copyReady) return;
+    pre.dataset.copyReady = '1';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'code-copy';
+    btn.textContent = '{{ t.common_copy }}';
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      copyRaw(code.textContent, btn);
+    };
+    pre.appendChild(btn);
+  });
+});
+function copyRaw(text, btn) {
   function fallback() {
     var ta = document.createElement('textarea');
-    ta.value = val;
+    ta.value = text;
     ta.style.position = 'fixed';
     ta.style.opacity = '0';
     document.body.appendChild(ta);
@@ -160,7 +271,7 @@ function copyKey(btn, val) {
     document.body.removeChild(ta);
   }
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(val).then(function () { flashCopied(btn); }, fallback);
+    navigator.clipboard.writeText(text).then(function () { flashCopied(btn); }, fallback);
   } else {
     fallback();
     flashCopied(btn);
@@ -170,6 +281,49 @@ function flashCopied(btn) {
   var orig = btn.textContent;
   btn.textContent = '{{ t.common_copied }}';
   setTimeout(function () { btn.textContent = orig; }, 1500);
+}
+// 向导状态
+function helpWizard() {
+  return {
+    step: 1,
+    agent: 'hermes',
+    wsId: '',
+    showKey: false,
+    wsList: {{ ws_list | tojson }},
+    agents: {
+      {% for agent_key, agent in agents.items() %}
+      "{{ agent_key }}": {
+        "label": {{ agent.label | tojson }},
+        "verify": {{ agent.verify | tojson }},
+        "register": {{ agent.register | tojson }},
+        "downloadable": {{ 'true' if agent.downloadable else 'false' }}
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    },
+    init() {
+      if (this.wsList.length) this.wsId = String(this.wsList[0].id);
+    },
+    get selectedWs() { return this.wsList.find(function (w) { return String(w.id) === this.wsId; }.bind(this)); },
+    get wsKey() { return this.selectedWs ? this.selectedWs.api_key : ''; },
+    get registerCmd() {
+      var a = this.agents[this.agent];
+      if (!a || !this.wsKey) return '';
+      return a.register.split('__WS_KEY__').join(this.wsKey);
+    },
+    keyMasked(key) { return key ? key.slice(0, 8) + '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + key.slice(-4) : ''; },
+    selectAgent(k) { this.agent = k; },
+    goto(n) {
+      if (n > 1 && !this.wsList.length) { alert('{{ t.help_select_ws }}'); return; }
+      this.step = n;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    download() {
+      if (!this.wsList.length) { alert('{{ t.help_select_ws }}'); return; }
+      location.href = '/web/download/mcp-client?ws_id=' + this.wsId + '&agent=' + this.agent;
+      this.step = 2;
+    },
+    copyText(text, btn) { copyRaw(text, btn); }
+  };
 }
 </script>
 {% endblock %}

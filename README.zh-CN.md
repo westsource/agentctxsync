@@ -158,7 +158,7 @@ bash ../scripts/deploy-server.sh
 
 ### 3. 本地 MCP 部署
 
-**方式 A（推荐）**：登录 Web UI → 接入帮助（`/web/help-hermes`）→ 按你的 Agent 下载对应压缩包。按包内安装说明（README.md）解压、注册——注册命令中的 `<YOUR_API_KEY>` 需替换为帮助页中对应工作区的 API Key（下载包不再预填 Key，避免包被转发导致泄露）。完成后重启 Agent 即可。
+**方式 A（推荐）**：登录 Web UI → 接入帮助（`/web/help`）→ 按你的 Agent 下载对应压缩包。按包内安装说明（README.md）解压、注册——注册命令中的 `<YOUR_API_KEY>` 需替换为帮助页中对应工作区的 API Key（下载包不再预填 Key，避免包被转发导致泄露）。完成后重启 Agent 即可。
 
 **方式 B（手动）**：
 
@@ -195,6 +195,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_MASTER_KEY` | Master API key（非同步用） |
 | `HERMES_SYNC_JWT_SECRET` | Web UI JWT 签名密钥 |
 | `HERMES_SYNC_TOKEN_EXPIRE` | JWT 过期时间（小时，默认 24） |
+| `HERMES_SYNC_PUBLIC_URL` | 对外公开地址（如 `https://www.example.com`），打包进客户端并展示在帮助页；未设置时客户端包默认取下载请求的来源地址 |
 
 ### 本地 MCP 环境变量
 
@@ -217,6 +218,7 @@ MCP 客户端内置自动更新：启动后约 15 秒检查一次、之后每 24
 正在进行的会话）。
 
 - 关闭：`HERMES_SYNC_AUTO_UPDATE=0`；调整间隔：`HERMES_SYNC_UPDATE_INTERVAL`
+- **下载包内的服务器默认地址**：每个下载的客户端包，其 `HERMES_SYNC_SERVER` 代码默认值都会被设为提供下载的服务端地址（按请求来源），若服务端配置了 `HERMES_SYNC_PUBLIC_URL` 则使用该值。迁移存量客户端到新地址：在服务端设置 `HERMES_SYNC_PUBLIC_URL` 为新地址并 bump `CLIENT_VERSION`——客户端从旧地址（保持可达直到全部升级完）拉取新包，重启 Agent 后自动切换。
 - 校验失败/网络不可达时保留旧文件，仅记录日志，不影响同步
 - 回滚：将 `.bak-<版本>/` 中的文件复制回 `mcp/` 目录并删除 `.hermes-sync-version`
 - **版本发布流程**：修改客户端后，同时 bump `mcp/updater.py` 与 `server/server.py`
@@ -410,7 +412,7 @@ GET  /web/workspace/{id}/trash                        # 会话回收站（已删
 GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
-GET  /web/help-hermes                             # 接入帮助页（MCP 客户端接入帮助）
+GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
 GET  /web/admin/users                             # 用户管理
 POST /web/admin/user/create                       # 创建用户

@@ -158,7 +158,7 @@ After deployment:
 
 ### 3. Local MCP deployment
 
-**Method A (recommended)**: log in to the Web UI → Setup Help (`/web/help-hermes`) → download the archive for your Agent. Unpack and register it following the install instructions (README.md) inside the archive — replace `<YOUR_API_KEY>` in the registration command with the API Key of the corresponding workspace on the help page (the download package no longer pre-fills the Key, so forwarding the package won't leak it). Restart the Agent when done.
+**Method A (recommended)**: log in to the Web UI → Setup Help (`/web/help`) → download the archive for your Agent. Unpack and register it following the install instructions (README.md) inside the archive — replace `<YOUR_API_KEY>` in the registration command with the API Key of the corresponding workspace on the help page (the download package no longer pre-fills the Key, so forwarding the package won't leak it). Restart the Agent when done.
 
 **Method B (manual)**:
 
@@ -195,6 +195,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_MASTER_KEY` | Master API key (not for sync) |
 | `HERMES_SYNC_JWT_SECRET` | Web UI JWT signing secret |
 | `HERMES_SYNC_TOKEN_EXPIRE` | JWT expiration (hours, default 24) |
+| `HERMES_SYNC_PUBLIC_URL` | Canonical public address (e.g. `https://www.example.com`) baked into shipped client packages and shown on the help page; when unset, each client package defaults to the address the download request arrived on |
 
 ### Local MCP environment variables
 
@@ -213,6 +214,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 MCP clients have built-in auto-update: a check runs about 15 seconds after startup and then every 24 hours. New versions are pulled from the server via `/api/client/manifest` (version comparison) and `/api/client/download` (a zip with a SHA256 manifest), verified file by file, then **atomically replaced in place**, with a backup of the previous version kept (`.bak-<version>/`). The update **takes effect after the Agent is restarted** (the MCP server cannot restart itself and does not interrupt ongoing sessions).
 
 - Disable: `HERMES_SYNC_AUTO_UPDATE=0`; adjust the interval: `HERMES_SYNC_UPDATE_INTERVAL`
+- **Server default in shipped packages**: every downloaded client package has its `HERMES_SYNC_SERVER` code default set to the server that served the download (per-request address), or to `HERMES_SYNC_PUBLIC_URL` when that server-side variable is configured. To migrate existing clients to a new address: set `HERMES_SYNC_PUBLIC_URL` to the new address on the server and bump `CLIENT_VERSION` — clients pull the new package from the old address (keep it reachable until they all update) and switch after the agent restarts.
 - If verification fails or the network is unreachable, the old files are kept and only a log entry is recorded; sync is unaffected
 - Rollback: copy the files from `.bak-<version>/` back into the `mcp/` directory and delete `.hermes-sync-version`
 - **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/server.py`; once the server is deployed, all clients upgrade automatically at their next check
@@ -380,7 +382,7 @@ GET  /web/workspace/{id}/trash                        # 会话回收站（已删
 GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
-GET  /web/help-hermes                             # 接入帮助页（MCP 客户端接入帮助）
+GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
 GET  /web/admin/users                             # 用户管理
 POST /web/admin/user/create                       # 创建用户
