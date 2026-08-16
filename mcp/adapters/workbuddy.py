@@ -122,6 +122,8 @@ class WorkBuddyAdapter(Adapter):
 
         F:\\OpenCode\\agentctxsync     -> f-OpenCode-agentctxsync
         C:\\Users\\rong\\HermesSyncTest -> c-Users-rong-HermesSyncTest
+        E:\\ (drive root)             -> e      (no trailing dash; matches
+                                               WorkBuddy's own slug)
         /home/user/proj               -> home-user-proj
         """
         cwd = (cwd or "").replace("/", "\\")
@@ -131,7 +133,13 @@ class WorkBuddyAdapter(Adapter):
         else:
             drive, rest = "", cwd.lstrip("\\")
         slug = re.sub(r"[\\]+", "-", rest)
-        return (drive + "-" + slug) if drive else slug
+        if not drive:
+            return slug
+        # Drive root (E:\) must not produce a trailing dash: WorkBuddy's
+        # own slug for it is just the drive letter ("e"), and a mismatched
+        # subdir would split a session across two files (WorkBuddy keeps
+        # writing to its own path while the adapter reads the stale copy).
+        return drive if not slug else f"{drive}-{slug}"
 
     def _session_path(self, cwd: str, local_id: str) -> Path:
         return self._projects_dir() / self.slugify(cwd) / f"{local_id}.jsonl"
