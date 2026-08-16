@@ -1,6 +1,6 @@
 # 新增 Agent 接入指南
 
-本文档说明如何把一个新的 agent（如 Claude Code、Cursor 等）接入 Agent Contexts Sync，
+本文档说明如何把一个新的 agent（如 Claude Code、Cursor 等）接入 Agent Context Sync，
 使其会话/消息能与 Hermes、Codex、opencode、reasonix、openclaw 互相同步。
 
 ## 总览：接入 = 一个适配器文件 + 一行注册

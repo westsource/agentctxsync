@@ -1,5 +1,5 @@
 #!/bin/bash
-# Agent Contexts Sync PostgreSQL Backup Script
+# Agent Context Sync PostgreSQL Backup Script
 # Runs daily at 3:00 AM via cron
 
 BACKUP_DIR="/opt/hermes-sync-mcp/backups"

@@ -1,4 +1,4 @@
-# Agent Contexts Sync
+# Agent Context Sync
 
 > **简体中文**: [README.zh-CN.md](README.zh-CN.md) · **English**: this document
 

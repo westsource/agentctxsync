@@ -1,5 +1,5 @@
 """
-Adapter registry for Agent Contexts Sync.
+Adapter registry for Agent Context Sync.
 
 Adding a new agent:
     1. add its prefix to AGENT_PREFIXES in base.py (or reuse existing);

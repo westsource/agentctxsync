@@ -1,4 +1,4 @@
-# Contributing to Agent Contexts Sync
+# Contributing to Agent Context Sync
 
 Thanks for taking the time to contribute! This project syncs AI agent sessions
 (Hermes, OpenAI Codex, opencode, Reasonix, OpenClaw) across devices and agents,

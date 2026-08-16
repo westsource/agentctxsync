@@ -1,5 +1,5 @@
 """
-Agent Contexts Sync MCP Server (multi-agent)
+Agent Context Sync MCP Server (multi-agent)
 - Adapter framework: HERMES_SYNC_AGENT selects the local store adapter
   (hermes | codex | opencode | reasonix | openclaw); every agent gets its
   own deployment (each instance manages one local store)

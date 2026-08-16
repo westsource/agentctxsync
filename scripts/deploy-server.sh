@@ -1,9 +1,9 @@
 #!/bin/bash
-# Agent Contexts Sync - Server Deployment Script (Multi-tenant)
+# Agent Context Sync - Server Deployment Script (Multi-tenant)
 # Run on the target server (set HERMES_SYNC_* env vars beforehand)
 set -e
 
-echo "=== Agent Contexts Sync Server Deployment (Multi-tenant) ==="
+echo "=== Agent Context Sync Server Deployment (Multi-tenant) ==="
 
 # 1. Create directories
 mkdir -p /opt/hermes-sync-mcp/data
@@ -48,7 +48,7 @@ fi
 # 5. Create systemd service
 cat > /etc/systemd/system/hermes-sync.service << EOF
 [Unit]
-Description=Agent Contexts Sync MCP Server (Multi-tenant)
+Description=Agent Context Sync MCP Server (Multi-tenant)
 After=network.target
 
 [Service]

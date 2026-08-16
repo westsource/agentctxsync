@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ ws.name }} - Agent Contexts Sync{% endblock %}
+{% block title %}{{ ws.name }} - Agent Context Sync{% endblock %}
 {% block content %}
 {% macro agent_color(a) -%}
 {%- if a == 'codex' -%}bg-[#E8F1FE] text-[#4285F4]
@@ -183,7 +183,9 @@
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
             <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
             <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
-            <span>{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            <span>{{ t.ws_session_created }} {{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            {% if s.last_msg_at %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+            <span>{{ t.ws_session_updated }} {{ s.last_msg_at|timestamp_fmt }}</span>{% endif %}
             {% if s.model %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span><span class="truncate max-w-[160px]">{{ s.model }}</span>{% endif %}
           </div>
         </div>
@@ -232,7 +234,9 @@
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
             <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
             <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
-            <span>{{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            <span>{{ t.ws_session_created }} {{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
+            {% if s.last_msg_at %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+            <span>{{ t.ws_session_updated }} {{ s.last_msg_at|timestamp_fmt }}</span>{% endif %}
             {% if s.model %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span><span class="truncate max-w-[160px]">{{ s.model }}</span>{% endif %}
           </div>
         </div>
