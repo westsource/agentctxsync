@@ -265,6 +265,8 @@ class WorkBuddySlugTest(unittest.TestCase):
                          "home-user-proj")
         self.assertEqual(WorkBuddyAdapter.slugify("C:/Users/a/b"),
                          "c-Users-a-b")
+        self.assertEqual(WorkBuddyAdapter.slugify("E:\\"), "e")
+        self.assertEqual(WorkBuddyAdapter.slugify("E:/"), "e")
 
 
 if __name__ == "__main__":
