@@ -2,7 +2,7 @@
 
 > **English**: [README.md](README.md) · **简体中文**: 本文档
 
-> 官网：http://www.agentctxsync.com
+> 官网：http://www.agentctxsync.com *（ICP 备案中，即将上线）*
 
 跨设备、跨 Agent 同步会话的完整解决方案。支持多用户、多 Workspace 隔离，基于 PostgreSQL 后端，通过 MCP Server 实现 Agent 启动时自动同步。
 
