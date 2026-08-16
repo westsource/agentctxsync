@@ -2,7 +2,7 @@
 
 > **简体中文**: [README.zh-CN.md](README.zh-CN.md) · **English**: this document
 
-> Official website: http://www.agentctxsync.com
+> Official website: http://www.agentctxsync.com *(ICP filing in progress, coming soon)*
 
 A complete solution for syncing sessions across devices and agents. Supports multi-user, multi-Workspace isolation with a PostgreSQL backend, and syncs automatically when an Agent starts via MCP Server.
 
