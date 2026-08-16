@@ -5,24 +5,24 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-2">
+      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         {{ t.common_back }}
       </a>
       <h1 class="text-2xl font-bold text-gray-900">{{ t.admin_users }}</h1>
     </div>
     <button onclick="document.getElementById('createModal').classList.remove('hidden')"
-            class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">
+            class="px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/25">
       {{ t.admin_create_user }}
     </button>
   </div>
 
   <!-- Users Table -->
-  <div class="bg-white border border-gray-200 rounded-xl">
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead>
-          <tr class="border-b border-gray-200">
+          <tr class="border-b border-gray-100 bg-[#F9F8FD]">
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_username }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_display_name }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_status }}</th>
@@ -34,24 +34,24 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
           {% for u in users %}
-          <tr class="hover:bg-gray-100/50 transition-colors">
+          <tr class="hover:bg-[#F6F5FA] transition-colors">
             <td class="px-6 py-4">
               <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-600">{{ u.username[0]|upper }}</div>
+                <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white shrink-0" style="background:linear-gradient(135deg,#6E56CF,#3D66C9)">{{ u.username[0]|upper }}</div>
                 <span class="font-medium text-gray-900 text-sm">{{ u.username }}</span>
               </div>
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">{{ u.display_name or t.common_none }}</td>
             <td class="px-6 py-4">
               {% if u.is_active %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ t.admin_active }}</span>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#1E8E3E]"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.admin_active }}</span>
               {% else %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-400">{{ t.admin_disabled }}</span>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.admin_disabled }}</span>
               {% endif %}
             </td>
             <td class="px-6 py-4">
               {% if u.is_admin %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-400">{{ t.admin_admin }}</span>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.admin_admin }}</span>
               {% else %}
               <span class="text-sm text-gray-400">{{ t.common_none }}</span>
               {% endif %}
@@ -60,9 +60,9 @@
             <td class="px-6 py-4 text-sm text-gray-500">{{ u.created_at|timestamp_fmt if u.created_at else t.common_none }}</td>
             <td class="px-6 py-4 text-right">
               <button onclick="openEditModal(this)" data-user-id="{{ u.id }}" data-user-username="{{ u.username }}" data-user-display="{{ u.display_name or "" }}" data-user-admin="{{ "true" if u.is_admin else "false" }}"
-                      class="text-sm text-gray-500 hover:text-gray-900 transition-colors mr-3">{{ t.admin_edit }}</button>
+                      class="text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mr-3">{{ t.admin_edit }}</button>
               <a href="/web/admin/user/{{ u.id }}/toggle"
-                 class="text-sm {% if u.is_active %}text-amber-400 hover:text-amber-300{% else %}text-emerald-600 hover:text-emerald-300{% endif %} transition-colors">
+                 class="text-sm {% if u.is_active %}text-[#F2994A] hover:text-[#E08A3C]{% else %}text-[#34A853] hover:text-[#2F8F49]{% endif %} transition-colors">
                 {{ t.admin_disable if u.is_active else t.admin_enable }}
               </a>
             </td>
@@ -75,33 +75,38 @@
 
   <!-- Create User Modal -->
   <div id="createModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onclick="if(event.target===this)this.classList.add('hidden')">
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-      <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ t.admin_create_user_title }}</h3>
-      <form method="POST" action="/web/admin/user/create">
+    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h3 class="text-[17px] font-semibold text-gray-900">{{ t.admin_create_user_title }}</h3>
+        <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+        </button>
+      </div>
+      <form method="POST" action="/web/admin/user/create" class="px-6 py-5">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_username }}</label>
           <input type="text" name="username" required
-                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
           <input type="text" name="display_name"
-                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_password }}</label>
           <input type="password" name="password" required minlength="6"
-                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-6">
           <label class="flex items-center gap-2 text-sm text-gray-500">
-            <input type="checkbox" name="is_admin" value="true" class="rounded border-slate-600 bg-gray-100 text-sky-500 focus:ring-sky-500">
+            <input type="checkbox" name="is_admin" value="true" class="rounded border-slate-600 bg-gray-100 text-[#6E56CF] focus:ring-[#6E56CF]">
             {{ t.admin_admin_privileges }}
           </label>
         </div>
         <div class="flex justify-end gap-3">
-          <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">{{ t.dash_cancel }}</button>
-          <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">{{ t.admin_create_btn }}</button>
+          <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
+          <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_create_btn }}</button>
         </div>
       </form>
     </div>
@@ -109,30 +114,35 @@
 
   <!-- Edit User Modal -->
   <div id="editModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onclick="if(event.target===this)this.classList.add('hidden')">
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-      <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ t.admin_edit_user }}: <span id="editUsername" class="text-sky-600"></span></h3>
-      <form id="editForm" method="POST" action="">
+    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h3 class="text-[17px] font-semibold text-gray-900">{{ t.admin_edit_user }}: <span id="editUsername" class="text-[#6E56CF]"></span></h3>
+        <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+        </button>
+      </div>
+      <form id="editForm" method="POST" action="" class="px-6 py-5">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
           <input type="text" name="display_name" id="editDisplayName"
-                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_new_password }}</label>
           <input type="password" name="new_password" placeholder="{{ t.admin_leave_empty }}"
-                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-6">
           <label class="flex items-center gap-2 text-sm text-gray-500">
             <input type="checkbox" name="is_admin" value="true" id="editIsAdmin"
-                   class="rounded border-slate-600 bg-gray-100 text-sky-500 focus:ring-sky-500">
+                   class="rounded border-slate-600 bg-gray-100 text-[#6E56CF] focus:ring-[#6E56CF]">
             {{ t.admin_admin_privileges }}
           </label>
           <p id="editAdminHint" class="hidden text-xs text-gray-400 mt-1">{{ t.admin_cannot_remove_admin }}</p>
         </div>
         <div class="flex justify-end gap-3">
-          <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">{{ t.dash_cancel }}</button>
-          <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">{{ t.admin_save }}</button>
+          <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
+          <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_save }}</button>
         </div>
       </form>
     </div>

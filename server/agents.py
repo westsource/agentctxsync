@@ -318,4 +318,53 @@ AGENTS = {
             ],
         },
     },
+    "workbuddy": {
+        "label": "WorkBuddy",
+        "desc": {
+            "zh": "腾讯 WorkBuddy 桌面智能体（5.3.x），会话为 ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db。",
+            "en": "Tencent WorkBuddy desktop agent (5.3.x); sessions in ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db.",
+        },
+        "store": {
+            "zh": "本地存储：~/.workbuddy/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy/workbuddy.db（元数据）",
+            "en": "Local store: ~/.workbuddy/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy/workbuddy.db (metadata)",
+        },
+        "register": {
+            "zh": (
+                "# 在 WorkBuddy 的 MCP 设置中添加自定义 MCP server（stdio）\n"
+                'command = "<PYTHON>"\n'
+                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
+                'env = { HERMES_SYNC_AGENT = "workbuddy", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+            ),
+            "en": (
+                "# Add a custom MCP server in WorkBuddy's MCP settings (stdio)\n"
+                'command = "<PYTHON>"\n'
+                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
+                'env = { HERMES_SYNC_AGENT = "workbuddy", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+            ),
+        },
+        "verify": "WorkBuddy 会话中调用 hermes_sync_status（注意：写入的会话需重启 WorkBuddy 才会出现在列表）",
+        "env_agent": True,
+        "uninstall": {
+            "zh": (
+                "# 移除：删除 WorkBuddy MCP 设置中的 hermes-sync server 配置块"
+            ),
+            "en": (
+                "# Remove: delete the hermes-sync server block in WorkBuddy's MCP settings"
+            ),
+        },
+        "install": {
+            "zh": [
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "在 WorkBuddy 的 MCP 设置中添加自定义 MCP server（stdio；<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径）："},
+                {"code": "<REGISTER>"},
+                {"text": "重启 WorkBuddy（新会话生效）。注意：适配器写入的会话需要重启 WorkBuddy 后才会出现在会话列表（启动时 MIGRATE 扫描识别）。"},
+            ],
+            "en": [
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Add a custom MCP server in WorkBuddy's MCP settings (stdio; replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter):"},
+                {"code": "<REGISTER>"},
+                {"text": "Restart WorkBuddy (new sessions pick it up). Note: sessions written by the adapter only appear in the list after WorkBuddy restarts (MIGRATE scan on startup)."},
+            ],
+        },
+    },
 }

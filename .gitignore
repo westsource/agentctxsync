@@ -20,6 +20,10 @@ server/.env.*
 # Local agent data
 .env.reasonix/
 .reasonix/
+.workbuddy/
+
+# Local Reasonix sandbox config (may contain local-only paths)
+reasonix.toml
 
 # OS
 Thumbs.db

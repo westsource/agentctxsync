@@ -8,11 +8,11 @@
 
 主要特性：
 - **多租户**：多用户 + 多 Workspace 隔离，每个 Workspace 独立 API Key
-- **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw 共享同一会话池，A 的会话可被 B 拉取并写入其本地存储
+- **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池，A 的会话可被 B 拉取并写入其本地存储
 - **Web 管理界面**：登录/注册（邀请码）、信息概览、Workspace 管理、会话查看器、管理后台
 - **数据安全**：会话/工作区一键导出（Markdown / JSON.gz）与导入
 - **项目同步**：Hermes 项目（侧边栏项目列表）随会话跨设备同步，同名合并 + 路径并集
-- **数据保留与检索**：会话/消息可软隐藏（可逆）、置顶排序、标题/内容搜索
+- **数据保留与检索**：会话/消息可删除（软删除，回收站可恢复）、置顶排序、标题/内容搜索
 - **接入帮助**：内置接入帮助页，按 Agent 一键下载 MCP 客户端（含安装说明与注册命令）
 - **客户端自动更新**：客户端定时从服务端拉取新版本，逐文件校验后自动替换，重启 Agent 即生效
 - **国际化**：简体中文 / English 双语界面
@@ -26,6 +26,7 @@
 | opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | `opencode:` | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | `reasonix:` | append-only；运行中（有锁文件）的会话跳过 |
 | OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | `openclaw:` | schema 自动探测（实验性） |
+| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | `workbuddy:` | JSONL 追加 + SQLite upsert；cwd 目录自动创建；写入的会话需重启 WorkBuddy 后出现（启动时 MIGRATE 扫描识别） |
 
 每个 Agent 独立部署一个 MCP 客户端实例（`HERMES_SYNC_AGENT` 选择），全部接入同一 Workspace 即实现互相同步。新增 Agent 只需实现一个适配器（见 [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)），服务端与同步引擎零改动。
 
@@ -45,7 +46,7 @@
 |  |  |  本地存储 (per agent)  |    |  full (+ hermes_sync_* 别名)      |    |  |
 |  |  |  state.db / jsonl /    |<-->|                                  |    |  |
 |  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
-|  |  +------------------------+    |  /reasonix/openclaw              |    |  |
+|  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
 |  |                                |                                  |    |  |
 |  |  +------------------------+    |  Background Tasks:               |    |  |
 |  |  |  config.yaml           |    |  * startup auto-pull (增量)      |    |  |
@@ -162,7 +163,7 @@ bash ../scripts/deploy-server.sh
 **方式 B（手动）**：
 
 ```bash
-# 选择 agent（hermes | codex | opencode | reasonix | openclaw），默认 hermes
+# 选择 agent（hermes | codex | opencode | reasonix | openclaw | workbuddy），默认 hermes
 export HERMES_SYNC_AGENT=codex
 
 # 设置 workspace API key（格式 ws_xxx）
@@ -199,7 +200,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `HERMES_SYNC_AGENT` | `hermes` | 本地存储适配器：`hermes`/`codex`/`opencode`/`reasonix`/`openclaw` |
+| `HERMES_SYNC_AGENT` | `hermes` | 本地存储适配器：`hermes`/`codex`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
 | `HERMES_SYNC_SERVER` | `http://<SERVER_IP>:8765` | 远程服务器地址（按实际部署配置） |
 | `HERMES_SYNC_API_KEY` | - | **Workspace API Key**（必须，格式 `ws_xxx`） |
 | `HERMES_SYNC_INTERVAL` | `300` | 自动同步间隔（秒） |
@@ -218,7 +219,7 @@ MCP 客户端内置自动更新：启动后约 15 秒检查一次、之后每 24
 - 关闭：`HERMES_SYNC_AUTO_UPDATE=0`；调整间隔：`HERMES_SYNC_UPDATE_INTERVAL`
 - 校验失败/网络不可达时保留旧文件，仅记录日志，不影响同步
 - 回滚：将 `.bak-<版本>/` 中的文件复制回 `mcp/` 目录并删除 `.hermes-sync-version`
-- **版本发布流程**：修改客户端后，同时 bump `mcp/server.py` 与 `server/server.py`
+- **版本发布流程**：修改客户端后，同时 bump `mcp/updater.py` 与 `server/server.py`
   中的 `CLIENT_VERSION` 常量，部署服务端后所有客户端在下次检查时自动升级
 
 ## 多档案同步（Hermes profiles）
@@ -294,13 +295,14 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 - **工具**：`project_push` / `project_pull` 手动触发；周期同步（默认 300s）也会
   顺带同步项目。
 
-## 数据保留与检索（隐藏 / 置顶 / 搜索）
+## 数据保留与检索（删除 / 回收站 / 置顶 / 搜索）
 
-- **软隐藏（soft-hide）**：Web 会话列表与消息详情支持「隐藏 / 恢复」操作，数据**保留不删除**、
-  完全可逆。隐藏后：
-  - 服务端 `/pull` 不再下发已隐藏的会话/消息（数据仍在服务端，恢复后重新下发）；
+- **删除 / 恢复（软删除 soft-hide）**：Web 会话列表与消息详情支持「删除 / 恢复」操作，数据**保留
+  不删除**（软 `hidden` 标记）、完全可逆。被删除的项进入**回收站**：`/web/workspace/{id}/trash`
+  （会话回收站）与 `/web/workspace/{id}/session/{sid}/trash`（消息回收站），可随时恢复。删除后：
+  - 服务端 `/pull` 不再下发已删除的会话/消息（数据仍在服务端，恢复后重新下发）；
   - `/push` 更新已有行时不会重置其 `hidden` 标记；
-  - Web 默认不显示隐藏项，可用「显示已隐藏」开关临时查看并恢复。
+  - 会话列表与消息查看器默认不显示已删除项；回收站页面可查看并恢复。
 - **置顶排序**：会话列表按 `pinned` 置顶优先排序（📌 标记）。当前仅用于排序展示，
   暂无置顶管理入口。
 - **搜索**：Workspace 会话列表 `?q=` 按标题 / id 模糊过滤；会话详情页 `?q=` 按消息内容
@@ -387,6 +389,7 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 ### Web UI（浏览器访问）
 ```
 GET  /web/                      # 信息概览
+GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
 GET  /web/login                 # 登录页面
 GET  /web/register              # 注册页面（需邀请码，支持 ?code= 预填）
 GET  /web/logout                # 登出
@@ -394,17 +397,19 @@ GET  /web/change-password       # 修改密码页（首次登录强制改密时�
 POST /web/change-password       # 修改密码
 POST /web/update-profile        # 更新个人资料（显示名/密码/管理员标志）
 GET  /web/set-language/{lang}   # 切换语言（zh-CN / en）
-GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/隐藏开关/Agent 徽章/项目列表）
+GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/档案过滤/回收站入口/Agent 徽章/项目列表）
 GET  /web/workspace/{id}/session/{sid}            # 会话消息查看器（Markdown 渲染、消息搜索、隐藏/恢复）
 GET  /web/workspace/{id}/session/{sid}/export     # 导出单个会话为 Markdown
 GET  /web/workspace/{id}/export                   # 导出整个 Workspace 为 JSON.gz
 POST /web/workspace/{id}/import                   # 导入 Workspace 备份（JSON/JSON.gz）
 POST /web/workspace/{id}/regen-key                # 重新生成 API key
 GET  /web/workspace/{id}/delete                   # 删除 Workspace
-POST /web/workspace/{id}/session/{sid}/hide           # 隐藏会话（可逆，/pull 停止下发）
-POST /web/workspace/{id}/session/{sid}/unhide         # 恢复会话
-POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 隐藏消息
-POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 恢复消息
+POST /web/workspace/{id}/session/{sid}/hide           # 删除会话（软删除，移入回收站；/pull 停止下发，可恢复）
+POST /web/workspace/{id}/session/{sid}/unhide         # 从回收站恢复会话
+GET  /web/workspace/{id}/trash                        # 会话回收站（已删除会话，可恢复）
+GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
+POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
+POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
 GET  /web/help-hermes                             # 接入帮助页（MCP 客户端接入帮助）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
 GET  /web/admin/users                             # 用户管理
@@ -413,7 +418,7 @@ GET  /web/admin/user/{uid}/edit                   # 编辑用户
 POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
 GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
-GET  /web/admin/invites                           # 邀请管理
+GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
 POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
 POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 ```
@@ -432,11 +437,11 @@ POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 ### sessions
 复合主键: `(workspace_id, id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 多 Agent 扩展列: `agent_type`（默认 `hermes`，存量数据自动归为 hermes）、`meta` (JSONB，承载各 Agent 特有字段)
-数据保留/排序扩展列: `hidden`/`hidden_at`（软隐藏，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
+数据保留/排序扩展列: `hidden`/`hidden_at`（软删除，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
 
 ### messages
 复合主键: `(workspace_id, session_id, id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-多 Agent 扩展列: `agent_type`、`meta` (JSONB)；软隐藏列: `hidden`/`hidden_at`
+多 Agent 扩展列: `agent_type`、`meta` (JSONB)；软删除列: `hidden`/`hidden_at`
 
 ### sync_state
 主键: `(device_id, workspace_id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`

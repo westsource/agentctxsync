@@ -1,29 +1,30 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ t.invites_title }} - Agent Contexts Sync{% endblock %}
 {% block content %}
 <div>
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-2">
+      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         {{ t.common_back }}
       </a>
       <h1 class="text-2xl font-bold text-gray-900">{{ t.invites_title }}</h1>
     </div>
     <button onclick="document.getElementById('createModal').classList.remove('hidden')"
-            class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">
+            class="px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors">
       {{ t.invites_generate }}
     </button>
   </div>
 
   <!-- Invites Table -->
-  <div class="bg-white border border-gray-200 rounded-xl">
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead>
-          <tr class="border-b border-gray-200">
+          <tr class="border-b border-gray-100 bg-[#F9F8FD]">
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_code }}</th>
+            {% if quota_ui %}<th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_plan }}</th>{% endif %}
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_created_by }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_status }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.invites_used_by }}</th>
@@ -35,20 +36,29 @@
         </thead>
         <tbody class="divide-y divide-gray-100">
           {% for inv in invites %}
-          <tr class="hover:bg-gray-100/50 transition-colors">
+          <tr class="hover:bg-[#F6F5FA] transition-colors">
             <td class="px-6 py-4">
-              <code class="px-2 py-1 bg-gray-100 rounded-md text-sm font-mono text-gray-800">{{ inv.code }}</code>
+              <code class="px-2 py-1 bg-[#F6F5FA] border border-gray-100 rounded-md text-sm font-mono text-gray-800">{{ inv.code }}</code>
             </td>
+            {% if quota_ui %}
+            <td class="px-6 py-4">
+              {% if inv.grant_plan == 'free' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.plan_free }}</span>
+              {% else %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ t.plan_unlimited }}</span>
+              {% endif %}
+            </td>
+            {% endif %}
             <td class="px-6 py-4 text-sm text-gray-500">{{ inv.creator_name or t.common_none }}</td>
             <td class="px-6 py-4">
               {% if inv.revoked %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-400">{{ t.invites_status_revoked }}</span>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ t.invites_status_revoked }}</span>
               {% elif inv.used %}
               <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">{{ t.invites_status_used }}</span>
               {% elif inv.expires_at and inv.expires_at < now %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-500">{{ t.invites_status_expired }}</span>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.invites_status_expired }}</span>
               {% else %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-600">{{ t.invites_status_active }}</span>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ t.invites_status_active }}</span>
               {% endif %}
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">{{ inv.used_by_name or t.common_none }}</td>
@@ -58,9 +68,9 @@
             <td class="px-6 py-4 text-right whitespace-nowrap">
               {% if not inv.used and not inv.revoked and not (inv.expires_at and inv.expires_at < now) %}
               <button type="button" onclick="copyInviteLink(this, '{{ base_url }}web/register?code={{ inv.code }}', '{{ t.invites_copy_intro }}')"
-                      class="text-sm text-sky-600 hover:text-sky-500 transition-colors mr-3">{{ t.invites_copy_link }}</button>
+                      class="text-sm text-[#6E56CF] hover:text-[#5B45B9] transition-colors mr-3">{{ t.invites_copy_link }}</button>
               <form method="POST" action="/web/invite/{{ inv.id }}/revoke" class="inline" onsubmit="return confirm('{{ t.invites_revoke }}?')">
-                <button type="submit" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">{{ t.invites_revoke }}</button>
+                <button type="submit" class="text-sm text-[#F2994A] hover:text-[#E08A3C] transition-colors">{{ t.invites_revoke }}</button>
               </form>
               {% else %}
               <span class="text-sm text-gray-300">{{ t.common_none }}</span>
@@ -69,7 +79,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="8" class="px-6 py-12 text-center text-sm text-gray-400">{{ t.invites_empty }}</td>
+            <td colspan="{% if quota_ui %}9{% else %}8{% endif %}" class="px-6 py-12 text-center text-sm text-gray-400">{{ t.invites_empty }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -79,24 +89,39 @@
 </div>
 
 <!-- Generate Invite Modal -->
-<div id="createModal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/40">
-  <div class="bg-white rounded-2xl w-full max-w-sm p-6" @click.outside="document.getElementById('createModal').classList.add('hidden')">
-    <h2 class="text-lg font-bold text-gray-900 mb-4">{{ t.invites_generate }}</h2>
-    <form method="POST" action="/web/invite/create">
+<div id="createModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="text-[17px] font-semibold text-gray-900">{{ t.invites_generate }}</h3>
+      <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+      </button>
+    </div>
+    <form method="POST" action="/web/invite/create" class="px-6 py-5">
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.invites_expiry_days }}</label>
         <input type="number" name="expiry_days" value="0" min="0"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
       <div class="mb-4">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.invites_note }}</label>
         <input type="text" name="note"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
+      {% if quota_ui %}
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.invites_plan }}</label>
+        <select name="grant_plan"
+                class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
+          <option value="unlimited" selected>{{ t.plan_unlimited }}</option>
+          <option value="free">{{ t.plan_free }}</option>
+        </select>
+      </div>
+      {% endif %}
       <div class="flex justify-end gap-3 mt-6">
         <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')"
-                class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">{{ t.dash_cancel }}</button>
-        <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-lg transition-colors">{{ t.invites_generate_btn }}</button>
+                class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
+        <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.invites_generate_btn }}</button>
       </div>
     </form>
   </div>

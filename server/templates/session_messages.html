@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ session.title or session.id }} - Agent Contexts Sync{% endblock %}
 {% block content %}
+{% macro agent_color(a) -%}
+{%- if a == 'codex' -%}bg-[#E8F1FE] text-[#4285F4]
+{%- elif a == 'opencode' -%}bg-[#E9F9EF] text-[#34A853]
+{%- elif a == 'reasonix' -%}bg-[#FFF7E6] text-[#F2994A]
+{%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
+{%- else -%}bg-[#EDE9FB] text-[#6E56CF]
+{%- endif -%}
+{%- endmacro %}
 <style>
   .md-body > :first-child { margin-top: 0; }
   .md-body > :last-child { margin-bottom: 0; }
@@ -9,17 +17,22 @@
   .md-body p { margin: 0.4em 0; }
   .md-body ul, .md-body ol { margin: 0.4em 0; padding-left: 1.4em; list-style: revert; }
   .md-body li { margin: 0.15em 0; }
-  .md-body pre { background: #0f172a; color: #e2e8f0; padding: 0.7em 0.9em; border-radius: 0.5rem; overflow-x: auto; margin: 0.5em 0; font-size: 0.8em; line-height: 1.5; }
+  /* Light code blocks per the viewer design (lavender-tinted) */
+  .md-body pre { background: #F8F7FC; border: 1px solid #ECEBF4; border-radius: 10px; overflow: hidden; margin: 0.5em 0; }
+  .md-body pre code { display: block; padding: 0.7em 0.9em; color: #3F3F55; font-size: 0.8em; line-height: 1.5; overflow-x: auto; }
   .md-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .md-body :not(pre) > code { background: rgba(0,0,0,0.08); padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.85em; }
-  .md-body blockquote { border-left: 3px solid rgba(100,116,139,0.4); padding-left: 0.8em; margin: 0.4em 0; color: rgba(100,116,139,0.9); }
+  .md-body :not(pre) > code { background: #EDE9FB; color: #6E56CF; padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.85em; }
+  .md-body blockquote { border-left: 3px solid #E5E4EE; padding-left: 0.8em; margin: 0.4em 0; color: #8A8AA3; }
   .md-body a { text-decoration: underline; }
   .md-body table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
-  .md-body th, .md-body td { border: 1px solid rgba(100,116,139,0.3); padding: 0.3em 0.6em; }
-  .md-body th { background: rgba(100,116,139,0.12); font-weight: 600; }
-  .md-body hr { border: none; border-top: 1px solid rgba(100,116,139,0.3); margin: 0.6em 0; }
-  .bg-sky-600 .md-body blockquote { color: rgba(255,255,255,0.85); border-left-color: rgba(255,255,255,0.5); }
-  .bg-sky-600 .md-body :not(pre) > code { background: rgba(255,255,255,0.2); }
+  .md-body th, .md-body td { border: 1px solid #E5E4EE; padding: 0.3em 0.6em; }
+  .md-body th { background: #F1F0F8; font-weight: 600; }
+  .md-body hr { border: none; border-top: 1px solid #E5E4EE; margin: 0.6em 0; }
+  /* Code block header bar (language label + copy button) */
+  .code-head { display: flex; align-items: center; justify-content: space-between; background: #F1F0F8; border-bottom: 1px solid #ECEBF4; padding: 0.4em 0.75em; }
+  .code-head span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: #8A8AA3; font-weight: 500; }
+  .code-copy { background: #fff; border: 1px solid #E5E4EE; border-radius: 6px; padding: 1px 8px; font-size: 11px; color: #5A5A72; cursor: pointer; transition: all .15s; }
+  .code-copy:hover { color: #6E56CF; border-color: rgba(110,86,207,.4); }
 </style>
 
 <!-- Reusable pagination bar (top and bottom of the message list) -->
@@ -29,141 +42,173 @@
   <div class="text-xs text-gray-400">{{ t.msg_page_info|format(total, page, pages) }}</div>
   <div class="flex items-center gap-2">
     <select onchange="location.href='/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ role }}&size=' + this.value"
-            class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-sky-300 transition-colors">
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-[#6E56CF]/30 transition-colors">
       <option value="20" {% if size == 20 %}selected{% endif %}>20 {{ t.ws_per_page }}</option>
       <option value="50" {% if size == 50 %}selected{% endif %}>50 {{ t.ws_per_page }}</option>
       <option value="100" {% if size == 100 %}selected{% endif %}>100 {{ t.ws_per_page }}</option>
     </select>
     {% if page > 1 %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page=1&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_first_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#6E56CF]/30 text-gray-600 hover:text-[#6E56CF] rounded-lg transition-colors">{{ t.ws_first_page }}</a>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page - 1 }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-sky-300 text-gray-600 hover:text-sky-600 rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#6E56CF]/30 text-gray-600 hover:text-[#6E56CF] rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
     {% endif %}
     {% if page < pages %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page + 1 }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_next_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-[#6E56CF] hover:bg-[#5B45B9] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_next_page }}</a>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ pages }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">{{ t.ws_last_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-[#6E56CF] hover:bg-[#5B45B9] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_last_page }}</a>
     {% endif %}
   </div>
 </div>
 {% endif %}
 {% endmacro %}
-<div class="max-w-3xl">
-  <!-- Top bar -->
-  <div class="mb-6">
-    <a href="/web/workspace/{{ ws.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-      {{ t.common_back }}
-    </a>
-    <div class="flex items-start justify-between gap-4 mt-2">
-      <div class="min-w-0">
-        <h1 class="text-xl font-bold text-gray-900 truncate">{{ session.title or session.id }}</h1>
-        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-gray-500">
-          <span>{{ t.msg_model }}: <span class="text-gray-700">{{ session.model or t.common_none }}</span></span>
-          <span>{{ t.msg_messages }}: <span class="text-gray-700">{{ total }}</span></span>
-          <span>{{ t.msg_started }}: {{ session.started_at|timestamp_fmt if session.started_at else t.common_none }}</span>
-          <span>{{ t.msg_synced }}: {{ session.last_synced_at|timestamp_fmt if session.last_synced_at else t.common_none }}</span>
-        </div>
-      </div>
-      <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
-         class="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:border-sky-300 text-gray-700 hover:text-sky-600 text-sm font-medium rounded-lg transition-colors">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
-        {{ t.msg_export }}
-      </a>
+
+<!-- ========== Viewer header（04 会话查看器设计） ========== -->
+<div class="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 bg-white border-b border-gray-100 h-16 flex items-center gap-3.5">
+  <a href="/web/workspace/{{ ws.id }}"
+     class="w-9 h-9 rounded-[10px] bg-white border border-[#E5E4EE] flex items-center justify-center text-[#5A5A72] hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors shrink-0"
+     title="{{ t.common_back }}">
+    <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+  </a>
+  <div class="min-w-0 flex-1">
+    <h1 class="text-[15px] font-semibold text-gray-900 truncate leading-tight">{{ session.title or session.id }}</h1>
+    <div class="flex items-center gap-2 mt-0.5 text-xs min-w-0">
+      <code class="font-mono text-[11px] text-[#A5A5BC] truncate">{{ session.id }}</code>
+      <span class="w-1 h-1 rounded-full bg-[#C9C9DB] inline-block shrink-0"></span>
+      <span class="text-[#8A8AA3] shrink-0">{{ sync_label }}</span>
+      {% if session.model %}<span class="w-1 h-1 rounded-full bg-[#C9C9DB] inline-block shrink-0"></span><span class="text-[#8A8AA3] truncate">{{ session.model }}</span>{% endif %}
     </div>
   </div>
+  <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(session.agent_type) }}">
+    <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ session.agent_type or 'hermes' }}
+  </span>
+  <div class="flex items-center gap-2 shrink-0">
+    <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
+       class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#5A5A72] bg-white border border-[#E5E4EE] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
+      {{ t.msg_export }}
+    </a>
+    <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/hide" class="inline"
+          onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
+      <button type="submit"
+              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#EB5757] bg-white border border-[#F3C6C6] rounded-[10px] hover:bg-[#FDECEC] transition-colors">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        {{ t.msg_delete_session }}
+      </button>
+    </form>
+  </div>
+</div>
 
-  <!-- Role filter -->
+<div class="max-w-4xl mx-auto pt-5">
+  <!-- Role filter + search + trash -->
   <div class="flex flex-wrap items-center gap-2 mb-5">
     {% for key, label in [('', t.msg_filter_all), ('user', t.msg_filter_user), ('assistant', t.msg_filter_assistant), ('tool', t.msg_filter_tool), ('system', t.msg_filter_system)] %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ key }}"
-       class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors {% if role == key %}bg-sky-600 text-white shadow-sm{% else %}bg-white border border-gray-200 text-gray-500 hover:text-gray-900{% endif %}">{{ label }}</a>
+       class="px-3.5 py-1.5 rounded-full text-xs font-medium transition-all {% if role == key %}bg-[#6E56CF] text-white shadow-sm shadow-[#6E56CF]/30{% else %}bg-[#F6F5FA] text-gray-500 hover:bg-[#EDE9FB] hover:text-[#6E56CF]{% endif %}">{{ label }}</a>
     {% endfor %}
-    <form method="GET" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}" class="inline-flex items-center gap-1.5 ml-auto">
+    <form method="GET" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}" class="inline-flex items-center gap-1.5 ml-auto relative">
       <input type="hidden" name="role" value="{{ role }}">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5" stroke-width="1.6"/><path stroke-linecap="round" stroke-width="1.6" d="M13.5 13.5L17 17"/></svg>
       <input type="search" name="q" value="{{ q }}" placeholder="{{ t.msg_search_placeholder }}"
-             class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 w-40 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
+             class="pl-9 pr-3 py-2 text-xs rounded-[10px] border border-gray-200 bg-[#F6F5FA] focus:bg-white w-44 text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF] transition-colors"
              onchange="this.form.submit()">
     </form>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/trash"
-       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-amber-600 hover:border-amber-300 transition-colors">
+       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       {{ t.msg_trash }}
-      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">{{ trash_count }}</span>{% endif %}
+      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ trash_count }}</span>{% endif %}
     </a>
   </div>
 
   <!-- Pagination (top) -->
-  {{ pagination_bar('mb-5 pb-4 border-b border-gray-200') }}
+  {{ pagination_bar('mb-5 pb-5 border-b border-gray-100') }}
 
   <!-- Messages -->
-  <div class="space-y-4">
+  <div class="space-y-6">
     {% for m in messages %}
       {% if m.role == 'user' %}
-      <div class="flex justify-end">
-        <div class="relative max-w-[85%] bg-sky-600 text-white rounded-2xl rounded-br-md px-4 pt-8 pb-3 group">
-          <div id="msg-{{ loop.index0 }}" class="md-body text-sm break-words">{{ m.content_md|safe }}</div>
-          <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
-                  class="absolute top-1.5 left-1.5 p-1 rounded-md text-white/50 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="{{ t.common_copy }}">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-          </button>
-          <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
-                onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
-                class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button type="submit" class="p-1 rounded-md text-[11px] font-medium
-              {% if m.hidden %}text-emerald-300 hover:text-emerald-100{% else %}text-white/50 hover:text-white hover:bg-white/10{% endif %} transition-colors"
-              title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-              {{ t.msg_unhide if m.hidden else t.msg_hide }}
-            </button>
-          </form>
+      <!-- 用户消息：右对齐，渐变头像 + 浅紫气泡 + 气泡内时间 -->
+      <div class="flex justify-end gap-3">
+        <div class="max-w-[85%] min-w-0">
+          <div class="relative bg-[#F2F0FA] rounded-2xl rounded-tr-md px-4 py-2.5 group">
+            <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-900 break-words">{{ m.content_md|safe }}</div>
+            <div class="flex items-center justify-end gap-2 mt-1.5">
+              <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
+                      class="p-1 rounded-md text-gray-300 hover:text-[#6E56CF] hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="{{ t.common_copy }}">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </button>
+              <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+                    onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')">
+                <button type="submit" class="p-1 rounded-md text-[11px] font-medium
+                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-white{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+                  {{ t.msg_unhide if m.hidden else t.msg_hide }}
+                </button>
+              </form>
+              <span class="text-[11px] text-[#A5A5BC] shrink-0">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style="background:linear-gradient(135deg,#1A3366,#4066B3)">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" fill="white" fill-opacity="0.85"/><path stroke="white" stroke-width="1.8" stroke-linecap="round" d="M5 20c1.5-3.5 4-5 7-5s5.5 1.5 7 5"/></svg>
         </div>
       </div>
       {% elif m.role == 'assistant' %}
-      <div class="flex justify-start">
-        <div class="relative max-w-[85%] bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 pt-8 pb-3 group">
-          {% if m.reasoning_content %}
-          <details class="mb-2">
-            <summary class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer select-none">{{ t.msg_thinking }}</summary>
-            <p class="mt-2 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
-          </details>
-          {% endif %}
-          <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-800 break-words">{{ m.content_md|safe }}</div>
-          <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
-                onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
-                class="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button type="submit" class="p-1 rounded-md text-[11px] font-medium
-              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
-              title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-              {{ t.msg_unhide if m.hidden else t.msg_hide }}
-            </button>
-          </form>
-          <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
-                  class="absolute top-1.5 right-1.5 p-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="{{ t.common_copy }}">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-          </button>
+      <!-- Agent 消息：左对齐，四色图标头像 + Agent 名 + 白气泡 + 时间 -->
+      <div class="flex justify-start gap-3">
+        <div class="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0 mt-0.5 {{ agent_color(session.agent_type) }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        </div>
+        <div class="max-w-[85%] min-w-0">
+          <span class="text-[13px] font-semibold text-gray-700 block mb-1.5">{{ session.agent_type or 'hermes' }}</span>
+          <div class="relative bg-white border border-[#EFEEF7] rounded-2xl rounded-tl-md px-4 py-3 shadow-[0_3px_10px_-4px_rgba(33,26,72,0.04)] group">
+            {% if m.reasoning_content %}
+            <details class="mb-2">
+              <summary class="text-xs text-gray-400 hover:text-[#6E56CF] cursor-pointer select-none">{{ t.msg_thinking }}</summary>
+              <p class="mt-2 px-3 py-2 bg-[#F6F5FA] rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
+            </details>
+            {% endif %}
+            <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-800 break-words">{{ m.content_md|safe }}</div>
+            <div class="flex items-center gap-2 mt-2">
+              <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
+                      class="p-1 rounded-md text-gray-300 hover:text-[#6E56CF] hover:bg-gray-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="{{ t.common_copy }}">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </button>
+              <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
+                    onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')">
+                <button type="submit" class="p-1 rounded-md text-[11px] font-medium
+                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-50{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
+                  {{ t.msg_unhide if m.hidden else t.msg_hide }}
+                </button>
+              </form>
+              <span class="text-[11px] text-[#A5A5BC] ml-auto shrink-0">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+            </div>
+          </div>
         </div>
       </div>
       {% elif m.role == 'tool' %}
+      <!-- 工具消息：折叠卡 -->
       <div class="flex justify-start" x-data="{ open: false }">
-        <div class="relative max-w-[85%] w-full bg-gray-50 border border-gray-200 rounded-xl group">
+        <div class="relative max-w-[85%] w-full bg-[#F6F5FA] border border-[#ECEBF4] rounded-xl group">
           <button type="button" @click="open = !open"
                   class="w-full flex items-center gap-2 px-4 py-2.5 pr-20 text-xs font-medium text-gray-500 hover:text-gray-800">
             <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             <span class="text-gray-400">{{ t.msg_tool_label }}</span>
             <span class="font-mono text-gray-700">{{ m.tool_name or m.tool_call_id or t.common_none }}</span>
             <span class="text-gray-300">·</span>
-            <span class="text-gray-400 font-normal">{{ m.timestamp|timestamp_fmt if m.timestamp else '' }}</span>
+            <span class="text-gray-400 font-normal">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             <span class="ml-auto shrink-0 text-gray-400">{{ t.msg_expand if not open else t.msg_collapse }}</span>
           </button>
           <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
                 onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
                 class="absolute top-1.5 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
             <button type="submit" class="px-1.5 py-0.5 rounded-md text-[11px] font-medium
-              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-400 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
+              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-400 hover:text-gray-600 hover:bg-white{% endif %} transition-colors"
               title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
               {{ t.msg_unhide if m.hidden else t.msg_hide }}
             </button>
@@ -174,8 +219,9 @@
         </div>
       </div>
       {% else %}
+      <!-- 系统消息：居中胶囊 -->
       <div class="relative text-center group">
-        <span class="inline-block text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">{{ m.content or '' }}</span>
+        <span class="inline-block text-xs text-gray-400 bg-[#F6F5FA] border border-gray-100 px-3 py-1 rounded-full">{{ m.content or '' }}</span>
         <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
               onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
               class="absolute -right-16 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -193,13 +239,39 @@
   </div>
 
   <!-- Pagination (bottom) -->
-  {{ pagination_bar('mt-6 pt-4 border-t border-gray-200') }}
+  {{ pagination_bar('mt-6 pt-5 border-t border-gray-100') }}
 </div>
 
 <script>
-function copyMessage(btn, id) {
-  var el = document.getElementById(id);
-  var text = el ? el.textContent.trim() : '';
+// Inject a header bar (language label + copy button) into every code block,
+// per the viewer design's light code-block style.
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.md-body pre').forEach(function (pre) {
+    if (pre.dataset.enhanced) return;
+    pre.dataset.enhanced = '1';
+    var code = pre.querySelector('code');
+    var lang = '';
+    if (code && code.className) {
+      var m = code.className.match(/language-([\w+-]+)/);
+      if (m) lang = m[1];
+    }
+    var head = document.createElement('div');
+    head.className = 'code-head';
+    var langSpan = document.createElement('span');
+    langSpan.textContent = lang || 'code';
+    head.appendChild(langSpan);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'code-copy';
+    btn.textContent = '{{ t.common_copy }}';
+    btn.onclick = function () {
+      copyRaw(code ? code.textContent : pre.textContent, btn);
+    };
+    head.appendChild(btn);
+    pre.insertBefore(head, pre.firstChild);
+  });
+});
+function copyRaw(text, btn) {
   function fallback() {
     var ta = document.createElement('textarea');
     ta.value = text;
@@ -216,6 +288,11 @@ function copyMessage(btn, id) {
     fallback();
     flashCopied(btn);
   }
+}
+function copyMessage(btn, id) {
+  var el = document.getElementById(id);
+  var text = el ? el.textContent.trim() : '';
+  copyRaw(text, btn);
 }
 function flashCopied(btn) {
   var orig = btn.innerHTML;

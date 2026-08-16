@@ -2,51 +2,46 @@
 {% block title %}{{ t.ws_trash_sessions }} - Agent Contexts Sync{% endblock %}
 {% block content %}
 <!-- Back link -->
-<a href="/web/workspace/{{ ws.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-sky-600 transition-colors mb-6">
+<a href="/web/workspace/{{ ws.id }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-5">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
   {{ t.ws_trash_back }}
 </a>
 
-<div class="bg-white border border-gray-200 rounded-xl">
-  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4">
-    <h2 class="text-lg font-semibold text-gray-900 inline-flex items-center gap-2">
+<div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+    <h2 class="text-[17px] font-semibold text-gray-900 inline-flex items-center gap-2">
       <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       {{ t.ws_trash_sessions }}
-      <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-700">{{ trash_sessions|length }}</span>
+      <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ trash_sessions|length }}</span>
     </h2>
     <span class="text-xs text-gray-400">{{ ws.name }}</span>
   </div>
   {% if trash_sessions %}
-  <div class="overflow-x-auto">
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-gray-200">
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_title }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_model }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_started }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_actions }}</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for s in trash_sessions %}
-        <tr class="hover:bg-gray-100/50 transition-colors">
-          <td class="px-6 py-4 text-sm text-gray-500 max-w-md truncate">{{ s.title or s.id }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.model or '-' }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.message_count }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500">{{ s.started_at|timestamp_fmt }}</td>
-          <td class="px-6 py-4">
-            <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/unhide"
-                  class="inline" onsubmit="return confirm('{{ t.ws_unhide_confirm }}')">
-              <button type="submit" class="text-xs font-medium text-emerald-600 hover:text-emerald-500 transition-colors" title="{{ t.ws_unhide_hint }}">
-                {{ t.ws_unhide }}
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="p-4 space-y-2.5">
+    {% for s in trash_sessions %}
+    <div class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-[#F6F5FA] border border-transparent hover:border-[#6E56CF]/10 transition-all">
+      <div class="w-10 h-10 rounded-xl bg-[#FDECEC] text-[#EB5757] flex items-center justify-center shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-gray-900 truncate">{{ s.title or s.id }}</p>
+        <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+          <span>{{ s.model or '-' }}</span>
+          <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+          <span>{{ s.started_at|timestamp_fmt }}</span>
+          <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
+          <span>{{ s.message_count }} {{ t.ws_messages }}</span>
+        </div>
+      </div>
+      <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/unhide"
+            class="inline shrink-0" onsubmit="return confirm('{{ t.ws_unhide_confirm }}')">
+        <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#1E8E3E] bg-[#E9F9EF] rounded-lg hover:bg-[#D3EFDC] transition-colors" title="{{ t.ws_unhide_hint }}">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          {{ t.ws_unhide }}
+        </button>
+      </form>
+    </div>
+    {% endfor %}
   </div>
   {% else %}
   <div class="px-6 py-16 text-center">

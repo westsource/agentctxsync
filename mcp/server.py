@@ -129,6 +129,28 @@ def api_call(method, path, data=None):
     except Exception as e:
         return {"error": str(e)}
 
+# Quota rejections come back as HTTP 403 with our machine-readable code in
+# {"detail": "<code>"}. Translate them into a human-readable hint so the
+# Agent user understands WHY the push was refused, without losing the code.
+QUOTA_ERROR_HINTS = {
+    "agent_not_allowed": "同步被拒：当前套餐不支持该 Agent 类型的会话同步（如需启用请联系管理员）",
+    "quota_exceeded_sessions": "同步被拒：会话数量已达当前套餐上限，请清理旧会话或升级套餐",
+}
+
+def explain_quota_error(result):
+    """Return ``result`` with a friendly ``error`` hint when it is a quota
+    rejection (403 + our code), keeping the machine-readable ``code``."""
+    if not isinstance(result, dict) or result.get("error") != 403:
+        return result
+    try:
+        detail = json.loads(result.get("detail", "{}")).get("detail", "")
+    except Exception:
+        return result
+    hint = QUOTA_ERROR_HINTS.get(detail)
+    if hint:
+        return {**result, "error": hint, "code": detail}
+    return result
+
 def pull_sessions(last_sync_at=None, limit=None):
     """Pull remote sessions into the local store via the agent adapter.
 
@@ -220,6 +242,7 @@ def push_sessions():
         chunk = sessions_data[i:i + BATCH]
         result = api_call("POST", "/push", {"device_id": DEVICE_ID, "sessions": chunk})
         if "error" in result:
+            result = explain_quota_error(result)
             if i == 0:
                 return result
             return {**totals, "error": f"partial failure after {i} sessions: {result['error']}"}

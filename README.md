@@ -8,11 +8,11 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 
 Key features:
 - **Multi-tenancy**: multi-user + multi-Workspace isolation, each Workspace has its own API Key
-- **Cross-Agent sync**: Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw share the same session pool; A's sessions can be pulled by B and written to its local storage
+- **Cross-Agent sync**: Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy share the same session pool; A's sessions can be pulled by B and written to its local storage
 - **Web admin UI**: login/registration (invite code), overview, Workspace management, session viewer, admin console
 - **Data safety**: one-click export (Markdown / JSON.gz) and import of sessions/workspaces
 - **Project sync**: Hermes projects (sidebar project list) sync across devices along with sessions — merge by name + union of paths
-- **Data retention & retrieval**: sessions/messages can be soft-hidden (reversible), pinned, and searched by title/content
+- **Data retention & retrieval**: sessions/messages can be deleted (soft-delete, recoverable from the trash), pinned, and searched by title/content
 - **Setup help**: built-in setup help page with one-click download of the MCP client per Agent (includes install instructions and registration commands)
 - **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself automatically; takes effect after restarting the Agent
 - **i18n**: bilingual UI in Simplified Chinese / English
@@ -26,6 +26,7 @@ Key features:
 | opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON files) | `opencode:` | `.tmp` + rename atomic write; foreign sessions get a `ses_` id via idmap |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | `reasonix:` | append-only; sessions that are currently running (have a lock file) are skipped |
 | OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | `openclaw:` | schema auto-detection (experimental) |
+| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | `workbuddy:` | JSONL append + SQLite upsert; cwd dir auto-created; written sessions appear after WorkBuddy restart (MIGRATE scan) |
 
 Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`); connect all of them to the same Workspace and they sync with each other. Adding a new Agent only requires implementing one adapter (see [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)) — zero changes to the server or the sync engine.
 
@@ -45,7 +46,7 @@ Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`
 |  |  |  本地存储 (per agent)  |    |  full (+ hermes_sync_* 别名)      |    |  |
 |  |  |  state.db / jsonl /    |<-->|                                  |    |  |
 |  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
-|  |  +------------------------+    |  /reasonix/openclaw              |    |  |
+|  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
 |  |                                |                                  |    |  |
 |  |  +------------------------+    |  Background Tasks:               |    |  |
 |  |  |  config.yaml           |    |  * startup auto-pull (增量)      |    |  |
@@ -162,7 +163,7 @@ After deployment:
 **Method B (manual)**:
 
 ```bash
-# 选择 agent（hermes | codex | opencode | reasonix | openclaw），默认 hermes
+# 选择 agent（hermes | codex | opencode | reasonix | openclaw | workbuddy），默认 hermes
 export HERMES_SYNC_AGENT=codex
 
 # 设置 workspace API key（格式 ws_xxx）
@@ -199,7 +200,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 | Variable | Default | Description |
 |------|--------|------|
-| `HERMES_SYNC_AGENT` | `hermes` | Local storage adapter: `hermes`/`codex`/`opencode`/`reasonix`/`openclaw` |
+| `HERMES_SYNC_AGENT` | `hermes` | Local storage adapter: `hermes`/`codex`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
 | `HERMES_SYNC_SERVER` | `http://<SERVER_IP>:8765` | Remote server address (set it to match your deployment) |
 | `HERMES_SYNC_API_KEY` | - | **Workspace API Key** (required, format `ws_xxx`) |
 | `HERMES_SYNC_INTERVAL` | `300` | Auto-sync interval (seconds) |
@@ -214,7 +215,7 @@ MCP clients have built-in auto-update: a check runs about 15 seconds after start
 - Disable: `HERMES_SYNC_AUTO_UPDATE=0`; adjust the interval: `HERMES_SYNC_UPDATE_INTERVAL`
 - If verification fails or the network is unreachable, the old files are kept and only a log entry is recorded; sync is unaffected
 - Rollback: copy the files from `.bak-<version>/` back into the `mcp/` directory and delete `.hermes-sync-version`
-- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/server.py` and `server/server.py`; once the server is deployed, all clients upgrade automatically at their next check
+- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/server.py`; once the server is deployed, all clients upgrade automatically at their next check
 
 ## Multi-Profile Sync (Hermes profiles)
 
@@ -271,12 +272,12 @@ Hermes desktop projects (the sidebar project list) are stored in a **per-profile
 - **Web session association**: the project list on the Web workspace page prefix-matches session `cwd` against project folders to show the sessions under each project (consistent with Hermes' native `project_for_path` logic; paths are per-machine and the Web shows the union).
 - **Tools**: `project_push` / `project_pull` can be triggered manually; periodic sync (default 300s) also syncs projects along the way.
 
-## Data Retention & Retrieval (Hidden / Pinned / Search)
+## Data Retention & Retrieval (Delete / Trash / Pinned / Search)
 
-- **Soft-hide**: the Web session list and message detail views support "hide / restore"; data is **kept, not deleted**, and fully reversible. Once hidden:
-  - the server's `/pull` no longer delivers hidden sessions/messages (data stays on the server and is delivered again after restore);
+- **Delete / Restore (soft-hide)**: the Web session list and message detail views support "delete / restore"; data is **kept, not deleted** (a soft `hidden` flag), and fully reversible. Deleted items move to the **trash**: `/web/workspace/{id}/trash` (session trash) and `/web/workspace/{id}/session/{sid}/trash` (message trash), where they can be restored. Once deleted:
+  - the server's `/pull` no longer delivers deleted sessions/messages (data stays on the server and is delivered again after restore);
   - `/push` does not reset the `hidden` flag when updating existing rows;
-  - the Web hides hidden items by default; the "show hidden" toggle reveals them temporarily for viewing and restoring.
+  - the session list and message viewer hide deleted items by default; the trash pages show them for viewing and restoring.
 - **Pinned ordering**: the session list sorts pinned sessions first (`pinned`, 📌 marker). Currently used for display ordering only; there is no pin-management entry yet.
 - **Search**: the Workspace session list `?q=` fuzzy-filters by title / id; the session detail page `?q=` fuzzy-filters by message content (LIKE wildcards are escaped to prevent injection).
 
@@ -358,6 +359,7 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 ### Web UI (browser access)
 ```
 GET  /web/                      # 信息概览
+GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
 GET  /web/login                 # 登录页面
 GET  /web/register              # 注册页面（需邀请码，支持 ?code= 预填）
 GET  /web/logout                # 登出
@@ -365,17 +367,19 @@ GET  /web/change-password       # 修改密码页（首次登录强制改密时�
 POST /web/change-password       # 修改密码
 POST /web/update-profile        # 更新个人资料（显示名/密码/管理员标志）
 GET  /web/set-language/{lang}   # 切换语言（zh-CN / en）
-GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/隐藏开关/Agent 徽章/项目列表）
+GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/档案过滤/回收站入口/Agent 徽章/项目列表）
 GET  /web/workspace/{id}/session/{sid}            # 会话消息查看器（Markdown 渲染、消息搜索、隐藏/恢复）
 GET  /web/workspace/{id}/session/{sid}/export     # 导出单个会话为 Markdown
 GET  /web/workspace/{id}/export                   # 导出整个 Workspace 为 JSON.gz
 POST /web/workspace/{id}/import                   # 导入 Workspace 备份（JSON/JSON.gz）
 POST /web/workspace/{id}/regen-key                # 重新生成 API key
 GET  /web/workspace/{id}/delete                   # 删除 Workspace
-POST /web/workspace/{id}/session/{sid}/hide           # 隐藏会话（可逆，/pull 停止下发）
-POST /web/workspace/{id}/session/{sid}/unhide         # 恢复会话
-POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 隐藏消息
-POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 恢复消息
+POST /web/workspace/{id}/session/{sid}/hide           # 删除会话（软删除，移入回收站；/pull 停止下发，可恢复）
+POST /web/workspace/{id}/session/{sid}/unhide         # 从回收站恢复会话
+GET  /web/workspace/{id}/trash                        # 会话回收站（已删除会话，可恢复）
+GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
+POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
+POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
 GET  /web/help-hermes                             # 接入帮助页（MCP 客户端接入帮助）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
 GET  /web/admin/users                             # 用户管理
@@ -384,7 +388,7 @@ GET  /web/admin/user/{uid}/edit                   # 编辑用户
 POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
 GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
-GET  /web/admin/invites                           # 邀请管理
+GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
 POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
 POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 ```
@@ -403,11 +407,11 @@ POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 ### sessions
 Composite primary key: `(workspace_id, id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 Multi-Agent extension columns: `agent_type` (default `hermes`; existing data is automatically classified as hermes), `meta` (JSONB, carries agent-specific fields)
-Data retention/ordering extension columns: `hidden`/`hidden_at` (soft-hide, reversible), `pinned` (pin-to-top ordering), `profile_name` (source profile)
+Data retention/ordering extension columns: `hidden`/`hidden_at` (soft-delete, reversible), `pinned` (pin-to-top ordering), `profile_name` (source profile)
 
 ### messages
 Composite primary key: `(workspace_id, session_id, id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-Multi-Agent extension columns: `agent_type`, `meta` (JSONB); soft-hide columns: `hidden`/`hidden_at`
+Multi-Agent extension columns: `agent_type`, `meta` (JSONB); soft-delete columns: `hidden`/`hidden_at`
 
 ### sync_state
 Primary key: `(device_id, workspace_id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
