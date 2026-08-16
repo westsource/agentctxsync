@@ -2,6 +2,10 @@
 
 > **English**: [README.md](README.md) · **简体中文**: 本文档
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.zh-CN.md)
+[![CI](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml/badge.svg)](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](mcp/)
+
 > 官网：http://www.agentctxsync.com *（ICP 备案中，即将上线）*
 
 跨设备、跨 Agent 同步会话的完整解决方案。支持多用户、多 Workspace 隔离，基于 PostgreSQL 后端，通过 MCP Server 实现 Agent 启动时自动同步。
