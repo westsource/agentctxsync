@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-client:
+    name: MCP client tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # mcp/tests are pure-stdlib (sqlite3/unittest); the adapter package
+      # must import cleanly without the mcp SDK installed.
+      - name: Run adapter unit tests
+        run: python -m unittest discover -s mcp/tests -v
+
+      - name: Syntax check client files
+        run: python -m py_compile mcp/server.py mcp/updater.py mcp/adapters/*.py
+
+  test-server:
+    name: Server syntax + import check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install server deps
+        run: pip install --quiet fastapi uvicorn psycopg2-binary jinja2 markdown
+
+      - name: Syntax check server
+        run: python -m py_compile server/server.py server/agents.py server/translations.py
+
+      # Import check with env vars set and psycopg2 mocked away (no DB in CI).
+      # Verifies the app builds routes and templates load without a database.
+      - name: Import smoke test
+        shell: python
+        run: |
+          import os, sys, types
+          fake = types.ModuleType("psycopg2")
+          fake.extras = types.SimpleNamespace(RealDictCursor=object)
+          fake.errors = types.SimpleNamespace(UniqueViolation=type("UniqueViolation", (Exception,), {}))
+          sys.modules["psycopg2"] = fake
+          sys.modules["psycopg2.extras"] = fake.extras
+          sys.modules["psycopg2.errors"] = fake.errors
+          os.environ["HERMES_SYNC_PG_DSN"] = "postgresql://u:p@localhost:5432/db"
+          os.environ["HERMES_SYNC_MASTER_KEY"] = "hsync_ci_test"
+          os.chdir("server")
+          sys.path.insert(0, ".")
+          import server
+          routes = [r.path for r in server.app.routes]
+          assert any(p.startswith("/api/") for p in routes), "API routes missing"
+          assert any(p.startswith("/web/") for p in routes), "Web routes missing"
+          print(f"OK: {len(server.app.routes)} routes registered")
