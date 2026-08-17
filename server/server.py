@@ -678,14 +678,15 @@ async def web_register_submit(request: Request):
     password = body.get("password", "")
     confirm = body.get("confirm_password", "")
     code = body.get("invite_code", "").strip()
-    if not username or len(password) < 6 or not code:
+    if not username or len(password) < 6:
         return RedirectResponse(url="/web/register?error=register_invalid_input", status_code=303)
     if password != confirm:
         return RedirectResponse(url="/web/register?error=pwd_mismatch", status_code=303)
     now = datetime.now().timestamp()
-    # Resolve the plan granted by this invite BEFORE creating the user; the
+    # Optional invite: resolve the granted plan BEFORE creating the user; the
     # invite is consumed afterwards (a failed consume rolls the user back).
-    grant_plan = invite_grant_plan(code)
+    # Without an invite code the default plan applies.
+    grant_plan = invite_grant_plan(code) if code else "unlimited"
     with get_conn() as conn:
         c = conn.cursor()
         try:
@@ -701,7 +702,7 @@ async def web_register_submit(request: Request):
                   "VALUES (%s, %s, %s, %s, %s)",
                   ("默认工作空间", user_id, api_key, "", now))
     # Consume the invite AFTER the user exists; compensating delete on race.
-    err = consume_invite(code, user_id)
+    err = consume_invite(code, user_id) if code else None
     if err:
         with get_conn() as conn:
             c = conn.cursor()
