@@ -20,14 +20,20 @@ PASSWORD = os.environ.get("DEPLOY_SSH_PASSWORD", "")
 REMOTE = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/agentctxsync")
 # systemd service running the server (renamed from hermes-sync to
 # agentctxsync alongside the directory migration).
-SERVICE = os.environ.get("DEPLOY_SERVICE", "hermes-sync")
+SERVICE = os.environ.get("DEPLOY_SERVICE", "agentctxsync")
+# SSH key used when DEPLOY_SSH_PASSWORD is unset (passwordless login).
+KEY_FILE = os.environ.get("DEPLOY_SSH_KEY",
+                          os.path.expanduser("~/.ssh/id_ed25519"))
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def main():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password=PASSWORD, timeout=15)
+    client.connect(HOST, username=USER,
+                   password=PASSWORD or None,
+                   key_filename=KEY_FILE if not PASSWORD else None,
+                   timeout=15)
     sftp = client.open_sftp()
 
     def run(cmd, timeout=120):

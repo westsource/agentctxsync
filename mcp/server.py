@@ -250,7 +250,10 @@ def pull_sessions(last_sync_at=None, limit=None):
     imported, new_messages = 0, 0
     total_remote = 0
 
-    PAGE = 50
+    # One pull request returns `limit` FULL sessions (all messages); a big
+    # batch is slow and risks the HTTP timeout (observed: ~60s for a 50-
+    # session page). Keep pages small so a full resync never times out.
+    PAGE = 15
     fetched = 0
     prev_page_ids = None
     while True:
@@ -337,20 +340,44 @@ def push_sessions():
     # (50 sessions, thousands of messages) can exceed the HTTP timeout as
     # the workspace grows (observed: 31s on a ~6k-message push with a 30s
     # timeout). Partial failures report how far we got.
-    BATCH = 20
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
-    for i in range(0, len(sessions_data), BATCH):
-        chunk = sessions_data[i:i + BATCH]
+    processed = 0
+    for chunk in _chunk_sessions(sessions_data):
         result = api_call("POST", "/push", {"device_id": DEVICE_ID, "sessions": chunk})
         if "error" in result:
             result = explain_quota_error(result)
-            if i == 0:
+            if processed == 0:
                 return result
-            return {**totals, "error": f"partial failure after {i} sessions: {result['error']}"}
+            return {**totals, "error": f"partial failure after {processed} sessions: {result['error']}"}
         for k in ("imported", "updated", "new_messages"):
             totals[k] += result.get(k, 0)
         totals["sync_at"] = result.get("sync_at", totals["sync_at"])
+        processed += len(chunk)
     return totals
+
+def _chunk_sessions(sessions: list[dict],
+                    max_sessions: int = 20,
+                    max_messages: int = 3000) -> list[list[dict]]:
+    """Split sessions into push batches bounded by BOTH session count and
+    total message count. A few huge sessions (e.g. a 10MB workbuddy session
+    with thousands of events) must not ride along with a full batch of
+    average ones -- the per-message dedup on the server makes one request
+    cost scale with message count, and a giant request times out.
+    A single session larger than max_messages gets its own batch (the
+    message bound cannot split a session)."""
+    chunks: list[list[dict]] = []
+    cur: list[dict] = []
+    cur_msgs = 0
+    for s in sessions:
+        msgs = len(s.get("messages") or [])
+        if cur and (len(cur) >= max_sessions or cur_msgs + msgs > max_messages):
+            chunks.append(cur)
+            cur, cur_msgs = [], 0
+        cur.append(s)
+        cur_msgs += msgs
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 def full_sync():
     push_result = push_sessions()
@@ -385,7 +412,8 @@ def pull_projects():
 TOOL_SPECS = [
     ("sync_status", "Show sync status: local store totals and remote server status."),
     ("sync_pull", "Pull latest sessions from remote server into the local store.",
-     {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50)"}}),
+     {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50)"},
+      "full": {"type": "boolean", "description": "Full pull ignoring the sync watermark (default: false)"}}),
     ("sync_push", "Push local sessions to remote server."),
     ("sync_full", "Full sync: push local changes then pull remote changes."),
     ("project_push", "Push local projects (all profiles) to the remote server."),
@@ -415,7 +443,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_pull":
         limit = arguments.get("limit", 50)
-        result = await loop.run_in_executor(None, lambda: pull_sessions(limit=limit))
+        full = bool(arguments.get("full", False))
+        result = await loop.run_in_executor(
+            None, lambda: pull_sessions(last_sync_at=0 if full else None,
+                                        limit=limit))
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_push":
         result = await loop.run_in_executor(None, push_sessions)
