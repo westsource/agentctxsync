@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t.alls_title }} - Agent Context Sync{% endblock %}
 {% block content %}
+{% from "_macros.html" import agent_color %}
 <!-- Page header -->
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -43,12 +44,7 @@
     {% for s in sessions %}
     <a href="/web/workspace/{{ s.workspace_id }}/session/{{ s.id }}"
        class="flex items-center gap-3.5 px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
-      <div class="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0
-        {% if s.agent_type == 'codex' %}bg-[#E8F1FE] text-[#4285F4]
-        {% elif s.agent_type == 'opencode' %}bg-[#E9F9EF] text-[#34A853]
-        {% elif s.agent_type == 'reasonix' %}bg-[#FFF7E6] text-[#F2994A]
-        {% elif s.agent_type == 'openclaw' %}bg-[#FDECEC] text-[#EB5757]
-        {% else %}bg-[#EDE9FB] text-[#6E56CF]{% endif %}">
+      <div class="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 6C4 4.9 4.9 4 6 4H14C15.1 4 16 4.9 16 6V11.5C16 12.6 15.1 13.5 14 13.5H10L7.5 15.8V13.5H6C4.9 13.5 4 12.6 4 11.5V6Z"/></svg>
       </div>
       <div class="min-w-0 flex-1">
@@ -59,12 +55,7 @@
           {% if s.model %}<span class="w-1 h-1 rounded-full bg-gray-300 inline-block shrink-0"></span><span class="truncate">{{ s.model }}</span>{% endif %}
         </div>
       </div>
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0
-        {% if s.agent_type == 'codex' %}bg-[#E8F1FE] text-[#4285F4]
-        {% elif s.agent_type == 'opencode' %}bg-[#E9F9EF] text-[#34A853]
-        {% elif s.agent_type == 'reasonix' %}bg-[#FFF7E6] text-[#F2994A]
-        {% elif s.agent_type == 'openclaw' %}bg-[#FDECEC] text-[#EB5757]
-        {% else %}bg-[#EDE9FB] text-[#6E56CF]{% endif %}">
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(s.agent_type) }}">
         <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
       </span>
       <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500 shrink-0">

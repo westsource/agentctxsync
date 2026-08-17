@@ -1,14 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t.nav_dashboard }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% macro agent_color(a) -%}
-{%- if a == 'codex' -%}bg-[#E8F1FE] text-[#4285F4]
-{%- elif a == 'opencode' -%}bg-[#E9F9EF] text-[#34A853]
-{%- elif a == 'reasonix' -%}bg-[#FFF7E6] text-[#F2994A]
-{%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
-{%- else -%}bg-[#EDE9FB] text-[#6E56CF]
-{%- endif -%}
-{%- endmacro %}
+{% from "_macros.html" import agent_color %}
 <div x-data="{ showCreateModal: false }">
 <!-- Page header -->
 <div class="flex items-center justify-between mb-6">

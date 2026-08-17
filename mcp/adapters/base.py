@@ -214,28 +214,75 @@ class Adapter(abc.ABC):
         """Return local-store status: total sessions/messages, last update."""
         raise NotImplementedError
 
-    def last_synced_at(self) -> float:
-        """Latest sync watermark (0 = never).
+    def _sync_identity(self) -> str | None:
+        """Identity of the sync server, used to detect server switches.
 
-        Used to make startup/periodic pulls incremental instead of full
-        rescans. Default implementation reads a sidecar file next to the
-        store (see save_sync_watermark); subclasses may override.
+        Reads ``HERMES_SYNC_SERVER`` -- the env var the MCP server passes
+        down (mcp/server.py SYNC_SERVER). Standalone adapter use (tests,
+        scripts) typically has no such env: no identity is then recorded and
+        the legacy incremental behavior is kept, so callers that do not
+        switch servers are unaffected.
+        """
+        return os.environ.get("HERMES_SYNC_SERVER") or None
+
+    def _watermark_parts(self) -> tuple[str | None, float | None]:
+        """Parse the watermark sidecar -> (server_identity, timestamp).
+
+        v2 format:      "v2 <identity> <timestamp>" (server-bound)
+        legacy format:  bare float (predates identity recording)
+        Missing/empty/corrupt file yields (None, None).
         """
         f = self._watermark_file()
-        if f is not None and f.exists():
+        if f is None or not f.exists():
+            return None, None
+        try:
+            raw = f.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None, None
+        if not raw:
+            return None, None
+        parts = raw.split()
+        if parts[0] == "v2" and len(parts) >= 3:
             try:
-                return float(f.read_text(encoding="utf-8").strip())
-            except (ValueError, OSError):
-                return 0.0
-        return 0.0
+                return parts[1], float(parts[2])
+            except ValueError:
+                return None, None
+        try:
+            return None, float(raw)
+        except ValueError:
+            return None, None
+
+    def last_synced_at(self) -> float:
+        """Latest sync watermark (0 = never / full resync).
+
+        Used to make startup/periodic pulls incremental instead of full
+        rescans. The watermark is bound to the sync server identity: when
+        the recorded identity differs from the current one -- or the file
+        predates identity recording (legacy format) -- 0 is returned so the
+        next pull is a full resync. Without this, a leftover local watermark
+        from a previous server kept every older session below the
+        incremental cutoff and they were silently never pulled again.
+        """
+        ident = self._sync_identity()
+        f_ident, ts = self._watermark_parts()
+        if ts is None:
+            return 0.0
+        if ident is None:
+            return ts  # no identity available: legacy incremental behavior
+        if f_ident is None or f_ident != ident:
+            return 0.0  # legacy file or server switched: full resync
+        return ts
 
     def save_sync_watermark(self, ts: float):
-        """Persist the last successful pull's server-side sync_at."""
+        """Persist the last successful pull's server-side sync_at, recording
+        the sync server identity so a future server switch is detected."""
         f = self._watermark_file()
         if f is not None:
             try:
                 f.parent.mkdir(parents=True, exist_ok=True)
-                f.write_text(f"{ts:.6f}", encoding="utf-8")
+                ident = self._sync_identity()
+                content = f"v2 {ident} {ts:.6f}\n" if ident else f"{ts:.6f}"
+                f.write_text(content, encoding="utf-8")
             except OSError:
                 pass
 
