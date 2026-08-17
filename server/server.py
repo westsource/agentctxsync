@@ -1,4 +1,4 @@
-import os, json, hashlib, hmac, secrets, time, base64, io, zipfile, gzip, re, html
+import os, json, asyncio, hashlib, hmac, secrets, time, base64, io, zipfile, gzip, re, html, contextvars
 import markdown
 from datetime import datetime
 from contextlib import contextmanager
@@ -12,7 +12,12 @@ import psycopg2.extras
 # register_default_jsonb() only handles the read direction -- without an
 # adapter for the dict type every /push carrying meta 500s with
 # "can't adapt type 'dict'". Register dict -> Json once, globally.
-psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)
+try:
+    psycopg2.extensions.register_adapter(dict, psycopg2.extras.Json)
+except (AttributeError, ImportError):
+    # Mocked psycopg2 (CI import smoke) has no extensions module; the
+    # _pg_val() fallback still serializes dict/list params as JSON.
+    pass
 
 def _pg_val(v):
     """psycopg2 无法直接绑定 dict/list 参数时兜底：序列化为 JSON 字符串。
@@ -91,15 +96,16 @@ jinja_env.filters["msg_time"] = msg_time_fmt
 
 
 def get_lang():
-    if _current_request:
+    request = _current_request_var.get()
+    if request:
         # Logged-in users follow their account preference (lang claim in the
         # JWT, set at login and refreshed on switch); guests fall back to the
         # cookie so the landing page remembers the last choice per browser.
-        token = _current_request.cookies.get("hsync_token")
+        token = request.cookies.get("hsync_token")
         payload = verify_jwt(token) if token else None
         if payload and payload.get("lang"):
             return payload["lang"]
-        return _current_request.cookies.get("lang", "zh-CN")
+        return request.cookies.get("lang", "zh-CN")
     return "zh-CN"
 def render(template_name, context=None):
     ctx = context or {}
@@ -108,8 +114,9 @@ def render(template_name, context=None):
     ctx["lang"] = lang
     ctx["t"] = get_translations(lang)
     # Surface error/success query params (i18n keys) so templates can show them
-    if _current_request is not None:
-        q = _current_request.query_params
+    request = _current_request_var.get()
+    if request is not None:
+        q = request.query_params
         if "error" not in ctx and q.get("error"):
             ctx["error"] = q.get("error")
         if "success" not in ctx and q.get("success"):
@@ -117,6 +124,20 @@ def render(template_name, context=None):
     tmpl = jinja_env.get_template(template_name)
     html = tmpl.render(ctx)
     return HTMLResponse(content=html)
+
+
+async def render_page(template_name, context=None):
+    """render() off the event loop.
+
+    Jinja rendering of large pages (session viewer, all-sessions list) can
+    take tens of milliseconds; running it in the default executor keeps the
+    event loop free for other requests. contextvars.copy_context() carries
+    the per-request ContextVar (_current_request_var) into the worker thread
+    so language / flash / query-param lookups keep working there.
+    """
+    ctx = contextvars.copy_context()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: ctx.run(render, template_name, context))
 
 # ============================================================
 # Flash Messages
@@ -133,21 +154,28 @@ def flash(response, message, category="success"):
 
 def get_flashed_messages():
     from starlette.requests import Request as StarletteRequest
-    token = _current_request.cookies.get("_flash") if _current_request else None
+    request = _current_request_var.get()
+    token = request.cookies.get("_flash") if request else None
     if not token:
         return []
     messages = _flash_store.pop(token, [])
     return messages
 
-_current_request = None
+# Request-scoped context: carries the current HTTP request into template
+# rendering / language / flash lookups WITHOUT a process-global. A plain
+# global races under FastAPI's async concurrency (request A's await lets
+# request B overwrite it, so A resumes reading B's cookies/flash) -- the
+# ContextVar is per-task and is also propagated into executor threads via
+# contextvars.copy_context() (see render_page).
+_current_request_var = contextvars.ContextVar("current_request", default=None)
 
 @app.middleware("http")
 async def flash_middleware(request: Request, call_next):
-    global _current_request
-    _current_request = request
-    response = await call_next(request)
-    _current_request = None
-    return response
+    token = _current_request_var.set(request)
+    try:
+        return await call_next(request)
+    finally:
+        _current_request_var.reset(token)
 
 # /web/* paths reachable while a forced password change is pending.
 FORCED_PW_ALLOWLIST = {"/web/login", "/web/change-password", "/web/logout", "/web/register", "/web/set-language"}
@@ -182,9 +210,39 @@ def template_context():
 # Database
 # ============================================================
 
+_pool = None
+
+def _get_pool():
+    """Lazily-created psycopg2 ThreadedConnectionPool.
+
+    Created on first use, never at import time: the CI import smoke test
+    stubs psycopg2 without the pool module, and module-level consumers must
+    load the app without a database. ThreadedConnectionPool is thread-safe
+    for getconn/putconn, which matters once the sync handlers run inside
+    executor threads (see /push and /pull). maxconn 20 comfortably covers
+    the default executor pool (min(32, cpu+4)) on a single process.
+    """
+    global _pool
+    if _pool is None:
+        from psycopg2.pool import ThreadedConnectionPool
+        _pool = ThreadedConnectionPool(1, 20, PG_DSN)
+    return _pool
+
+
+@app.on_event("shutdown")
+def _close_pool():
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.closeall()
+        finally:
+            _pool = None
+
+
 @contextmanager
 def get_conn():
-    conn = psycopg2.connect(PG_DSN)
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         yield conn
         conn.commit()
@@ -192,7 +250,15 @@ def get_conn():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        try:
+            pool.putconn(conn)
+        except Exception:
+            # Connection died while checked out (network drop / PG restart):
+            # discard it so the pool never re-serves a broken handle.
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
 
 
 def init_db():
@@ -626,12 +692,12 @@ async def root(request: Request):
     try:
         get_current_user(request)
     except Exception:
-        return render("landing.html")
+        return await render_page("landing.html")
     return RedirectResponse(url="/web/")
 
 @app.get("/web/login", response_class=HTMLResponse)
 async def web_login(request: Request, error: str = ""):
-    return render("login.html", {"error": error})
+    return await render_page("login.html", {"error": error})
 
 @app.post("/web/login", response_class=HTMLResponse)
 async def web_login_post(request: Request):
@@ -644,7 +710,7 @@ async def web_login_post(request: Request):
         c.execute("SELECT * FROM users WHERE username = %s AND is_active = TRUE", (username,))
         user = c.fetchone()
         if not user or not verify_password(password, user["password_hash"]):
-            return render("login.html", {"error": "login_invalid"})
+            return await render_page("login.html", {"error": "login_invalid"})
         now = datetime.now().timestamp()
         c.execute("UPDATE users SET last_login_at = %s WHERE id = %s", (now, user["id"]))
         # If the guest picked a language on the landing page (lang cookie),
@@ -667,7 +733,7 @@ async def web_login_post(request: Request):
 async def web_register_page(request: Request, error: str = ""):
     # Pre-fill the invite code from a shared registration link (?code=...)
     code = request.query_params.get("code", "")
-    return render("register.html", {"error": error, "code": code})
+    return await render_page("register.html", {"error": error, "code": code})
 
 @app.post("/web/register", response_class=HTMLResponse)
 async def web_register_submit(request: Request):
@@ -759,7 +825,7 @@ async def web_dashboard(request: Request):
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "dashboard",
            "ws_list": ws_list, "total_sessions": total_sessions, "total_messages": total_messages,
            "quota": quota, "recent_sessions": recent_sessions}
-    return render("dashboard.html", ctx)
+    return await render_page("dashboard.html", ctx)
 
 @app.get("/web/all-sessions", response_class=HTMLResponse)
 async def web_all_sessions(request: Request):
@@ -816,7 +882,7 @@ async def web_all_sessions(request: Request):
            "sessions": sessions, "total": total, "pages": pages, "page": page, "size": size,
            "q": q, "ws_filter": ws_filter, "agent_filter": agent_filter,
            "ws_options": ws_options, "agent_options": AGENT_OPTIONS}
-    return render("all_sessions.html", ctx)
+    return await render_page("all_sessions.html", ctx)
 
 @app.get("/web/change-password", response_class=HTMLResponse)
 async def web_change_password_page(request: Request):
@@ -824,7 +890,7 @@ async def web_change_password_page(request: Request):
         user = get_current_user(request)
     except:
         return RedirectResponse(url="/web/login")
-    return render("change_password.html", {"user": user,
+    return await render_page("change_password.html", {"user": user,
                                            "forced": request.query_params.get("forced") == "1"})
 
 @app.post("/web/change-password", response_class=HTMLResponse)
@@ -1134,7 +1200,7 @@ async def web_workspace_detail(ws_id: int, request: Request):
            "agent": agent, "new_24h": new_24h,
            "trash_count": trash_count,
            "projects": projects}
-    return render("workspace_detail.html", ctx)
+    return await render_page("workspace_detail.html", ctx)
 
 VALID_MSG_ROLES = {"user", "assistant", "tool", "system"}
 _MD_EXT = ["fenced_code", "tables", "sane_lists"]
@@ -1229,7 +1295,7 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
         "q": q, "trash_count": trash_count,
         "sync_label": rel_sync_label(sess.get("last_synced_at")),
     }
-    return render("session_messages.html", ctx)
+    return await render_page("session_messages.html", ctx)
 def _msg_ts(value):
     try:
         return datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M") if value else "-"
@@ -1372,7 +1438,7 @@ async def web_workspace_trash(ws_id: int, request: Request):
                      FROM sessions s WHERE s.workspace_id = %s AND COALESCE(s.hidden,0) = 1
                      ORDER BY COALESCE(s.hidden_at, s.last_synced_at, s.started_at) DESC""", (ws_id,))
         trash_sessions = [dict(r) for r in c.fetchall()]
-    return render("trash_sessions.html", {"user": user, "workspaces": nav_ws,
+    return await render_page("trash_sessions.html", {"user": user, "workspaces": nav_ws,
                                           "active_page": f"workspace_{ws_id}",
                                           "ws": dict(ws), "trash_sessions": trash_sessions})
 
@@ -1403,7 +1469,7 @@ async def web_session_trash(ws_id: int, sid: str, request: Request):
             m["content_md"] = md_to_html(m.get("content"))
         else:
             m["content_md"] = ""
-    return render("trash_messages.html", {"user": user, "workspaces": nav_ws,
+    return await render_page("trash_messages.html", {"user": user, "workspaces": nav_ws,
                                           "active_page": f"workspace_{ws_id}",
                                           "ws": dict(ws), "session": dict(sess),
                                           "trash_messages": trash_messages})
@@ -1582,7 +1648,7 @@ async def web_admin_users(request: Request):
         c.execute("SELECT u.*, COUNT(w.id) as ws_count FROM users u LEFT JOIN workspaces w ON w.user_id = u.id GROUP BY u.id ORDER BY u.created_at DESC")
         users = [dict(r) for r in c.fetchall()]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_users", "users": users}
-    return render("admin_users.html", ctx)
+    return await render_page("admin_users.html", ctx)
 
 @app.post("/web/admin/user/create", response_class=HTMLResponse)
 async def web_create_user(request: Request):
@@ -1684,7 +1750,7 @@ async def web_admin_workspaces(request: Request):
         tm = c.fetchone()["cnt"]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_workspaces",
            "all_workspaces": all_ws, "total_sessions": ts, "total_messages": tm}
-    return render("admin_workspaces.html", ctx)
+    return await render_page("admin_workspaces.html", ctx)
 
 @app.get("/web/invites", response_class=HTMLResponse)
 async def web_invites(request: Request):
@@ -1714,7 +1780,7 @@ async def web_invites(request: Request):
            "invites": invites, "now": datetime.now().timestamp(),
            "quota_ui": quota_ui,
            "base_url": str(request.base_url)}
-    return render("admin_invites.html", ctx)
+    return await render_page("admin_invites.html", ctx)
 
 @app.get("/web/admin/invites", response_class=HTMLResponse)
 async def web_admin_invites_old(request: Request):
@@ -1974,7 +2040,7 @@ async def web_help(request: Request):
         agents_ctx[key] = entry
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "help_hermes",
            "ws_list": ws_list, "server_url": server_url, "agents": agents_ctx}
-    return render("help_hermes.html", ctx)
+    return await render_page("help_hermes.html", ctx)
 
 @app.get("/web/download/mcp-client")
 async def web_download_mcp_client(request: Request, ws_id: int = 0, agent: str = "hermes"):
@@ -2177,6 +2243,14 @@ async def health():
 @app.post("/pull")
 async def pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     body = await request.json()
+    loop = asyncio.get_running_loop()
+    # Sessions + their messages off the event loop: a page of sessions with
+    # thousands of messages would otherwise block every other request.
+    return await loop.run_in_executor(None, pull_sync, body, ws)
+
+
+def pull_sync(body, ws):
+    """Synchronous pull core, run off the event loop (see the /pull route)."""
     device_id = body.get("device_id", "unknown")
     last_sync_at = body.get("last_sync_at", 0)
     limit = body.get("limit", 50)
@@ -2196,17 +2270,24 @@ async def pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
         else:
             c.execute(f"SELECT * FROM sessions WHERE workspace_id = %s{agent_clause} AND COALESCE(hidden,0) = 0 AND (last_synced_at > %s OR started_at > %s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
                       (wid,) + agent_params + (last_sync_at, last_sync_at, limit, offset))
-        sessions = []
-        for row in c.fetchall():
-            s = dict(row)
-            sid = s["id"]
+        sessions = [dict(r) for r in c.fetchall()]
+        # One query for ALL page messages instead of an N+1 loop per session;
+        # grouped in memory by session (ORDER BY session_id keeps each
+        # session's own messages timestamp-ordered, matching the old per-
+        # session ORDER BY timestamp).
+        if sessions:
+            sids = [s["id"] for s in sessions]
             if last_sync_at == 0:
-                c.execute("SELECT * FROM messages WHERE session_id = %s AND workspace_id = %s AND COALESCE(hidden,0) = 0 ORDER BY timestamp", (sid, wid))
+                c.execute("SELECT * FROM messages WHERE workspace_id = %s AND session_id = ANY(%s) AND COALESCE(hidden,0) = 0 ORDER BY session_id, timestamp",
+                          (wid, sids))
             else:
-                c.execute("SELECT * FROM messages WHERE session_id = %s AND workspace_id = %s AND COALESCE(hidden,0) = 0 AND timestamp > %s ORDER BY timestamp",
-                          (sid, wid, last_sync_at))
-            s["messages"] = [dict(m) for m in c.fetchall()]
-            sessions.append(s)
+                c.execute("SELECT * FROM messages WHERE workspace_id = %s AND session_id = ANY(%s) AND COALESCE(hidden,0) = 0 AND timestamp > %s ORDER BY session_id, timestamp",
+                          (wid, sids, last_sync_at))
+            by_sid = {}
+            for m in c.fetchall():
+                by_sid.setdefault(m["session_id"], []).append(dict(m))
+            for s in sessions:
+                s["messages"] = by_sid.get(s["id"], [])
     now = datetime.now().timestamp()
     return {"sync_at": now, "session_count": len(sessions),
             "total_sessions": total_sessions,
@@ -2215,6 +2296,14 @@ async def pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
 @app.post("/push")
 async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     body = await request.json()
+    loop = asyncio.get_running_loop()
+    # The heavy DB work (quota gate, upserts, batched dedup + inserts) runs
+    # off the event loop so a big push never stalls other clients.
+    return await loop.run_in_executor(None, push_sync, body, ws)
+
+
+def push_sync(body, ws):
+    """Synchronous push core, run off the event loop (see the /push route)."""
     device_id = body.get("device_id", "unknown")
     sessions_data = body["sessions"]
     wid = ws["workspace_id"]
@@ -2262,6 +2351,23 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
         c.execute("SELECT column_name FROM information_schema.columns "
                   "WHERE table_name = 'messages'")
         msg_cols = {r[0] for r in c.fetchall()}
+        # ---- Batch metadata for this push ----
+        # Existing (session_id, role, timestamp) keys across the pushed
+        # sessions: ONE query instead of one per message (a 10k-message push
+        # used to issue several SELECTs per message before dedup could start).
+        sess_ids = [s["id"] for s in sessions_data]
+        c.execute("SELECT session_id, role, timestamp FROM messages "
+                  "WHERE workspace_id = %s AND session_id = ANY(%s)",
+                  (wid, sess_ids))
+        msg_keys = set(c.fetchall())
+        # Next auto-increment id per session for clients without local ids
+        # (codex/reasonix/...): ONE GROUP BY query instead of MAX(id) per
+        # message; ids are allocated in memory and a concurrent push stealing
+        # one is detected via INSERT ... RETURNING and retried.
+        c.execute("SELECT session_id, COALESCE(MAX(id), 0) + 1 FROM messages "
+                  "WHERE workspace_id = %s AND session_id = ANY(%s) GROUP BY session_id",
+                  (wid, sess_ids))
+        next_ids = {sid: n for sid, n in c.fetchall()}
         for session in sessions_data:
             sid = session["id"]
             session_agent = session.get("agent_type") or "hermes"
@@ -2295,6 +2401,9 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
                 ph = ", ".join(["%s"] * len(sd))
                 c.execute(f"INSERT INTO sessions ({cols}) VALUES ({ph})", list(sd.values()))
                 imp_s += 1
+            # ---- messages: dedup in memory, batch insert per session ----
+            new_msgs = []
+            content_cache = {}
             for msg in session.get("messages", []):
                 msid = msg.get("session_id", sid)
                 role = msg.get("role")
@@ -2305,27 +2414,36 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
                 # message would otherwise duplicate a row under a fresh id.
                 # Fall back to the id check when role/timestamp are missing.
                 if role is not None and ts is not None:
-                    c.execute("SELECT 1 FROM messages WHERE session_id=%s AND role=%s AND timestamp=%s AND workspace_id=%s",
-                              (msid, role, ts, wid))
+                    if (msid, role, ts) in msg_keys:
+                        dup_m += 1
+                        continue
                 else:
                     mid = msg.get("id")
                     c.execute("SELECT 1 FROM messages WHERE session_id=%s AND id=%s AND workspace_id=%s",
                               (msid, mid, wid))
-                if c.fetchone():
-                    dup_m += 1
-                    continue
+                    if c.fetchone():
+                        dup_m += 1
+                        continue
                 # Content-level fallback: an agent that rebuilt a session
                 # (e.g. hermes "message-alternation repair" after an
                 # interrupted turn) re-generates timestamps with time.time(),
                 # so the (role, timestamp) key no longer matches the original
                 # rows even though the content is identical. If an identical
                 # (role, content) already exists for this session, treat the
-                # push as a duplicate instead of duplicating the row.
+                # push as a duplicate instead of duplicating the row. The
+                # (role -> contents) map is fetched lazily, once per session,
+                # only when a key miss actually needs the check.
                 content = msg.get("content")
                 if role is not None and isinstance(content, str) and content:
-                    c.execute("SELECT 1 FROM messages WHERE session_id=%s AND role=%s AND content=%s AND workspace_id=%s",
-                              (msid, role, content, wid))
-                    if c.fetchone():
+                    if msid not in content_cache:
+                        c.execute("SELECT role, content FROM messages "
+                                  "WHERE workspace_id = %s AND session_id = %s AND content IS NOT NULL",
+                                  (wid, msid))
+                        by_role = {}
+                        for r_role, r_content in c.fetchall():
+                            by_role.setdefault(r_role, set()).add(r_content)
+                        content_cache[msid] = by_role
+                    if content in content_cache[msid].get(role, ()):
                         dup_m += 1
                         continue
                 md = {k: _pg_val(v) for k, v in msg.items()
@@ -2333,38 +2451,39 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
                 md.setdefault("agent_type", session_agent)
                 md["session_id"] = sid
                 md["workspace_id"] = wid
-                auto_id = "id" not in md
-                if auto_id:
-                    # messages.id is NOT NULL and clients without local ids
-                    # (codex/reasonix/...) do not send one: allocate the next
-                    # id for this session so the (session, id) key stays free.
-                    c.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM messages "
-                              "WHERE session_id = %s AND workspace_id = %s",
-                              (sid, wid))
-                    md["id"] = c.fetchone()[0]
-                cols = ", ".join(md.keys())
-                ph = ", ".join(["%s"] * len(md))
-                insert_sql = (f"INSERT INTO messages ({cols}) VALUES ({ph}) "
-                              "ON CONFLICT (workspace_id, session_id, id) DO NOTHING")
-                c.execute(insert_sql, list(md.values()))
-                if c.rowcount == 0 and auto_id:
-                    # concurrent push allocated the same id: retry with a
-                    # fresh one (a few attempts, then give up as duplicate)
-                    for _ in range(3):
-                        c.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM messages "
-                                  "WHERE session_id = %s AND workspace_id = %s",
-                                  (sid, wid))
-                        md["id"] = c.fetchone()[0]
-                        c.execute(insert_sql, list(md.values()))
-                        if c.rowcount:
-                            break
+                if "id" not in md:
+                    md["id"] = next_ids.get(msid, 1)
+                    next_ids[msid] = md["id"] + 1
+                new_msgs.append(md)
+            if new_msgs:
+                # One multi-row statement per session (a single round trip
+                # instead of one INSERT per message). RETURNING reports the
+                # rows that actually landed, so a concurrent push stealing an
+                # auto id is detected without a second lookup.
+                from psycopg2.extras import execute_values
+                cols = sorted({k for md in new_msgs for k in md})
+                rows = [[md.get(k) for k in cols] for md in new_msgs]
+                insert_sql = (f"INSERT INTO messages ({', '.join(cols)}) VALUES %s "
+                              "ON CONFLICT (workspace_id, session_id, id) DO NOTHING "
+                              "RETURNING session_id, id")
+                execute_values(c, insert_sql, rows, page_size=500)
+                inserted = set(c.fetchall())
+                imp_m += len(inserted)
+                # Concurrent-push id collisions: re-allocate and retry once.
+                retry_sql = (f"INSERT INTO messages ({', '.join(cols)}) "
+                             f"VALUES ({', '.join(['%s'] * len(cols))}) "
+                             "ON CONFLICT (workspace_id, session_id, id) DO NOTHING "
+                             "RETURNING session_id, id")
+                for md in new_msgs:
+                    if (md["session_id"], md["id"]) in inserted:
+                        continue
+                    md["id"] = next_ids.get(md["session_id"], 1)
+                    next_ids[md["session_id"]] = md["id"] + 1
+                    c.execute(retry_sql, [md.get(k) for k in cols])
+                    if c.fetchone():
+                        imp_m += 1
                     else:
                         dup_m += 1
-                        continue
-                elif c.rowcount == 0:
-                    dup_m += 1
-                    continue
-                imp_m += 1
         c.execute("""INSERT INTO sync_state (device_id, workspace_id, last_sync_at, sessions_synced, messages_synced)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (device_id, workspace_id) DO UPDATE SET
