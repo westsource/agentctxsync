@@ -58,13 +58,25 @@ YOUR_SERVER_IP
 
 ```
 /opt/hermes-sync-mcp/
-├── server.py              # 主服务 (FastAPI + Jinja2, ~98KB)
-├── translations.py        # 国际化翻译 (zh-CN / en, 234 键)
-├── venv/                  # Python 3.12 虚拟环境
+├── main.py               # 应用组装 (FastAPI + 路由挂载 + 启动入口)
+├── config.py             # 环境变量与常量
+├── db.py                 # 连接池 / get_conn / init_db / 配额策略查询
+├── render.py             # Jinja2 渲染 / flash / 请求上下文 (ContextVar)
+├── auth.py               # 认证域：JWT / 密码 / 依赖 / 登录注册路由
+├── invites.py            # 邀请码管理域
+├── workspace.py          # 工作空间域 (Web + REST)
+├── admin.py              # 管理域 (用户/空间管理)
+├── sync.py               # 同步域 (/pull /push /status ...)
+├── projects.py           # 项目同步域
+├── client_update.py      # 客户端更新域 (打包/清单/下载)
+├── web_help.py           # 接入帮助域
+├── agents.py             # Agent 注册表 (帮助页/下载包)
+├── translations.py       # 国际化翻译 (zh-CN / en, 234 键)
+├── venv/                 # Python 3.12 虚拟环境
 ├── templates/
-│   ├── base.html          # 基础布局 + 侧边栏 + 语言切换
-│   ├── login.html         # 登录页
-│   ├── dashboard.html     # 主仪表盘
+│   ├── base.html         # 基础布局 + 侧边栏 + 语言切换
+│   ├── login.html        # 登录页
+│   ├── dashboard.html    # 主仪表盘
 │   ├── workspace_detail.html  # 工作区详情 (会话列表/搜索/隐藏/项目)
 │   ├── session_messages.html  # 会话消息查看器 (搜索/隐藏)
 │   ├── register.html          # 注册页 (邀请码可选)

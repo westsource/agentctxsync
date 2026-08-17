@@ -11,9 +11,9 @@ mkdir -p /opt/hermes-sync-mcp/backups
 mkdir -p /opt/hindsight
 
 # 2. Copy files
-cp server.py /opt/hermes-sync-mcp/server.py
-cp agents.py /opt/hermes-sync-mcp/agents.py
-cp translations.py /opt/hermes-sync-mcp/translations.py
+# Modular layout: main.py assembles config/db/render/auth/invites/workspace/
+# admin/sync/projects/client_update/web_help (all .py in the server dir).
+cp *.py /opt/hermes-sync-mcp/
 cp backup.sh /opt/hermes-sync-mcp/backup.sh
 chmod +x /opt/hermes-sync-mcp/backup.sh
 # Note: docker-compose.yaml is NOT part of this project (hindsight stack);
@@ -54,7 +54,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/hermes-sync-mcp
-ExecStart=/opt/hermes-sync-mcp/venv/bin/python /opt/hermes-sync-mcp/server.py
+ExecStart=/opt/hermes-sync-mcp/venv/bin/python /opt/hermes-sync-mcp/main.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -158,7 +158,7 @@ docker exec agentctxsync-db psql -U agentctxsync -d agentctxsync -c \
 else
     echo "Skipping Docker PostgreSQL provisioning: /opt/hindsight/docker-compose.yaml not found."
     echo "Ensure HERMES_SYNC_PG_DSN points to a ready PostgreSQL (agentctxsync database must"
-    echo "already exist; tables are auto-created by server.py on first start)."
+    echo "already exist; tables are auto-created by main.py on first start)."
 fi
 
 # 10. Setup backup cron
