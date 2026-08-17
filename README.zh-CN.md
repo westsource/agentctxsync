@@ -13,7 +13,7 @@
 主要特性：
 - **多租户**：多用户 + 多 Workspace 隔离，每个 Workspace 独立 API Key
 - **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池，A 的会话可被 B 拉取并写入其本地存储
-- **Web 管理界面**：登录/注册（邀请码）、信息概览、Workspace 管理、会话查看器、管理后台
+- **Web 管理界面**：登录/注册（邀请码可选）、信息概览、Workspace 管理、会话查看器、管理后台
 - **数据安全**：会话/工作区一键导出（Markdown / JSON.gz）与导入
 - **项目同步**：Hermes 项目（侧边栏项目列表）随会话跨设备同步，同名合并 + 路径并集
 - **数据保留与检索**：会话/消息可删除（软删除，回收站可恢复）、置顶排序、标题/内容搜索
@@ -75,7 +75,7 @@
 |  |                FastAPI Server (server.py :8765)                        |  |
 |  |                                                                        |  |
 |  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
-|  |  * 登录 / 注册(邀请码)      * Auth (login/me)      * GET /health        |  |
+|  |  * 登录 / 注册           * Auth (login/me)      * GET /health        |  |
 |  |  * 信息概览 / 工作空间     * Workspace CRUD       * POST /pull          |  |
 |  |  * 会话查看器 (Markdown)   * Admin (users/ws)     * POST /push          |  |
 |  |  * 导出 / 导入             * Change Password      * GET /status/{dev}   |  |
@@ -94,7 +94,7 @@
 |  |  PostgreSQL (agentctxsync DB)                                        |  |
 |  |  * users       (id, username, password_hash, is_admin, is_active)    |  |
 |  |  * workspaces  (id, name, user_id FK, api_key)                       |  |
-|  |  * invites     (邀请码注册: code, used, revoked, expires_at)          |  |
+|  |  * invites     (邀请码(可选): code, used, revoked, expires_at)          |  |
 |  |  * sessions    PK (workspace_id, id) + agent_type/meta               |  |
 |  |  * messages    PK (workspace_id, session_id, id) + agent_type/meta   |  |
 |  |  * sync_state  PK (device_id, workspace_id)                          |  |
@@ -156,7 +156,7 @@ bash ../scripts/deploy-server.sh
 ### 2. 注册用户与创建 Workspace（Web UI）
 
 1. 打开 `http://<SERVER_IP>:8765/web/`，点击注册
-2. 注册需要**邀请码**：管理员在 管理 → 邀请管理 页面创建邀请码（格式 `HSYNC-XXXXXXXX`），可设置有效期、备注，可随时撤销；也可复制带 `?code=` 参数的分享链接直接发给用户
+2. 注册可直接完成（邀请码可选）；如需限制注册，管理员可在 管理 → 邀请管理 页面创建邀请码（格式 `HSYNC-XXXXXXXX`），可设置有效期、备注，可随时撤销；也可复制带 `?code=` 参数的分享链接直接发给用户
 3. 注册成功后自动创建「默认工作区」；也可以在信息概览点击 "+ 创建" 创建更多 workspace
 4. 在 Workspace 详情页复制 API Key（格式 `ws_xxx`）
 
@@ -398,7 +398,7 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 GET  /web/                      # 信息概览
 GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
 GET  /web/login                 # 登录页面
-GET  /web/register              # 注册页面（需邀请码，支持 ?code= 预填）
+GET  /web/register              # 注册页面（邀请码可选，支持 ?code= 预填）
 GET  /web/logout                # 登出
 GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
 POST /web/change-password       # 修改密码
