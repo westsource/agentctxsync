@@ -10,16 +10,18 @@
 
 跨设备、跨 Agent 同步会话的完整解决方案。支持多用户、多 Workspace 隔离，基于 PostgreSQL 后端，通过 MCP Server 实现 Agent 启动时自动同步。
 
-主要特性：
-- **多租户**：多用户 + 多 Workspace 隔离，每个 Workspace 独立 API Key
-- **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池，A 的会话可被 B 拉取并写入其本地存储
-- **Web 管理界面**：登录/注册（邀请码可选）、信息概览、Workspace 管理、会话查看器、管理后台
-- **数据安全**：会话/工作区一键导出（Markdown / JSON.gz）与导入
+## 主要特性
+
+- **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池。每个客户端拉取**整个会话池**（全部 Agent）并推送本地持有的全部会话，A 的会话可被 B 拉取并写入其本地存储；会话跨设备续写时只推送新增消息
+- **多租户**：多用户 + 多 Workspace 隔离，每个 Workspace 独立 API Key；管理员可管理用户、邀请码与空间元数据，但**无法查看任何用户的空间内容、会话或消息**
+- **自动同步**：启动时增量拉取（首次配对自动引导推送），之后周期性自动同步；分批避免超时、单写者锁安全、消息跨设备幂等去重
+- **配额机制**：按用户会话存储上限 + Agent 白名单（`free` / `unlimited` 套餐），服务端对新建会话执法，策略存于数据库（免重启），带审计日志
+- **Web 管理界面**：简体中文 / English 双语；信息概览、Workspace 管理、跨空间统一**全部会话**页、Markdown 会话查看器、回收站、导出/导入、管理后台
 - **项目同步**：Hermes 项目（侧边栏项目列表）随会话跨设备同步，同名合并 + 路径并集
-- **数据保留与检索**：会话/消息可删除（软删除，回收站可恢复）、置顶排序、标题/内容搜索
-- **接入帮助**：内置接入帮助页，按 Agent 一键下载 MCP 客户端（含安装说明与注册命令）
+- **数据安全**：会话/工作区一键导出（Markdown / JSON.gz）与导入；会话/消息可软删除（回收站可恢复）、置顶排序、标题/内容搜索
+- **接入帮助**：内置接入帮助页，按 Agent 一键下载 MCP 客户端（含安装说明与注册命令；Key 保持占位符，转发包不泄露），并提供 WorkBuddy 引导流程
 - **客户端自动更新**：客户端定时从服务端拉取新版本，逐文件校验后自动替换，重启 Agent 即生效
-- **国际化**：简体中文 / English 双语界面
+- **开放注册**：注册默认开放，邀请码可选；需要管控放量时可用邀请码（可选有效期、可撤销、支持 `?code=` 分享链接）
 
 ## 支持的 Agent
 
@@ -33,102 +35,6 @@
 | WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | `workbuddy:` | JSONL 追加 + SQLite upsert；cwd 目录自动创建；写入的会话需重启 WorkBuddy 后出现（启动时 MIGRATE 扫描识别） |
 
 每个 Agent 独立部署一个 MCP 客户端实例（`HERMES_SYNC_AGENT` 选择），全部接入同一 Workspace 即实现互相同步。新增 Agent 只需实现一个适配器（见 [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)），服务端与同步引擎零改动。
-
-## 架构
-
-```
-+-----------------------------------------------------------------------------+
-|                             本地设备 (电脑 A/B/...)                          |
-|                                                                             |
-|  +-----------------------------------------------------------------------+  |
-|  |                        Agent App (Hermes/Codex/...)                   |  |
-|  |  +--------------+    stdio     +----------------------------------+    |  |
-|  |  |  Agent Core  | <----------> |  MCP Server (server.py)          |    |  |
-|  |  +--------------+              |  hermes-session-sync             |    |  |
-|  |                                |                                  |    |  |
-|  |  +------------------------+    |  Tools: sync_status/pull/push/   |    |  |
-|  |  |  本地存储 (per agent)  |    |  full (+ hermes_sync_* 别名)      |    |  |
-|  |  |  state.db / jsonl /    |<-->|                                  |    |  |
-|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
-|  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
-|  |                                |                                  |    |  |
-|  |  +------------------------+    |  Background Tasks:               |    |  |
-|  |  |  config.yaml           |    |  * startup auto-pull (增量)      |    |  |
-|  |  |  mcp_servers:          |    |  * bootstrap push (首次配对)      |    |  |
-|  |  |    hermes-sync:        |    |  * periodic sync (5min)          |    |  |
-|  |  |      env:              |    |  * auto-update (24h, 校验+替换)   |    |  |
-|  |  |        HERMES_SYNC_... |    |  * 单写者锁/更新锁 (双实例安全)    |    |  |
-|  |  +------------------------+    +--------------+-------------------+    |  |
-|  |  +------------------------+                   |                        |  |
-|  |  |  .hermes-sync-watermark| (增量拉取水位线)   | HTTP/8765              |  |
-|  |  |  .hermes-sync-version  | (自动更新版本)     | (Workspace API Key)    |  |
-|  |  +------------------------+                   |                        |  |
-|  +-----------------------------------------------+------------------------+  |
-+--------------------------------------+----------------------------------------+
-                                       |
-              push / pull / manifest / download (JSON over HTTP, Bearer: ws_xxx)
-                                       |
-+--------------------------------------+----------------------------------------+
-|                     远程服务器 (自建部署)                                       |
-|                                                                              |
-|  +-----------------------------------------------------------------------+  |
-|  |                FastAPI Server (server.py :8765)                        |  |
-|  |                                                                        |  |
-|  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
-|  |  * 登录 / 注册           * Auth (login/me)      * GET /health        |  |
-|  |  * 信息概览 / 工作空间     * Workspace CRUD       * POST /pull          |  |
-|  |  * 会话查看器 (Markdown)   * Admin (users/ws)     * POST /push          |  |
-|  |  * 导出 / 导入             * Change Password      * GET /status/{dev}   |  |
-|  |  * 接入帮助 + 客户端下载    * register (管理员)    * GET /sessions      |  |
-|  |  * Admin (用户/空间/邀请)                        * GET /users          |  |
-|  |                                                                        |  |
-|  |  Client Update API                                                      |  |
-|  |  * GET /api/client/manifest (版本对比+sha256)                           |  |
-|  |  * GET /api/client/download (带 manifest 的 zip)                       |  |
-|  |                                                                        |  |
-|  |  Auth: JWT (cookie)        Auth: JWT (header)     Auth: API Key (ws_)  |  |
-|  |  i18n: zh-CN / en                                                        |  |
-|  +----------------------------------+-------------------------------------+  |
-|                                     |                                        |
-|  +----------------------------------v-------------------------------------+  |
-|  |  PostgreSQL (agentctxsync DB)                                        |  |
-|  |  * users       (id, username, password_hash, is_admin, is_active)    |  |
-|  |  * workspaces  (id, name, user_id FK, api_key)                       |  |
-|  |  * invites     (邀请码(可选): code, used, revoked, expires_at)          |  |
-|  |  * sessions    PK (workspace_id, id) + agent_type/meta               |  |
-|  |  * messages    PK (workspace_id, session_id, id) + agent_type/meta   |  |
-|  |  * sync_state  PK (device_id, workspace_id)                          |  |
-|  |  * projects    PK (workspace_id, id) + folders/remap                 |  |
-|  +----------------------------------------------------------------------+  |
-|                                                                              |
-|  +---------------------+  +----------------------+  +---------------------+  |
-|  |  systemd service     |  |  Docker Compose       |  |  Cron Backup        |  |
-|  |  hermes-sync.service |  |  * postgres (pg18)    |  |  每天 3:00 AM       |  |
-|  |  (auto-restart)      |  |    (pgvector 扩展)    |  |  pg_dump -> gz      |  |
-|  +---------------------+  +----------------------+  |  保留 7 天          |  |
-|                                                      +---------------------+  |
-+------------------------------------------------------------------------------+
-```
-
-### 多租户模型
-
-```
-User (admin / user)
- |
- +-- Workspace "Personal"  (api_key: ws_xxx)
- |    +-- Sessions / Messages / SyncState
- |    +-- Device A, Device B (same workspace = full sync)
- |
- +-- Workspace "Work"      (api_key: ws_yyy)
-      +-- Sessions / Messages / SyncState
-      +-- Device C (isolated from Personal workspace)
-```
-
-- **Users**: 新用户通过管理员发放的邀请码自助注册（也可由管理员直接创建账号）
-- **Workspaces**: 每个用户可创建多个 workspace，每个 workspace 有独立 API key
-- **隔离**: 不同 workspace 之间的会话和消息完全隔离
-- **同 workspace**: 同一 workspace 下的所有设备完全同步
-- **管理员权限边界**: 管理员可管理用户、邀请码与全局工作区（元数据与开关），但**无法查看任何用户的空间内容、会话或消息**——空间数据（会话列表、消息内容、项目）仅对所属用户可见，管理页面只暴露元数据与管理操作。
 
 ## 快速开始
 
@@ -156,7 +62,7 @@ bash ../scripts/deploy-server.sh
 ### 2. 注册用户与创建 Workspace（Web UI）
 
 1. 打开 `http://<SERVER_IP>:8765/web/`，点击注册
-2. 注册可直接完成（邀请码可选）；如需限制注册，管理员可在 管理 → 邀请管理 页面创建邀请码（格式 `HSYNC-XXXXXXXX`），可设置有效期、备注，可随时撤销；也可复制带 `?code=` 参数的分享链接直接发给用户
+2. 注册默认开放，邀请码可选；如需限制注册，管理员可在 管理 → 邀请管理 页面创建邀请码（格式 `HSYNC-XXXXXXXX`），可设置有效期、备注，可随时撤销；也可复制带 `?code=` 参数的分享链接直接发给用户
 3. 注册成功后自动创建「默认工作区」；也可以在信息概览点击 "+ 创建" 创建更多 workspace
 4. 在 Workspace 详情页复制 API Key（格式 `ws_xxx`）
 
@@ -212,6 +118,13 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_AUTO_SYNC` | `1` | 后台自动同步开关（`0` 关闭；手动工具调用仍可用） |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | 客户端自动更新开关（`0` 关闭） |
 | `HERMES_SYNC_UPDATE_INTERVAL` | `86400` | 更新检查间隔（秒，默认 24 小时） |
+
+## 配额（可选）
+
+- 每个用户带 `plan`（`free` / `unlimited`）；注册与邀请码默认授予 `unlimited`，管理员可创建授予 `free` 套餐的邀请码。默认 `free` 套餐的活跃会话上限为 200。
+- 执法：`POST /push` 只对**新建会话**拦截——Agent 白名单 + 用户全局活跃会话数。已有会话的更新与拉取不受影响，降低配额不会破坏已同步的数据池。超限返回 403（`agent_not_allowed` / `quota_exceeded_sessions`）并记入审计日志。
+- 策略存于数据库（`users.plan` + `quota_config`）：运营侧改动后下一次 push 即生效，无 API 耦合、无需重启。部署中不存在受限套餐邀请路径时配额界面自动隐藏；运营侧直接配置限制时执法照常生效。
+- 运维 SQL（调整限额、最小权限只读账号）见 [docs/server-deployment.md](docs/server-deployment.md)。
 
 ## 客户端自动更新
 
@@ -330,13 +243,17 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 在各机器 `config.yaml` 的 `env` 段添加 `HERMES_SYNC_SERVER: http://新地址:8765`
 （环境变量优先），或手动复制新版 `server.py` 到 `mcp/` 目录。
 
+> **水位线跟随服务器身份**：增量拉取水位线记录其归属的服务器。客户端指向不同服务器时
+> （环境变量或更新后的默认地址），水位线不匹配会自动触发全量重拉——旧服务器的残留
+> 水位线绝不会压住新服务器上的会话。
+
 ## MCP 工具
 
 | 工具 | 说明 |
 |------|------|
 | `sync_status`（别名 `hermes_sync_status`） | 查看同步状态（远程会话/消息数、设备最近同步时间） |
-| `sync_pull`（别名 `hermes_sync_pull`） | 从远程拉取会话到本地（参数: limit，默认 50；后台增量拉取时按水位线分页获取全部） |
-| `sync_push`（别名 `hermes_sync_push`） | 推送本地会话到远程（自动分批，避免大请求超时） |
+| `sync_pull`（别名 `hermes_sync_pull`） | 从远程拉取会话到本地（参数: `limit`，默认 50；`full`——忽略水位线全量拉取；后台增量拉取时按水位线分页获取全部） |
+| `sync_push`（别名 `hermes_sync_push`） | 推送本地会话到远程（自动分批：会话数 + 消息数双上限，避免大请求超时） |
 | `sync_full`（别名 `hermes_sync_full`） | 完整同步（先 push 再 pull） |
 | `project_push` | 推送本地全部档案的 projects.db 项目到远程（同名合并由服务端处理） |
 | `project_pull` | 从远程拉取项目到本地 projects.db（应用 remap、按档案路由） |
@@ -344,126 +261,22 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 > `sync_*` 为中性工具名（所有 Agent 通用）；`hermes_sync_*` 为兼容别名，存量 Hermes 注册不受影响。
 
 后台行为：
-- 启动时自动**增量**拉取一次（本地 `.hermes-sync-watermark` 水位线 + 5 分钟时钟容差）；远程为空时自动推送本地数据（新设备首次配对引导）
+- 启动时自动**增量**拉取一次（延迟 8 秒避开宿主 Agent 启动/会话恢复的读高峰；本地
+  `.hermes-sync-watermark` 水位线 + 5 分钟时钟容差）；远程为空时自动推送本地数据
+  （新设备首次配对引导）
 - 周期性自动同步（默认 300 秒）
+- **水位线绑定服务器身份**：客户端指向不同服务器时自动全量重拉（见「服务器迁移流程」）
+- **分批同步**：拉取每批 15 个会话分页；推送按会话数 + 消息数双上限分批，大批量同步不会超时
+- **拉取写重试**：本地存储被宿主 Agent 占用时自动重试几次（每次快速失败，busy_timeout 5 秒）
 - 单写者锁：双 `serve` 实例只允许一个进程运行后台同步，避免本地存储竞争；自动更新使用独立更新锁
 - 消息去重基于 `(session_id, role, timestamp)` 三元组，跨设备幂等
 - 后台同步完成后会向宿主 Agent 发送 MCP 日志通知（`notifications/message`，logger=`hermes-sync`）；宿主是否在界面显示取决于其 App——Web 端是确定可见的通道
 
-## API 端点
+## 文档
 
-### Sync API（API Key 认证，格式 `ws_xxx`）
-```
-GET  /health                    # 健康检查
-POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量；全量池——不过滤 agent）
-POST /push                      # 推送会话（upsert + 消息去重；按服务端真实列过滤；agent_type/meta）
-GET  /status/{device_id}        # 同步状态（设备最近同步时间、会话/消息总数）
-GET  /sessions                  # 列出会话（最近 50 条，含 agent_type）
-GET  /users                     # 列出同步设备
-```
-
-### Projects API（API Key 认证，格式 `ws_xxx`）
-```
-POST /api/projects/push   # 推送项目 + folders（同 (profile, slug) 合入最早项目并记录 remap）
-POST /api/projects/pull   # 拉取项目 + folders + remap（不含已隐藏项目）
-```
-
-### Client Update API（API Key 认证）
-```
-GET  /api/client/manifest?agent=X&v=本地版本   # 版本对比 + 每文件 sha256/size
-GET  /api/client/download?agent=X             # 客户端 zip（内嵌 manifest.json）
-```
-
-### REST API（JWT 认证）
-```
-POST /api/auth/login            # 登录获取 JWT
-POST /api/auth/register         # 创建用户（需管理员 JWT）
-GET  /api/me                    # 当前用户信息
-POST /api/me/change-password    # 修改密码
-GET  /api/workspaces            # 列出我的 workspace
-POST /api/workspaces            # 创建 workspace
-DELETE /api/workspaces/{id}     # 删除 workspace
-POST /api/workspaces/{id}/regen-key  # 重新生成 API key
-```
-
-### Admin API（管理员 JWT）
-```
-GET  /api/admin/users           # 所有用户
-POST /api/admin/users/{uid}/toggle   # 启用/禁用用户
-GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/消息）
-```
-
-### Web UI（浏览器访问）
-```
-GET  /web/                      # 信息概览
-GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
-GET  /web/login                 # 登录页面
-GET  /web/register              # 注册页面（邀请码可选，支持 ?code= 预填）
-GET  /web/logout                # 登出
-GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
-POST /web/change-password       # 修改密码
-POST /web/update-profile        # 更新个人资料（显示名/密码/管理员标志）
-GET  /web/set-language/{lang}   # 切换语言（zh-CN / en）
-GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/档案过滤/回收站入口/Agent 徽章/项目列表）
-GET  /web/workspace/{id}/session/{sid}            # 会话消息查看器（Markdown 渲染、消息搜索、隐藏/恢复）
-GET  /web/workspace/{id}/session/{sid}/export     # 导出单个会话为 Markdown
-GET  /web/workspace/{id}/export                   # 导出整个 Workspace 为 JSON.gz
-POST /web/workspace/{id}/import                   # 导入 Workspace 备份（JSON/JSON.gz）
-POST /web/workspace/{id}/regen-key                # 重新生成 API key
-GET  /web/workspace/{id}/delete                   # 删除 Workspace
-POST /web/workspace/{id}/session/{sid}/hide           # 删除会话（软删除，移入回收站；/pull 停止下发，可恢复）
-POST /web/workspace/{id}/session/{sid}/unhide         # 从回收站恢复会话
-GET  /web/workspace/{id}/trash                        # 会话回收站（已删除会话，可恢复）
-GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
-POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
-POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
-GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
-GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
-GET  /web/admin/users                             # 用户管理
-POST /web/admin/user/create                       # 创建用户
-GET  /web/admin/user/{uid}/edit                   # 编辑用户
-POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
-GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
-GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
-GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
-POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
-POST /web/admin/invite/{id}/revoke                # 撤销邀请码
-```
-
-## 数据库表结构
-
-### users
-`id`, `username`, `password_hash`, `display_name`, `is_admin`, `is_active`, `created_at`, `last_login_at`
-
-### workspaces
-`id`, `name`, `user_id` (FK), `api_key`, `description`, `created_at`, 唯一约束 `(user_id, name)`
-
-### invites
-`id`, `code` (格式 `HSYNC-XXXXXXXX`), `created_by` (FK), `used`, `used_by`, `revoked`, `expires_at`, `note`, `created_at`
-
-### sessions
-复合主键: `(workspace_id, id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-多 Agent 扩展列: `agent_type`（默认 `hermes`，存量数据自动归为 hermes）、`meta` (JSONB，承载各 Agent 特有字段)
-数据保留/排序扩展列: `hidden`/`hidden_at`（软删除，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
-
-### messages
-复合主键: `(workspace_id, session_id, id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-多 Agent 扩展列: `agent_type`、`meta` (JSONB)；软删除列: `hidden`/`hidden_at`
-
-### sync_state
-主键: `(device_id, workspace_id)`, 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-
-### projects
-复合主键: `(workspace_id, id)`（canonical id：default 档案为裸 id，命名档案为 `<profile>:<id>`）
-列: `slug`（同 (workspace, profile) 唯一，同名合并依据）、`name`、`description`、`icon`、`color`、
-`board_slug`、`primary_path`、`created_at`、`archived`、`hidden`/`hidden_at`、`merged_into`、`agent_type`
-
-### project_folders
-复合主键: `(workspace_id, project_id, path)`；列: `label`、`is_primary`、`added_at`；
-跨设备增量合并（新路径插入、已有路径更新）
-
-### project_remap
-复合主键: `(workspace_id, old_id)`；列: `new_id`（同名合并后 old_id → new_id 路由记录，供客户端收敛）
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 系统架构、多租户模型、数据库表结构、API 参考
+- [docs/server-deployment.md](docs/server-deployment.md) — 服务器部署、运维、备份、配额 SQL
+- [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md) — 新增 Agent 适配器
 
 ## 与 Hermes 0.20+ 的兼容性（SQLite 锁竞争）
 
@@ -487,6 +300,10 @@ POST /web/admin/invite/{id}/revoke                # 撤销邀请码
 | `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite 锁竞争（见上节） | 升级 SQLite 或设 `HERMES_SYNC_AUTO_SYNC=0` |
 | 客户端一直不更新 | `HERMES_SYNC_AUTO_UPDATE=0` 或服务端不可达 | 检查 `mcp-stderr.log` 的 `Update check` 日志 |
 | 下载包注册后报认证失败 | `<YOUR_API_KEY>` 未替换为真实 Key | 在接入帮助页复制对应工作区 Key |
+
+## 贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md) —— 开发环境搭建、代码风格、i18n 规范与 PR 流程。
 
 ## License
 
