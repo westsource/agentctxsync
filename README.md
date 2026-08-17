@@ -10,16 +10,18 @@
 
 A complete solution for syncing sessions across devices and agents. Supports multi-user, multi-Workspace isolation with a PostgreSQL backend, and syncs automatically when an Agent starts via MCP Server.
 
-Key features:
-- **Multi-tenancy**: multi-user + multi-Workspace isolation, each Workspace has its own API Key
-- **Cross-Agent sync**: Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy share the same session pool; A's sessions can be pulled by B and written to its local storage
-- **Web admin UI**: login/registration (invite code), overview, Workspace management, session viewer, admin console
-- **Data safety**: one-click export (Markdown / JSON.gz) and import of sessions/workspaces
+## Features
+
+- **Cross-agent sync**: Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy share the same session pool. Every client pulls the **full pool** (all agents) and pushes everything it holds, so A's sessions can be pulled by B and written to its local storage; a session continued on another device only pushes its newly-added messages
+- **Multi-tenancy**: multi-user + multi-Workspace isolation, each Workspace has its own API Key; admins manage users, invite codes and workspace metadata but **cannot read any user's sessions or messages**
+- **Automatic sync**: incremental pull on startup with bootstrap push on first pairing, then periodic auto-sync; batched to avoid timeouts, lock-safe (single-writer), idempotent message dedup across devices
+- **Quota enforcement**: per-user session-storage limits and Agent allowlists via `free` / `unlimited` plans; enforced server-side on new session writes, DB-driven (no restart), with an audit trail
+- **Web admin UI**: bilingual (Simplified Chinese / English); overview, Workspace management, a unified **all-sessions** page, Markdown session viewer, trash, export/import, admin console
 - **Project sync**: Hermes projects (sidebar project list) sync across devices along with sessions — merge by name + union of paths
-- **Data retention & retrieval**: sessions/messages can be deleted (soft-delete, recoverable from the trash), pinned, and searched by title/content
-- **Setup help**: built-in setup help page with one-click download of the MCP client per Agent (includes install instructions and registration commands)
-- **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself automatically; takes effect after restarting the Agent
-- **i18n**: bilingual UI in Simplified Chinese / English
+- **Data safety**: one-click export (Markdown / JSON.gz) and import; sessions/messages can be soft-deleted (recoverable from the trash), pinned, and searched by title/content
+- **Onboarding**: built-in setup help page with one-click download of the MCP client per Agent (install instructions + registration commands; the API Key stays a placeholder, so forwarding the package leaks nothing), plus guided onboarding for WorkBuddy
+- **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself atomically; takes effect after the Agent is restarted
+- **Open registration**: invite codes are optional — registration is open by default; invite codes (optional expiry, revocable, shareable via `?code=` links) are available when you need controlled rollouts
 
 ## Supported Agents
 
@@ -34,102 +36,6 @@ Key features:
 
 Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`); connect all of them to the same Workspace and they sync with each other. Adding a new Agent only requires implementing one adapter (see [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)) — zero changes to the server or the sync engine.
 
-## Architecture
-
-```
-+-----------------------------------------------------------------------------+
-|                             本地设备 (电脑 A/B/...)                          |
-|                                                                             |
-|  +-----------------------------------------------------------------------+  |
-|  |                        Agent App (Hermes/Codex/...)                   |  |
-|  |  +--------------+    stdio     +----------------------------------+    |  |
-|  |  |  Agent Core  | <----------> |  MCP Server (server.py)          |    |  |
-|  |  +--------------+              |  hermes-session-sync             |    |  |
-|  |                                |                                  |    |  |
-|  |  +------------------------+    |  Tools: sync_status/pull/push/   |    |  |
-|  |  |  本地存储 (per agent)  |    |  full (+ hermes_sync_* 别名)      |    |  |
-|  |  |  state.db / jsonl /    |<-->|                                  |    |  |
-|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
-|  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
-|  |                                |                                  |    |  |
-|  |  +------------------------+    |  Background Tasks:               |    |  |
-|  |  |  config.yaml           |    |  * startup auto-pull (增量)      |    |  |
-|  |  |  mcp_servers:          |    |  * bootstrap push (首次配对)      |    |  |
-|  |  |    hermes-sync:        |    |  * periodic sync (5min)          |    |  |
-|  |  |      env:              |    |  * auto-update (24h, 校验+替换)   |    |  |
-|  |  |        HERMES_SYNC_... |    |  * 单写者锁/更新锁 (双实例安全)    |    |  |
-|  |  +------------------------+    +--------------+-------------------+    |  |
-|  |  +------------------------+                   |                        |  |
-|  |  |  .hermes-sync-watermark| (增量拉取水位线)   | HTTP/8765              |  |
-|  |  |  .hermes-sync-version  | (自动更新版本)     | (Workspace API Key)    |  |
-|  |  +------------------------+                   |                        |  |
-|  +-----------------------------------------------+------------------------+  |
-+--------------------------------------+----------------------------------------+
-                                       |
-              push / pull / manifest / download (JSON over HTTP, Bearer: ws_xxx)
-                                       |
-+--------------------------------------+----------------------------------------+
-|                     远程服务器 (自建部署)                                       |
-|                                                                              |
-|  +-----------------------------------------------------------------------+  |
-|  |                FastAPI Server (server.py :8765)                        |  |
-|  |                                                                        |  |
-|  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
-|  |  * 登录 / 注册           * Auth (login/me)      * GET /health        |  |
-|  |  * 信息概览 / 工作空间     * Workspace CRUD       * POST /pull          |  |
-|  |  * 会话查看器 (Markdown)   * Admin (users/ws)     * POST /push          |  |
-|  |  * 导出 / 导入             * Change Password      * GET /status/{dev}   |  |
-|  |  * 接入帮助 + 客户端下载    * register (管理员)    * GET /sessions      |  |
-|  |  * Admin (用户/空间/邀请)                        * GET /users          |  |
-|  |                                                                        |  |
-|  |  Client Update API                                                      |  |
-|  |  * GET /api/client/manifest (版本对比+sha256)                           |  |
-|  |  * GET /api/client/download (带 manifest 的 zip)                       |  |
-|  |                                                                        |  |
-|  |  Auth: JWT (cookie)        Auth: JWT (header)     Auth: API Key (ws_)  |  |
-|  |  i18n: zh-CN / en                                                        |  |
-|  +----------------------------------+-------------------------------------+  |
-|                                     |                                        |
-|  +----------------------------------v-------------------------------------+  |
-|  |  PostgreSQL (agentctxsync DB)                                        |  |
-|  |  * users       (id, username, password_hash, is_admin, is_active)    |  |
-|  |  * workspaces  (id, name, user_id FK, api_key)                       |  |
-|  |  * invites     (邀请码(可选): code, used, revoked, expires_at)          |  |
-|  |  * sessions    PK (workspace_id, id) + agent_type/meta               |  |
-|  |  * messages    PK (workspace_id, session_id, id) + agent_type/meta   |  |
-|  |  * sync_state  PK (device_id, workspace_id)                          |  |
-|  |  * projects    PK (workspace_id, id) + folders/remap                 |  |
-|  +----------------------------------------------------------------------+  |
-|                                                                              |
-|  +---------------------+  +----------------------+  +---------------------+  |
-|  |  systemd service     |  |  Docker Compose       |  |  Cron Backup        |  |
-|  |  hermes-sync.service |  |  * postgres (pg18)    |  |  每天 3:00 AM       |  |
-|  |  (auto-restart)      |  |    (pgvector 扩展)    |  |  pg_dump -> gz      |  |
-|  +---------------------+  +----------------------+  |  保留 7 天          |  |
-|                                                      +---------------------+  |
-+------------------------------------------------------------------------------+
-```
-
-### Multi-tenancy model
-
-```
-User (admin / user)
- |
- +-- Workspace "Personal"  (api_key: ws_xxx)
- |    +-- Sessions / Messages / SyncState
- |    +-- Device A, Device B (same workspace = full sync)
- |
- +-- Workspace "Work"      (api_key: ws_yyy)
-      +-- Sessions / Messages / SyncState
-      +-- Device C (isolated from Personal workspace)
-```
-
-- **Users**: new users self-register; registration is open by default, or invite-gated via a code issued by an admin (admins can also create accounts directly)
-- **Workspaces**: each user can create multiple workspaces, each with its own API key
-- **Isolation**: sessions and messages are fully isolated between different workspaces
-- **Same workspace**: all devices under the same workspace sync completely
-- **Admin scope**: admins manage users, invite codes, and global workspace metadata/controls — but **cannot view any user's workspace content, sessions, or messages**. Workspace data (session lists, message contents, projects) is readable only by its owner; admin pages expose metadata and management actions only.
-
 ## Quick Start
 
 > All `<SERVER_IP>` below are placeholders — replace them with the address of your actual deployment.
@@ -137,7 +43,7 @@ User (admin / user)
 ### 1. Server deployment
 
 ```bash
-# 上传到目标服务器并执行
+# Upload to the target server and run
 scp -r server/ scripts/ root@<SERVER_IP>:/tmp/hermes-sync/
 ssh root@<SERVER_IP>
 cd /tmp/hermes-sync/server
@@ -156,7 +62,7 @@ After deployment:
 ### 2. Register a user and create a Workspace (Web UI)
 
 1. Open `http://<SERVER_IP>:8765/web/` and click Register
-2. Registration requires an **invite code**: an admin creates invite codes on the Admin → Invite Management page (format `HSYNC-XXXXXXXX`), with optional expiry date and notes, revocable at any time; you can also copy a share link with the `?code=` parameter and send it directly to users
+2. Registration is open by default — the invite code is optional. To gate registration, an admin creates invite codes on the Invites page (format `HSYNC-XXXXXXXX`, optional expiry and notes, revocable at any time); you can also copy a share link with the `?code=` parameter and send it directly to users
 3. A "Default Workspace" is created automatically after successful registration; you can also create more workspaces by clicking "+ Create" on the overview page
 4. Copy the API Key from the Workspace details page (format `ws_xxx`)
 
@@ -167,13 +73,13 @@ After deployment:
 **Method B (manual)**:
 
 ```bash
-# 选择 agent（hermes | codex | opencode | reasonix | openclaw | workbuddy），默认 hermes
+# Choose an agent (hermes | codex | opencode | reasonix | openclaw | workbuddy), default hermes
 export HERMES_SYNC_AGENT=codex
 
-# 设置 workspace API key（格式 ws_xxx）
+# Set the workspace API key (format ws_xxx)
 export HERMES_SYNC_API_KEY=ws_yourkeyhere
 
-# 一键部署（注意：脚本内默认服务器地址为占位符，请设置 HERMES_SYNC_SERVER 为实际部署地址）
+# One-click deploy (note: the script's default server address is a placeholder — set HERMES_SYNC_SERVER to your actual deployment address)
 bash scripts/deploy-local-mcp.sh
 ```
 
@@ -212,6 +118,13 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_AUTO_SYNC` | `1` | Background auto-sync switch (`0` disables; manual tool calls still work) |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | Client auto-update switch (`0` disables) |
 | `HERMES_SYNC_UPDATE_INTERVAL` | `86400` | Update check interval (seconds, default 24 hours) |
+
+## Quota (Optional)
+
+- Users carry a `plan` (`free` / `unlimited`); registrations and invite codes grant `unlimited` by default, and admins can create invite codes granting `free`. The default `free` plan caps a user at 200 active sessions.
+- Enforcement: `POST /push` gates **new** session writes only — an Agent allowlist plus the user-wide active session count. Updates to existing sessions and pulls are never blocked, so lowering a quota never breaks an already-synced pool. Rejections return 403 (`agent_not_allowed` / `quota_exceeded_sessions`) and are recorded in the audit log.
+- Policy lives in the DB (`users.plan` + `quota_config`): an operator changes it and the next push applies it — no API coupling, no restart. When a deployment has no limited-plan invite path, the quota UI stays hidden; enforcement still applies if an operator configures limits.
+- Ops SQL (adjusting limits, minimal-privilege read-only role) is in [docs/server-deployment.md](docs/server-deployment.md).
 
 ## Client Auto-Update
 
@@ -300,13 +213,15 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 
 **When the old server goes offline directly**: clients can no longer pull updates from the old address and need manual handling — add `HERMES_SYNC_SERVER: http://new-address:8765` to the `env` section of `config.yaml` on each machine (environment variables take priority), or manually copy the new `server.py` into the `mcp/` directory.
 
+> **Watermark follows the server identity**: the incremental pull watermark records which server it belongs to. When a client points at a different server (via env var or the updated default address), the watermark mismatch triggers a full re-pull automatically — a leftover watermark from the old server can never suppress sessions on the new one.
+
 ## MCP Tools
 
 | Tool | Description |
 |------|------|
 | `sync_status` (alias `hermes_sync_status`) | View sync status (remote session/message counts, per-device last sync time) |
-| `sync_pull` (alias `hermes_sync_pull`) | Pull sessions from remote to local (param: limit, default 50; background incremental pulls page through everything based on the watermark) |
-| `sync_push` (alias `hermes_sync_push`) | Push local sessions to remote (auto-batching to avoid large-request timeouts) |
+| `sync_pull` (alias `hermes_sync_pull`) | Pull sessions from remote to local (params: `limit`, default 50; `full` — ignore the watermark and pull everything; background incremental pulls page through everything based on the watermark) |
+| `sync_push` (alias `hermes_sync_push`) | Push local sessions to remote (auto-batching with session count + message count dual limits to avoid large-request timeouts) |
 | `sync_full` (alias `hermes_sync_full`) | Full sync (push first, then pull) |
 | `project_push` | Push projects from all local profiles' projects.db to remote (same-name merging handled by the server) |
 | `project_pull` | Pull projects from remote into the local projects.db (applies remap, routes per profile) |
@@ -314,126 +229,20 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 > `sync_*` are neutral tool names (common to all Agents); `hermes_sync_*` are compatibility aliases, so existing Hermes registrations are unaffected.
 
 Background behavior:
-- One automatic **incremental** pull at startup (local `.hermes-sync-watermark` watermark + 5-minute clock tolerance); if remote is empty, local data is pushed automatically (first-pairing bootstrap for new devices)
+- One automatic **incremental** pull at startup (delayed 8 seconds to avoid the host agent's startup/read peak; local `.hermes-sync-watermark` watermark + 5-minute clock tolerance); if the remote is empty, local data is pushed automatically (first-pairing bootstrap for new devices)
 - Periodic auto-sync (default 300 seconds)
+- **Watermark bound to the server identity**: pointing the client at a different server automatically triggers a full re-pull (see Server Migration)
+- **Batching**: pulls page in small batches (15 sessions per request); pushes split by session-count + message-count dual limits — large syncs never time out
+- **Pull write retry**: when the local store is locked by the host agent, the pull write retries a few times (each attempt fails fast with a 5 s busy_timeout)
 - Single-writer lock: with two `serve` instances, only one process runs background sync, avoiding local storage races; auto-update uses a separate update lock
 - Message dedup is based on the `(session_id, role, timestamp)` triple, idempotent across devices
 - Background sync completion sends an MCP log notification (`notifications/message`, logger `hermes-sync`) to the host agent; whether the host surfaces it in the UI is host-dependent — the Web UI is the guaranteed visibility channel
 
-## API Endpoints
+## Documentation
 
-### Sync API (API Key auth, format `ws_xxx`)
-```
-GET  /health                    # 健康检查
-POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量；全量池——不过滤 agent）
-POST /push                      # 推送会话（upsert + 消息去重；按服务端真实列过滤；agent_type/meta）
-GET  /status/{device_id}        # 同步状态（设备最近同步时间、会话/消息总数）
-GET  /sessions                  # 列出会话（最近 50 条，含 agent_type）
-GET  /users                     # 列出同步设备
-```
-
-### Projects API (API Key auth, format `ws_xxx`)
-```
-POST /api/projects/push   # 推送项目 + folders（同 (profile, slug) 合入最早项目并记录 remap）
-POST /api/projects/pull   # 拉取项目 + folders + remap（不含已隐藏项目）
-```
-
-### Client Update API (API Key auth)
-```
-GET  /api/client/manifest?agent=X&v=本地版本   # 版本对比 + 每文件 sha256/size
-GET  /api/client/download?agent=X             # 客户端 zip（内嵌 manifest.json）
-```
-
-### REST API (JWT auth)
-```
-POST /api/auth/login            # 登录获取 JWT
-POST /api/auth/register         # 创建用户（需管理员 JWT）
-GET  /api/me                    # 当前用户信息
-POST /api/me/change-password    # 修改密码
-GET  /api/workspaces            # 列出我的 workspace
-POST /api/workspaces            # 创建 workspace
-DELETE /api/workspaces/{id}     # 删除 workspace
-POST /api/workspaces/{id}/regen-key  # 重新生成 API key
-```
-
-### Admin API (admin JWT)
-```
-GET  /api/admin/users           # 所有用户
-POST /api/admin/users/{uid}/toggle   # 启用/禁用用户
-GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/消息）
-```
-
-### Web UI (browser access)
-```
-GET  /web/                      # 信息概览
-GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
-GET  /web/login                 # 登录页面
-GET  /web/register              # 注册页面（邀请码可选，支持 ?code= 预填）
-GET  /web/logout                # 登出
-GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
-POST /web/change-password       # 修改密码
-POST /web/update-profile        # 更新个人资料（显示名/密码/管理员标志）
-GET  /web/set-language/{lang}   # 切换语言（zh-CN / en）
-GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/档案过滤/回收站入口/Agent 徽章/项目列表）
-GET  /web/workspace/{id}/session/{sid}            # 会话消息查看器（Markdown 渲染、消息搜索、隐藏/恢复）
-GET  /web/workspace/{id}/session/{sid}/export     # 导出单个会话为 Markdown
-GET  /web/workspace/{id}/export                   # 导出整个 Workspace 为 JSON.gz
-POST /web/workspace/{id}/import                   # 导入 Workspace 备份（JSON/JSON.gz）
-POST /web/workspace/{id}/regen-key                # 重新生成 API key
-GET  /web/workspace/{id}/delete                   # 删除 Workspace
-POST /web/workspace/{id}/session/{sid}/hide           # 删除会话（软删除，移入回收站；/pull 停止下发，可恢复）
-POST /web/workspace/{id}/session/{sid}/unhide         # 从回收站恢复会话
-GET  /web/workspace/{id}/trash                        # 会话回收站（已删除会话，可恢复）
-GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
-POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
-POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
-GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
-GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
-GET  /web/admin/users                             # 用户管理
-POST /web/admin/user/create                       # 创建用户
-GET  /web/admin/user/{uid}/edit                   # 编辑用户
-POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
-GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
-GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
-GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
-POST /web/admin/invite/create                     # 创建邀请码（有效期/备注）
-POST /web/admin/invite/{id}/revoke                # 撤销邀请码
-```
-
-## Database Schema
-
-### users
-`id`, `username`, `password_hash`, `display_name`, `is_admin`, `is_active`, `created_at`, `last_login_at`
-
-### workspaces
-`id`, `name`, `user_id` (FK), `api_key`, `description`, `created_at`, unique constraint `(user_id, name)`
-
-### invites
-`id`, `code` (format `HSYNC-XXXXXXXX`), `created_by` (FK), `used`, `used_by`, `revoked`, `expires_at`, `note`, `created_at`
-
-### sessions
-Composite primary key: `(workspace_id, id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-Multi-Agent extension columns: `agent_type` (default `hermes`; existing data is automatically classified as hermes), `meta` (JSONB, carries agent-specific fields)
-Data retention/ordering extension columns: `hidden`/`hidden_at` (soft-delete, reversible), `pinned` (pin-to-top ordering), `profile_name` (source profile)
-
-### messages
-Composite primary key: `(workspace_id, session_id, id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-Multi-Agent extension columns: `agent_type`, `meta` (JSONB); soft-delete columns: `hidden`/`hidden_at`
-
-### sync_state
-Primary key: `(device_id, workspace_id)`; foreign key: `workspace_id -> workspaces(id) ON DELETE CASCADE`
-
-### projects
-Composite primary key: `(workspace_id, id)` (canonical id: bare id for the default profile, `<profile>:<id>` for named profiles)
-Columns: `slug` (unique per (workspace, profile); the basis for same-name merging), `name`, `description`, `icon`, `color`,
-`board_slug`, `primary_path`, `created_at`, `archived`, `hidden`/`hidden_at`, `merged_into`, `agent_type`
-
-### project_folders
-Composite primary key: `(workspace_id, project_id, path)`; columns: `label`, `is_primary`, `added_at`;
-cross-device incremental merge (new paths inserted, existing paths updated)
-
-### project_remap
-Composite primary key: `(workspace_id, old_id)`; column: `new_id` (an old_id → new_id routing record after same-name merging, so clients can converge)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture, multi-tenancy model, database schema, API reference
+- [docs/server-deployment.md](docs/server-deployment.md) — server deployment, operations, backup, quota SQL
+- [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md) — adding a new Agent adapter
 
 ## Compatibility with Hermes 0.20+ (SQLite Lock Contention)
 
