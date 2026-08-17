@@ -49,12 +49,15 @@ def main():
     stamp = time.strftime("%Y%m%d-%H%M%S")
     run(f"mkdir -p {REMOTE}/backups")
     run(f"tar -czf {REMOTE}/backups/pre-multiagent-{stamp}.tar.gz "
-        f"-C {REMOTE} server.py templates static client 2>/dev/null")
+        f"-C {REMOTE} *.py templates static client 2>/dev/null")
     print(f"backup: pre-multiagent-{stamp}.tar.gz")
 
-    # 2. upload server files
+    # 2. upload server files (modular layout: main.py + domain modules)
     srv = os.path.join(REPO, "server")
-    for name in ("server.py", "agents.py", "translations.py"):
+    for name in ("main.py", "config.py", "db.py", "render.py", "auth.py",
+                 "invites.py", "workspace.py", "admin.py", "sync.py",
+                 "projects.py", "client_update.py", "web_help.py",
+                 "agents.py", "translations.py"):
         sftp.put(os.path.join(srv, name), f"{REMOTE}/{name}")
         print(f"uploaded {name}")
     for name in os.listdir(os.path.join(srv, "templates")):

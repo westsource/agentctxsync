@@ -43,7 +43,7 @@ jobs:
         run: pip install --quiet fastapi uvicorn psycopg2-binary jinja2 markdown
 
       - name: Syntax check server
-        run: python -m py_compile server/server.py server/agents.py server/translations.py
+        run: python -m py_compile server/main.py server/config.py server/db.py server/render.py server/auth.py server/invites.py server/workspace.py server/admin.py server/sync.py server/projects.py server/client_update.py server/web_help.py server/agents.py server/translations.py
 
       # Import check with env vars set and psycopg2 mocked away (no DB in CI).
       # Verifies the app builds routes and templates load without a database.
@@ -61,8 +61,9 @@ jobs:
           os.environ["HERMES_SYNC_MASTER_KEY"] = "hsync_ci_test"
           os.chdir("server")
           sys.path.insert(0, ".")
-          import server
-          routes = [r.path for r in server.app.routes]
+          import main
+          routes = [r.path for r in main.app.routes]
           assert any(p.startswith("/api/") for p in routes), "API routes missing"
           assert any(p.startswith("/web/") for p in routes), "Web routes missing"
-          print(f"OK: {len(server.app.routes)} routes registered")
+          assert main.db._pool is None, "pool must be lazy (no DB in CI)"
+          print(f"OK: {len(main.app.routes)} routes registered")

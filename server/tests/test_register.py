@@ -14,7 +14,7 @@ os.environ.setdefault("HERMES_SYNC_PG_DSN", "postgresql://x:x@localhost:5432/x")
 os.environ.setdefault("HERMES_SYNC_MASTER_KEY", "test-master-key")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import server as srv  # noqa: E402
+import auth  # noqa: E402
 
 
 class FakeCursor:
@@ -63,16 +63,16 @@ class RegisterSubmitTest(unittest.TestCase):
         cursor = FakeCursor([(7,)])
         conn = FakeConn(cursor)
         patchers = [
-            mock.patch.object(srv, "get_conn", return_value=FakeCtx(conn)),
-            mock.patch.object(srv, "hash_password", return_value="HASH"),
-            mock.patch.object(srv, "generate_api_key", return_value="ws_test"),
-            mock.patch.object(srv, "invite_grant_plan", return_value="unlimited"),
-            mock.patch.object(srv, "consume_invite", return_value=consume_result),
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "hash_password", return_value="HASH"),
+            mock.patch.object(auth, "generate_api_key", return_value="ws_test"),
+            mock.patch.object(auth, "invite_grant_plan", return_value="unlimited"),
+            mock.patch.object(auth, "consume_invite", return_value=consume_result),
         ]
         for p in patchers:
             p.start()
         self.addCleanup(lambda: [p.stop() for p in patchers])
-        return asyncio.run(srv.web_register_submit(FakeRequest(form))), cursor
+        return asyncio.run(auth.web_register_submit(FakeRequest(form))), cursor
 
     def test_register_without_invite_succeeds(self):
         resp, cursor = self._submit({
@@ -91,8 +91,8 @@ class RegisterSubmitTest(unittest.TestCase):
         # Default workspace auto-created for the new user.
         self.assertTrue(any("INSERT INTO workspaces" in sql for sql, _ in cursor.executed))
         # No invite path touched: neither plan lookup nor consumption.
-        srv.invite_grant_plan.assert_not_called()
-        srv.consume_invite.assert_not_called()
+        auth.invite_grant_plan.assert_not_called()
+        auth.consume_invite.assert_not_called()
 
     def test_register_with_invite_still_consumes_it(self):
         resp, cursor = self._submit({
@@ -103,8 +103,8 @@ class RegisterSubmitTest(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 303)
         self.assertEqual(resp.headers["location"], "/web/login?success=register_success")
-        srv.invite_grant_plan.assert_called_once_with("HSYNC-ABC")
-        srv.consume_invite.assert_called_once_with("HSYNC-ABC", 7)
+        auth.invite_grant_plan.assert_called_once_with("HSYNC-ABC")
+        auth.consume_invite.assert_called_once_with("HSYNC-ABC", 7)
 
     def test_invalid_invite_rolls_back_user(self):
         resp, cursor = self._submit({

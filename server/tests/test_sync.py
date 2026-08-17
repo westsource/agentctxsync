@@ -18,7 +18,7 @@ os.environ.setdefault("HERMES_SYNC_PG_DSN", "postgresql://x:x@localhost:5432/x")
 os.environ.setdefault("HERMES_SYNC_MASTER_KEY", "test-master-key")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import server as srv  # noqa: E402
+import sync  # noqa: E402
 
 
 class ScriptedCursor:
@@ -170,10 +170,10 @@ class PushTest(unittest.TestCase):
                # batched multi-row insert: nothing pre-exists (RETURNING empty)
                .add(r"INSERT INTO messages", rows=[]))
         conn = FakeConn(cur)
-        with mock.patch.object(srv, "get_conn", return_value=FakeCtx(conn)), \
+        with mock.patch.object(sync, "get_conn", return_value=FakeCtx(conn)), \
              mock.patch("psycopg2.extras.execute_values",
                         side_effect=fake_execute_values):
-            resp = run(srv.push(JsonRequest({"device_id": "dev1",
+            resp = run(sync.push(JsonRequest({"device_id": "dev1",
                                              "sessions": sessions}),
                                 ws or {"workspace_id": 1, "user_id": None}))
         return resp, cur
@@ -258,8 +258,8 @@ class PullTest(unittest.TestCase):
                              for sid, ms in messages_by_sid.items() for m in ms]},
                     key=lambda p: "all"))
         conn = FakeConn(cur)
-        with mock.patch.object(srv, "get_conn", return_value=FakeCtx(conn)):
-            return run(srv.pull(JsonRequest(body), {"workspace_id": 1, "user_id": None})), cur
+        with mock.patch.object(sync, "get_conn", return_value=FakeCtx(conn)):
+            return run(sync.pull(JsonRequest(body), {"workspace_id": 1, "user_id": None})), cur
 
     def test_incremental_pull_filters_and_merges(self):
         sessions = [{"id": "a", "title": "A", "started_at": 10.0},
