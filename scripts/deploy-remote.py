@@ -88,7 +88,7 @@ def main():
     print(f"health: {out}")
 
     # 6. verify agent_type column exists
-    out, code = run("docker exec agentctxsync-db psql -U agentctxsync -d agentctxsync "
+    out, code = run("docker exec hindsight-db psql -U hindsight_user -d agentctxsync "
                     "-tAc \"SELECT column_name FROM information_schema.columns "
                     "WHERE table_name='sessions' AND column_name='agent_type';\"")
     print(f"agent_type column: {out or '(NOT FOUND)'}")

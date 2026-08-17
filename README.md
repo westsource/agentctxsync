@@ -75,7 +75,7 @@ Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`
 |  |                FastAPI Server (server.py :8765)                        |  |
 |  |                                                                        |  |
 |  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
-|  |  * 登录 / 注册(邀请码)      * Auth (login/me)      * GET /health        |  |
+|  |  * 登录 / 注册           * Auth (login/me)      * GET /health        |  |
 |  |  * 信息概览 / 工作空间     * Workspace CRUD       * POST /pull          |  |
 |  |  * 会话查看器 (Markdown)   * Admin (users/ws)     * POST /push          |  |
 |  |  * 导出 / 导入             * Change Password      * GET /status/{dev}   |  |
@@ -94,7 +94,7 @@ Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`
 |  |  PostgreSQL (agentctxsync DB)                                        |  |
 |  |  * users       (id, username, password_hash, is_admin, is_active)    |  |
 |  |  * workspaces  (id, name, user_id FK, api_key)                       |  |
-|  |  * invites     (邀请码注册: code, used, revoked, expires_at)          |  |
+|  |  * invites     (邀请码(可选): code, used, revoked, expires_at)          |  |
 |  |  * sessions    PK (workspace_id, id) + agent_type/meta               |  |
 |  |  * messages    PK (workspace_id, session_id, id) + agent_type/meta   |  |
 |  |  * sync_state  PK (device_id, workspace_id)                          |  |
@@ -124,7 +124,7 @@ User (admin / user)
       +-- Device C (isolated from Personal workspace)
 ```
 
-- **Users**: new users self-register with an invite code issued by an admin (admins can also create accounts directly)
+- **Users**: new users self-register; registration is open by default, or invite-gated via a code issued by an admin (admins can also create accounts directly)
 - **Workspaces**: each user can create multiple workspaces, each with its own API key
 - **Isolation**: sessions and messages are fully isolated between different workspaces
 - **Same workspace**: all devices under the same workspace sync completely
@@ -368,7 +368,7 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 GET  /web/                      # 信息概览
 GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
 GET  /web/login                 # 登录页面
-GET  /web/register              # 注册页面（需邀请码，支持 ?code= 预填）
+GET  /web/register              # 注册页面（邀请码可选，支持 ?code= 预填）
 GET  /web/logout                # 登出
 GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
 POST /web/change-password       # 修改密码

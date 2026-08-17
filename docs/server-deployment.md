@@ -67,7 +67,7 @@ YOUR_SERVER_IP
 │   ├── dashboard.html     # 主仪表盘
 │   ├── workspace_detail.html  # 工作区详情 (会话列表/搜索/隐藏/项目)
 │   ├── session_messages.html  # 会话消息查看器 (搜索/隐藏)
-│   ├── register.html          # 注册页 (邀请码)
+│   ├── register.html          # 注册页 (邀请码可选)
 │   ├── admin_users.html       # 用户管理
 │   ├── admin_workspaces.html  # 全局工作区管理
 │   ├── admin_invites.html     # 邀请管理
@@ -165,7 +165,7 @@ gunzip -c /opt/hermes-sync-mcp/backups/agentctxsync_XXXXXXXX_XXXXXX.sql.gz | doc
 | GET | /web/login | 登录页 |
 | POST | /web/login | 登录提交 |
 | GET | /web/logout | 登出 |
-| GET | /web/register | 注册页 (邀请码，支持 ?code= 预填) |
+| GET | /web/register | 注册页 (邀请码可选，支持 ?code= 预填) |
 | POST | /web/register | 注册提交 |
 | POST | /web/change-password | 修改密码 |
 | POST | /web/update-profile | 更新个人信息 |
@@ -251,7 +251,7 @@ gunzip -c /opt/hermes-sync-mcp/backups/agentctxsync_XXXXXXXX_XXXXXX.sql.gz | doc
 server 内置一套**通用配额执法机制**：策略存于数据库、执法在 server，两者通过数据库解耦，改动即时生效（server 每次 push 读取配置，无缓存、无重启）。
 
 - **users.plan** — `free` | `unlimited`（默认 `free`；存量用户自动补 `free`）
-- **invites.grant_plan** — 邀请码注册授予的套餐（默认 `unlimited`，创建邀请码时可选）
+- **invites.grant_plan** — 使用邀请码注册时授予的套餐（默认 `unlimited`，创建邀请码时可选；不用邀请码注册的新用户同样为默认 `unlimited`）
 - **quota_config** — 按 plan 配置：
   - `max_sessions`：该套餐用户的全局活跃会话数上限（NULL = 不限；默认 free = 200）
   - `allowed_agents`：允许同步的 Agent 类型白名单（NULL / 空数组 = 全部允许）
