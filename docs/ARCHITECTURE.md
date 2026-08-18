@@ -42,8 +42,8 @@
 |                     远程服务器 (自建部署)                                       |
 |                                                                              |
 |  +-----------------------------------------------------------------------+  |
-|  |                FastAPI Server (server.py :8765)                        |  |
-|  |                                                                        |  |
+|                | FastAPI Server (server/ 多模块 :8765)                       |  |
+|                |                                                          |  |
 |  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
 |  |  * 登录 / 注册(邀请可选)  * Auth (login/me)      * GET /health        |  |
 |  |  * 信息概览 / 全部会话     * Workspace CRUD       * POST /pull          |  |
@@ -87,11 +87,40 @@
   通过 stdio 与 Agent 通信，读写该 Agent 的本地存储（state.db / jsonl / SQLite / JSON）。
   水位线文件 `.hermes-sync-watermark` 绑定服务器身份（切换服务器自动全量重拉），
   `.hermes-sync-version` 记录客户端自动更新版本。
-- **远程服务器**：单个 FastAPI 进程承载 Web UI、REST API、Sync API 与客户端更新 API；
-  认证分三层——Web UI 用 JWT（Cookie）、REST 用 JWT（Header）、Sync/更新 API 用
-  Workspace API Key（`ws_xxx`）；界面内置 zh-CN / en 双语。
+- **远程服务器**：单个 FastAPI 进程（`server/main.py` 装配）按业务域拆分模块承载
+  Web UI、REST API、Sync API 与客户端更新 API；认证分三层——Web UI 用 JWT（Cookie）、
+  REST 用 JWT（Header）、Sync/更新 API 用 Workspace API Key（`ws_xxx`）；
+  界面内置 zh-CN / en 双语。模块结构见下节。
 - **部署形态**：systemd 服务（自动重启）+ Docker Compose（PostgreSQL pg18 + pgvector 扩展）+
   Cron 每日备份（pg_dump → gz，保留 7 天）。
+
+### 服务端代码结构（server/）
+
+服务端从单文件 `server.py` 按业务域拆分（详见 [server-deployment.md](server-deployment.md) 第 5 节），
+入口为 `main.py`；各业务域模块通过 FastAPI `APIRouter` 挂载，共享 `db.py` 连接池与
+`render.py` 渲染基础设施：
+
+| 模块 | 职责 | 路由归属 |
+|------|------|----------|
+| `main.py` | 应用装配：FastAPI 实例、静态文件、中间件、router 汇总、uvicorn 入口 | — |
+| `config.py` | 环境变量与派生常量（PG_DSN / 密钥 / PUBLIC_URL） | — |
+| `db.py` | psycopg2 连接池、`init_db` 幂等建表迁移、配额策略查询、工作空间查询辅助 | — |
+| `render.py` | Jinja2 渲染（executor 异步化）、flash 消息、请求作用域 ContextVar、中间件 | — |
+| `translations.py` | i18n 翻译表（zh-CN / en） | — |
+| `agents.py` | Agent 注册表（静态数据，驱动帮助页与客户端包生成） | — |
+| `auth.py` | 认证域：PBKDF2 密码、JWT 签发/校验、API key 依赖、登录/注册/改密/语言、强制改密中间件 | `/`、`/web/login`、`/web/register`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/api/auth/*` |
+| `workspace.py` | 工作空间域：仪表盘、全部会话、会话查看器、CRUD、导出/导入、软删除/回收站、REST | `/web/`、`/web/all-sessions`、`/web/workspace/*`、`/api/me`、`/api/workspaces` |
+| `sync.py` | 同步域：pull/push/status/sessions/users，配额执法与审计日志 | `/health`、`/pull`、`/push`、`/status/{device_id}`、`/sessions`、`/users` |
+| `projects.py` | 项目同步域：slug 同名合并、folders 增量合并、remap 路由 | `/api/projects/push`、`/api/projects/pull` |
+| `invites.py` | 邀请码域：邀请管理、创建/撤销 | `/web/invites`、`/web/invite/create`、`/web/invite/{id}/revoke` |
+| `admin.py` | 管理域：用户/全局空间管理（仅管理员） | `/web/admin/*`、`/api/admin/*` |
+| `client_update.py` | 客户端分发：zip 构建（运行时改写默认服务器/Agent + manifest 哈希）、下载端点 | `/api/client/manifest`、`/api/client/download` |
+| `web_help.py` | 接入帮助域：帮助页、客户端包下载（由 `agents.py` 注册表 + `client_update.py` 驱动） | `/web/help`、`/web/help-hermes`（301）、`/web/download/mcp-client` |
+
+中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_password_change`（auth），
+与单文件时代一致；`/web/*` 页面在强制改密期间仅放行
+`/web/login`、`/web/change-password`、`/web/logout`、`/web/register`、`/web/set-language`。
+
 
 ## 多租户模型
 
@@ -207,6 +236,7 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 
 ### Web UI（浏览器访问）
 ```
+GET  /                             # 根路径：未登录 → 落地页；已登录 → 跳转 /web/
 GET  /web/                      # 信息概览
 GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
 GET  /web/login                 # 登录页面
@@ -217,6 +247,8 @@ POST /web/change-password       # 修改密码
 POST /web/update-profile        # 更新个人资料（显示名/密码/管理员标志）
 GET  /web/set-language/{lang}   # 切换语言（zh-CN / en）
 GET  /web/workspace/{id}        # Workspace 详情（会话列表：置顶/排序/分页/搜索/档案过滤/回收站入口/Agent 徽章/项目列表）
+POST /web/workspace/create      # 创建工作空间
+POST /web/workspace/{id}/update # 重命名/修改描述（属主与管理员）
 GET  /web/workspace/{id}/session/{sid}            # 会话消息查看器（Markdown 渲染、消息搜索、隐藏/恢复）
 GET  /web/workspace/{id}/session/{sid}/export     # 导出单个会话为 Markdown
 GET  /web/workspace/{id}/export                   # 导出整个 Workspace 为 JSON.gz
@@ -238,6 +270,6 @@ POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示�
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
 GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
 GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
-POST /web/admin/invite/create                     # 创建邀请码（有效期/备注/授予套餐）
-POST /web/admin/invite/{id}/revoke                # 撤销邀请码
+POST /web/invite/create                     # 创建邀请码（有效期/备注/授予套餐）
+POST /web/invite/{id}/revoke                # 撤销邀请码
 ```

@@ -156,5 +156,3 @@ async def api_admin_workspaces(user: dict = Depends(require_admin)):
             FROM workspaces w JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC""")
         return [dict(r) for r in c.fetchall()]
 
-# ============================================================
-# Sync API

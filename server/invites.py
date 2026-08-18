@@ -106,6 +106,3 @@ async def web_revoke_invite(inv_id: int, request: Request):
             c.execute("UPDATE invites SET revoked = 1 WHERE id = %s AND created_by = %s", (inv_id, user["sub"]))
     return RedirectResponse(url="/web/invites", status_code=303)
 
-
-# ============================================================
-# MCP Client Distribution (agent registry driven)

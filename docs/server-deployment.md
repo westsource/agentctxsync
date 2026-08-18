@@ -95,7 +95,7 @@ YOUR_SERVER_IP
 
 ## 6. 服务配置
 
-### 环境变量 (server.py 内置默认值)
+### 环境变量 (config.py 读取)
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -115,7 +115,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/hermes-sync-mcp
-ExecStart=/opt/hermes-sync-mcp/venv/bin/python /opt/hermes-sync-mcp/server.py
+ExecStart=/opt/hermes-sync-mcp/venv/bin/python /opt/hermes-sync-mcp/main.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

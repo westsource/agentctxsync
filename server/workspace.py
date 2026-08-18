@@ -50,13 +50,15 @@ async def web_dashboard(request: Request):
                          WHERE w.user_id = %s AND s.archived = 0""", (user["sub"],))
             active_count = c.fetchone()[0]
             quota = {"plan": plan, "max_sessions": max_sessions, "active_count": active_count}
-    # 最近同步的会话（跨工作空间，按同步/开始时间倒序取 6 条）
+    # 最近同步的会话（跨工作空间，按最后消息时间倒序取 6 条）
     recent_sessions = []
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("""
             SELECT s.id, s.workspace_id, s.title, s.agent_type, s.message_count,
-                   COALESCE(s.last_synced_at, s.started_at) AS synced_at,
+                   (SELECT MAX(m.timestamp) FROM messages m
+                    WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id
+                      AND COALESCE(m.hidden,0) = 0) AS synced_at,
                    w.name AS workspace_name
             FROM sessions s
             JOIN workspaces w ON s.workspace_id = w.id
@@ -112,7 +114,9 @@ async def web_all_sessions(request: Request):
         total = c.fetchone()["total"]
         c.execute(f"""
             SELECT s.id, s.workspace_id, s.title, s.agent_type, s.model, s.message_count,
-                   COALESCE(s.last_synced_at, s.started_at) AS synced_at,
+                   (SELECT MAX(m.timestamp) FROM messages m
+                    WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id
+                      AND COALESCE(m.hidden,0) = 0) AS synced_at,
                    w.name AS workspace_name
             FROM sessions s JOIN workspaces w ON s.workspace_id = w.id
             WHERE {where_sql}
