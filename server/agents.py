@@ -191,7 +191,7 @@ AGENTS = {
         },
     },
     "opencode": {
-        "label": "opencode",
+        "label": "OpenCode",
         "desc": {
             "zh": "opencode CLI（anomalyco/opencode），会话为 JSON 文件存储。",
             "en": "opencode CLI (anomalyco/opencode); sessions stored as JSON files.",
