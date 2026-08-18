@@ -2,7 +2,7 @@
 # Agent Context Sync PostgreSQL Backup Script
 # Runs daily at 3:00 AM via cron
 
-BACKUP_DIR="/opt/hermes-sync-mcp/backups"
+BACKUP_DIR="/opt/agentctxsync/backups"
 mkdir -p "$BACKUP_DIR"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
