@@ -141,7 +141,7 @@
                   {{ t.msg_unhide if m.hidden else t.msg_hide }}
                 </button>
               </form>
-              <span class="text-[11px] text-[#A5A5BC] shrink-0">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+              <span class="text-[11px] text-[#A5A5BC] shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             </div>
           </div>
         </div>
@@ -179,7 +179,7 @@
                   {{ t.msg_unhide if m.hidden else t.msg_hide }}
                 </button>
               </form>
-              <span class="text-[11px] text-[#A5A5BC] ml-auto shrink-0">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+              <span class="text-[11px] text-[#A5A5BC] ml-auto shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             </div>
           </div>
         </div>
@@ -194,7 +194,7 @@
             <span class="text-gray-400">{{ t.msg_tool_label }}</span>
             <span class="font-mono text-gray-700">{{ m.tool_name or m.tool_call_id or t.common_none }}</span>
             <span class="text-gray-300">·</span>
-            <span class="text-gray-400 font-normal">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+            <span class="text-gray-400 font-normal" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             <span class="ml-auto shrink-0 text-gray-400">{{ t.msg_expand if not open else t.msg_collapse }}</span>
           </button>
           <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
@@ -239,6 +239,17 @@
 // Inject a header bar (language label + copy button) into every code block,
 // per the viewer design's light code-block style.
 document.addEventListener('DOMContentLoaded', function () {
+  // Message timestamps: render in the browser's local timezone as
+  // YYYY-MM-DD HH:MM:SS (the server-rendered fallback uses the server
+  // timezone, which may differ from the viewer's).
+  document.querySelectorAll('[data-ts]').forEach(function (el) {
+    var ts = parseFloat(el.getAttribute('data-ts'));
+    if (!ts) return;
+    var d = new Date(ts * 1000);
+    function p(n) { return String(n).padStart(2, '0'); }
+    el.textContent = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  });
   document.querySelectorAll('.md-body pre').forEach(function (pre) {
     if (pre.dataset.enhanced) return;
     pre.dataset.enhanced = '1';
