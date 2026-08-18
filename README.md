@@ -19,7 +19,7 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 - **Web admin UI**: bilingual (Simplified Chinese / English); overview, Workspace management, a unified **all-sessions** page, Markdown session viewer, trash, export/import, admin console
 - **Project sync**: Hermes projects (sidebar project list) sync across devices along with sessions — merge by name + union of paths
 - **Data safety**: one-click export (Markdown / JSON.gz) and import; sessions/messages can be soft-deleted (recoverable from the trash), pinned, and searched by title/content
-- **Onboarding**: built-in setup help page with one-click download of the MCP client per Agent (install instructions + registration commands; the API Key stays a placeholder, so forwarding the package leaks nothing), plus guided onboarding for WorkBuddy
+- **Onboarding**: built-in setup help page with one-click download of the MCP client per Agent (install instructions + registration commands; the API Key stays a placeholder, so forwarding the package leaks nothing), plus guided onboarding for WorkBuddy and Reasonix (desktop JSON plugin registration with the required `env` block)
 - **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself atomically; takes effect after the Agent is restarted
 - **Open registration**: invite codes are optional — registration is open by default; invite codes (optional expiry, revocable, shareable via `?code=` links) are available when you need controlled rollouts
 
@@ -41,7 +41,7 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 |-------|----------|-------------------|----------|
 | Hermes | scans all archives under `%LOCALAPPDATA%\hermes` (POSIX: `~/.hermes`): `state.db` (default) + `profiles/<name>/state.db` (named profiles) (SQLite) | bare id (hermes profile stored in the `profile_name` column, agent attribution in `agent_type`) | SQLite transactions |
 | OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | bare id | append-only; titles must also be appended to `session_index.jsonl`; codex discovers new sessions via backfill |
-| opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON files) | bare id | `.tmp` + rename atomic write; foreign sessions get a `ses_` id via idmap |
+| OpenCode | `$XDG_DATA_HOME/opencode/storage/` (JSON files) | bare id | `.tmp` + rename atomic write; foreign sessions get a `ses_` id via idmap |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | bare id (file stem) | append-only; sessions that are currently running (have a lock file) are skipped |
 | OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | bare id | schema auto-detection (experimental) |
 | WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | bare id (uuid) | JSONL append + SQLite upsert; cwd dir auto-created; written sessions appear after WorkBuddy restart (MIGRATE scan) |
@@ -82,10 +82,12 @@ After deployment:
 
 **Method A (recommended)**: log in to the Web UI → Setup Help (`/web/help`) → download the archive for your Agent. Unpack and register it following the install instructions (README.md) inside the archive — replace `<YOUR_API_KEY>` in the registration command with the API Key of the corresponding workspace on the help page (the download package no longer pre-fills the Key, so forwarding the package won't leak it). Restart the Agent when done.
 
+> **Reasonix (desktop)**: the archive/help page ships a JSON plugin registration for `Settings → MCP & Tools → Add Server → JSON`. The `env` block is **required** — without `HERMES_SYNC_AGENT` the client falls back to the hermes adapter (wrong store) and without `HERMES_SYNC_API_KEY` every call fails auth; `HERMES_SYNC_AUTO_UPDATE=0` is included so repo-deployed clients skip update checks. After restart the plugin auto-starts (`auto_start: true`), pulls incrementally ~8s after startup and syncs both ways every 300s. CLI equivalent: a `[[plugins]]` block in `config.toml` with the same `name/type/command/args/env/auto_start` fields.
+
 **Method B (manual)**:
 
 ```bash
-# Choose an agent (hermes | codex | opencode | reasonix | openclaw | workbuddy), default hermes
+# Choose an agent (hermes | codex | OpenCode | reasonix | openclaw | workbuddy), default hermes
 export HERMES_SYNC_AGENT=codex
 
 # Set the workspace API key (format ws_xxx)
@@ -288,6 +290,10 @@ Background behavior:
 | `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite lock contention (see previous section) | Upgrade SQLite or set `HERMES_SYNC_AUTO_SYNC=0` |
 | Sync fails with `UNIQUE constraint failed: sessions.title` | Hermes 0.20+ enforces a partial unique index on `sessions.title` (`WHERE title IS NOT NULL`); sessions in the shared pool can carry the same auto-generated title | Client now disambiguates colliding titles with a ` (N)` suffix on pull (mirroring the desktop app); update the client |
 | Authentication failure after registering the downloaded package | `<YOUR_API_KEY>` was not replaced with a real Key | Copy the Key for the corresponding workspace from the onboarding help page |
+| Server session/message count keeps growing for reasonix sessions | The reasonix desktop normalizes local transcripts (strips timestamps, prepends its system prompt), so the `(role, timestamp)` dedupe triple no longer matches and every periodic push re-inserts the same messages | Server-side content-level dedupe now covers reasonix (same treatment as hermes' message-alternation repair); update the server |
+| Reasonix local transcript grows forever | Same normalization breaks the local pull dedupe, re-appending identical messages | The reasonix adapter dedupes pulled writes by content as well; update the client |
+| Foreign session titles revert to the bare id on the server | A pulled session re-pushed by reasonix carried the local-id title fallback | The adapter no longer sends the fallback title for foreign sessions (server keeps its own); update the client |
+| After the id-scheme upgrade, `magic:`/`workbuddy:` sessions were not pullable on Windows | Prefixed ids contain `:` — invalid Windows file names (silently become NTFS alternate data streams) | Canonical ids are now bare for every agent (see the Id-scheme upgrade note) |
 
 ## Contributing
 

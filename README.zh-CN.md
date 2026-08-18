@@ -19,7 +19,7 @@
 - **Web 管理界面**：简体中文 / English 双语；信息概览、Workspace 管理、跨空间统一**全部会话**页、Markdown 会话查看器、回收站、导出/导入、管理后台
 - **项目同步**：Hermes 项目（侧边栏项目列表）随会话跨设备同步，同名合并 + 路径并集
 - **数据安全**：会话/工作区一键导出（Markdown / JSON.gz）与导入；会话/消息可软删除（回收站可恢复）、置顶排序、标题/内容搜索
-- **接入帮助**：内置接入帮助页，按 Agent 一键下载 MCP 客户端（含安装说明与注册命令；Key 保持占位符，转发包不泄露），并提供 WorkBuddy 引导流程
+- **接入帮助**：内置接入帮助页，按 Agent 一键下载 MCP 客户端（含安装说明与注册命令；Key 保持占位符，转发包不泄露），并提供 WorkBuddy 与 Reasonix 引导流程（Reasonix 桌面版为 JSON 插件注册，含必需的 `env` 块）
 - **客户端自动更新**：客户端定时从服务端拉取新版本，逐文件校验后自动替换，重启 Agent 即生效
 - **开放注册**：注册默认开放，邀请码可选；需要管控放量时可用邀请码（可选有效期、可撤销、支持 `?code=` 分享链接）
 
@@ -40,11 +40,11 @@
 | Agent | 本地存储 | canonical id | 写入约束 |
 |-------|----------|-------------------|----------|
 | Hermes | `%LOCALAPPDATA%\hermes`（POSIX：`~/.hermes`）下扫描全部档案：`state.db`（default）+ `profiles/<name>/state.db`（命名档案）(SQLite) | 裸 id（hermes 档案存于 `profile_name` 列，归属存于 `agent_type`） | SQLite 事务 |
-| OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | `codex:` | append-only；标题需追加 `session_index.jsonl`；codex 靠 backfill 感知新会话 |
-| opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | `opencode:` | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
-| Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | `reasonix:` | append-only；运行中（有锁文件）的会话跳过 |
-| OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | `openclaw:` | schema 自动探测（实验性） |
-| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | `workbuddy:` | JSONL 追加 + SQLite upsert；cwd 目录自动创建；写入的会话需重启 WorkBuddy 后出现（启动时 MIGRATE 扫描识别） |
+| OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | 裸 id | append-only；标题需追加 `session_index.jsonl`；codex 靠 backfill 感知新会话 |
+| OpenCode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | 裸 id | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
+| Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | 裸 id（文件名） | append-only；运行中（有锁文件）的会话跳过 |
+| OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | 裸 id | schema 自动探测（实验性） |
+| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | 裸 id（uuid） | JSONL 追加 + SQLite upsert；cwd 目录自动创建；写入的会话需重启 WorkBuddy 后出现（启动时 MIGRATE 扫描识别） |
 
 每个 Agent 独立部署一个 MCP 客户端实例（`HERMES_SYNC_AGENT` 选择），全部接入同一 Workspace 即实现互相同步。新增 Agent 只需实现一个适配器（见 [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)），服务端与同步引擎零改动。
 
@@ -82,10 +82,12 @@ bash ../scripts/deploy-server.sh
 
 **方式 A（推荐）**：登录 Web UI → 接入帮助（`/web/help`）→ 按你的 Agent 下载对应压缩包。按包内安装说明（README.md）解压、注册——注册命令中的 `<YOUR_API_KEY>` 需替换为帮助页中对应工作区的 API Key（下载包不再预填 Key，避免包被转发导致泄露）。完成后重启 Agent 即可。
 
+> **Reasonix（桌面版）**：压缩包/帮助页附带 JSON 插件注册配置，粘贴到 `设置 → MCP与工具 → 添加服务器 → JSON`。`env` 块**必须完整**——缺 `HERMES_SYNC_AGENT` 会退回 hermes 适配器（扫错目录），缺 `HERMES_SYNC_API_KEY` 全部请求认证失败；`HERMES_SYNC_AUTO_UPDATE=0` 用于仓库直部署的客户端跳过更新检查。重启后插件随桌面自动启动（`auto_start: true`），启动约 8 秒后增量拉取，之后每 300 秒双向同步。CLI 等价写法：`config.toml` 中 `[[plugins]]` 块（`name/type/command/args/env/auto_start` 字段相同）。
+
 **方式 B（手动）**：
 
 ```bash
-# 选择 agent（hermes | codex | opencode | reasonix | openclaw | workbuddy），默认 hermes
+# 选择 agent（hermes | codex | OpenCode | reasonix | openclaw | workbuddy），默认 hermes
 export HERMES_SYNC_AGENT=codex
 
 # 设置 workspace API key（格式 ws_xxx）
@@ -313,6 +315,10 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 | 客户端一直不更新 | `HERMES_SYNC_AUTO_UPDATE=0` 或服务端不可达 | 检查 `mcp-stderr.log` 的 `Update check` 日志 |
 | 同步失败 `UNIQUE constraint failed: sessions.title` | Hermes 0.20+ 对 `sessions.title` 有部分唯一索引（`WHERE title IS NOT NULL`），会话池中不同会话可能有相同的自动标题 | 客户端现在会在拉取时对冲突标题加 ` (N)` 后缀（与桌面端一致）；更新客户端 |
 | 下载包注册后报认证失败 | `<YOUR_API_KEY>` 未替换为真实 Key | 在接入帮助页复制对应工作区 Key |
+| reasonix 会话在服务端消息数持续增长 | reasonix 桌面会规范化重写本地转录（剥时间戳 + 前置系统提示词），`(role, timestamp)` 去重三元组失效，每轮周期推送把相同内容重复入库 | 服务端内容级兜底去重已覆盖 reasonix（与 hermes 的 message-alternation repair 同处理）；升级服务端 |
+| reasonix 本地转录无限增长 | 同样的规范化破坏了本地拉取去重，相同内容被反复追加 | reasonix 适配器拉取写入已按内容去重；更新客户端 |
+| 外来会话标题在服务端变回裸 id | reasonix 重推拉取会话时携带了本地 id 回退标题 | 适配器不再为外来会话发送回退标题（服务端保留自己的）；更新客户端 |
+| id 方案升级后 `magic:`/`workbuddy:` 会话在 Windows 上拉不下来 | 带前缀 id 含 `:`——Windows 文件名非法（会静默变成 NTFS 备用数据流） | canonical id 已改为全裸 id（见 Id-scheme 升级说明） |
 
 ## 贡献
 
