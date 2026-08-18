@@ -18,11 +18,12 @@ router = APIRouter()
 # ============================================================
 
 
-# Only Hermes has been strictly tested end-to-end. The other agent adapters
-# stay in AGENTS (registry) for development, but their MCP client
-# distribution and help-page onboarding are taken offline until validated.
-# Re-enable an agent by adding its key here.
-PUBLIC_AGENTS = ("hermes", "workbuddy")
+# Hermes is the original fully-validated client; workbuddy and reasonix have
+# been validated end-to-end (auto-start, pull, push dedupe, titles). The
+# other agent adapters stay in AGENTS (registry) for development, but their
+# MCP client distribution and help-page onboarding are taken offline until
+# validated. Re-enable an agent by adding its key here.
+PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
