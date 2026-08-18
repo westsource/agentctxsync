@@ -21,6 +21,11 @@ REMOTE = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/agentctxsync")
 # systemd service running the server (renamed from hermes-sync to
 # agentctxsync alongside the directory migration).
 SERVICE = os.environ.get("DEPLOY_SERVICE", "agentctxsync")
+# PostgreSQL container/user used for the post-deploy schema probe. Defaults
+# are the generic deployment names; override for a specific environment
+# (e.g. DEPLOY_DB_CONTAINER=hindsight-db DEPLOY_DB_USER=hindsight_user).
+DB_CONTAINER = os.environ.get("DEPLOY_DB_CONTAINER", "agentctxsync-db")
+DB_USER = os.environ.get("DEPLOY_DB_USER", "agentctxsync")
 # SSH key used when DEPLOY_SSH_PASSWORD is unset (passwordless login).
 KEY_FILE = os.environ.get("DEPLOY_SSH_KEY",
                           os.path.expanduser("~/.ssh/id_ed25519"))
@@ -91,9 +96,9 @@ def main():
     print(f"health: {out}")
 
     # 6. verify agent_type column exists
-    out, code = run("docker exec hindsight-db psql -U hindsight_user -d agentctxsync "
-                    "-tAc \"SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name='sessions' AND column_name='agent_type';\"")
+    out, code = run(f"docker exec {DB_CONTAINER} psql -U {DB_USER} -d agentctxsync "
+                    f"-tAc \"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name='sessions' AND column_name='agent_type';\"")
     print(f"agent_type column: {out or '(NOT FOUND)'}")
 
     sftp.close()
