@@ -445,6 +445,38 @@ class SQLiteAdapter(Adapter):
         m_cols = self._local_cols(c, self.table_messages)
         imported = updated = new_messages = duplicates = 0
         now = time.time()
+        # Hermes 0.20+ enforces a partial UNIQUE index on sessions.title
+        # (WHERE title IS NOT NULL). Auto-generated titles repeat across
+        # sessions, so a pulled session whose title collides with an
+        # existing local row would fail the INSERT and abort the whole
+        # batch — repeatedly, since the batch rolls back as one
+        # transaction. Detect the constraint and disambiguate with a
+        # " (N)" suffix (mirroring the desktop app) only when it exists;
+        # other stores without the constraint keep titles untouched.
+        title_unique = False
+        for _seq, _name, _unique, _origin, _partial in c.execute(
+                f"PRAGMA index_list({self.table_sessions})"):
+            if not _unique:
+                continue
+            cols = [r[2] for r in c.execute(f"PRAGMA index_info({_name})")]
+            if "title" in cols:
+                title_unique = True
+                break
+
+        def _disambiguate_title(title, exclude_id=None):
+            n = 2
+            while True:
+                cand = f"{title} ({n})"
+                args = [cand]
+                q = (f"SELECT 1 FROM {self.table_sessions} "
+                     f"WHERE title = ?")
+                if exclude_id is not None:
+                    q += " AND id <> ?"
+                    args.append(exclude_id)
+                c.execute(q, args)
+                if not c.fetchone():
+                    return cand
+                n += 1
         for session in sessions:
             s = self.localize(session)
             sid = s["id"]
@@ -467,6 +499,14 @@ class SQLiteAdapter(Adapter):
             if "last_synced_at" in s_cols:
                 s_data.setdefault("last_synced_at", now)
             if c.fetchone():
+                if title_unique and s_data.get("title"):
+                    c.execute(
+                        f"SELECT 1 FROM {self.table_sessions} "
+                        f"WHERE title = ? AND id <> ?",
+                        (s_data["title"], sid))
+                    if c.fetchone():
+                        s_data["title"] = _disambiguate_title(
+                            s_data["title"], exclude_id=sid)
                 s_data.pop("id", None)
                 if s_data:
                     set_cl = ", ".join(f"{k} = ?" for k in s_data)
@@ -475,6 +515,13 @@ class SQLiteAdapter(Adapter):
                         f"WHERE id = ?", list(s_data.values()) + [sid])
                 updated += 1
             else:
+                if title_unique and s_data.get("title"):
+                    c.execute(
+                        f"SELECT 1 FROM {self.table_sessions} "
+                        f"WHERE title = ?", (s_data["title"],))
+                    if c.fetchone():
+                        s_data["title"] = _disambiguate_title(
+                            s_data["title"])
                 cols = ", ".join(s_data)
                 ph = ", ".join(["?"] * len(s_data))
                 c.execute(

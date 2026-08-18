@@ -172,6 +172,59 @@ class HermesMultiProfileTest(unittest.TestCase):
             "SELECT 1 FROM sessions WHERE id='20260808_180015_0c277e'").fetchone())
         c.close()
 
+    def test_title_unique_index_disambiguates_pull(self):
+        # Hermes 0.20+ state.db carries a partial unique index on title
+        # (WHERE title IS NOT NULL). A pulled session whose title collides
+        # with an existing local row must be suffixed instead of failing
+        # the whole batch with UNIQUE constraint failed: sessions.title.
+        make_db(self.root / "state.db", "20260808_180012_0c275f",
+                title="Imported session")
+        conn = sqlite3.connect(str(self.root / "state.db"))
+        conn.execute("CREATE UNIQUE INDEX idx_sessions_title_unique "
+                     "ON sessions(title) WHERE title IS NOT NULL")
+        conn.commit()
+        conn.close()
+        a = HermesAdapter()
+        # two pulled sessions with the same title, different ids
+        stats = a.write_sessions([
+            {"id": "20260808_180013_0c275e", "started_at": 3.0,
+             "title": "Imported session"},
+            {"id": "20260808_180014_0c276f", "started_at": 4.0,
+             "title": "Imported session"},
+        ])
+        self.assertEqual(stats["imported"], 2)
+        c = sqlite3.connect(str(self.root / "state.db"))
+        titles = dict(c.execute("SELECT id, title FROM sessions"))
+        c.close()
+        self.assertEqual(titles["20260808_180012_0c275f"], "Imported session")
+        self.assertEqual(titles["20260808_180013_0c275e"], "Imported session (2)")
+        self.assertEqual(titles["20260808_180014_0c276f"], "Imported session (3)")
+
+    def test_title_unique_index_update_keeps_own_title(self):
+        # Updating a session must not rename it when its own title is
+        # unchanged (the exclusion check skips the row being updated).
+        make_db(self.root / "state.db", "20260808_180012_0c275f",
+                title="Alpha")
+        conn = sqlite3.connect(str(self.root / "state.db"))
+        conn.execute("CREATE UNIQUE INDEX idx_sessions_title_unique "
+                     "ON sessions(title) WHERE title IS NOT NULL")
+        conn.commit()
+        conn.close()
+        a = HermesAdapter()
+        stats = a.write_sessions([
+            {"id": "20260808_180012_0c275f", "started_at": 3.0,
+             "title": "Alpha", "message_count": 2},
+            {"id": "20260808_180013_0c275e", "started_at": 4.0,
+             "title": "Alpha"},
+        ])
+        self.assertEqual(stats["imported"], 1)
+        self.assertEqual(stats["updated"], 1)
+        c = sqlite3.connect(str(self.root / "state.db"))
+        titles = dict(c.execute("SELECT id, title FROM sessions"))
+        c.close()
+        self.assertEqual(titles["20260808_180012_0c275f"], "Alpha")
+        self.assertEqual(titles["20260808_180013_0c275e"], "Alpha (2)")
+
     def test_watermark_at_root(self):
         make_db(self.root / "state.db", "x")
         a = HermesAdapter()

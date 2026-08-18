@@ -276,7 +276,7 @@ Background behavior:
 |------|------|------|
 | Sync won't push (server `total_sessions` doesn't grow) | The old server returns 500 for columns added in Hermes 0.20 (e.g. `system_prompt_hash`) | Upgrade the server to a version with column filtering; the client recovers automatically next cycle |
 | `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite lock contention (see previous section) | Upgrade SQLite or set `HERMES_SYNC_AUTO_SYNC=0` |
-| Client never updates | `HERMES_SYNC_AUTO_UPDATE=0` or server unreachable | Check the `Update check` log lines in `mcp-stderr.log` |
+| Sync fails with `UNIQUE constraint failed: sessions.title` | Hermes 0.20+ enforces a partial unique index on `sessions.title` (`WHERE title IS NOT NULL`); sessions in the shared pool can carry the same auto-generated title | Client now disambiguates colliding titles with a ` (N)` suffix on pull (mirroring the desktop app); update the client |
 | Authentication failure after registering the downloaded package | `<YOUR_API_KEY>` was not replaced with a real Key | Copy the Key for the corresponding workspace from the onboarding help page |
 
 ## Contributing
