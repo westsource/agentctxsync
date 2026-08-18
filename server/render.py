@@ -27,11 +27,13 @@ def timestamp_fmt(value):
         return str(value)
 
 def msg_time_fmt(value):
-    """Message bubble timestamp: HH:MM only (viewer design)."""
+    """Message bubble timestamp. Fallback rendered server-side in the
+    server's local timezone; the viewer page overrides it client-side
+    with the browser's local timezone via the data-ts attribute."""
     if not value:
         return ""
     try:
-        return datetime.fromtimestamp(float(value)).strftime("%H:%M")
+        return datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M:%S")
     except:
         return str(value)
 
