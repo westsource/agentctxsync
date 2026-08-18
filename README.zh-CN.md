@@ -311,6 +311,7 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 | 同步不上去（服务端 `total_sessions` 不增长） | 旧服务端对 Hermes 0.20 新增列（如 `system_prompt_hash`）报 500 | 升级服务端到含列过滤的版本；客户端下个周期自动恢复 |
 | `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite 锁竞争（见上节） | 升级 SQLite 或设 `HERMES_SYNC_AUTO_SYNC=0` |
 | 客户端一直不更新 | `HERMES_SYNC_AUTO_UPDATE=0` 或服务端不可达 | 检查 `mcp-stderr.log` 的 `Update check` 日志 |
+| 同步失败 `UNIQUE constraint failed: sessions.title` | Hermes 0.20+ 对 `sessions.title` 有部分唯一索引（`WHERE title IS NOT NULL`），会话池中不同会话可能有相同的自动标题 | 客户端现在会在拉取时对冲突标题加 ` (N)` 后缀（与桌面端一致）；更新客户端 |
 | 下载包注册后报认证失败 | `<YOUR_API_KEY>` 未替换为真实 Key | 在接入帮助页复制对应工作区 Key |
 
 ## 贡献
