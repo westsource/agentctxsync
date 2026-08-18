@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
-## [Unreleased]
+## [2026.08.18.1] - 2026-08-18
 
 ### Fixed
 - **Hermes 0.20+ 会话标题唯一索引适配**：拉取会话的标题与本地已有会话冲突（`UNIQUE constraint failed: sessions.title`）时自动加 ` (N)` 后缀，避免整批同步失败（此前同步反复失败重试，加剧与桌面端的 SQLite 锁竞争，导致 `session storage was busy`）
