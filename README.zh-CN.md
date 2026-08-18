@@ -23,6 +23,18 @@
 - **客户端自动更新**：客户端定时从服务端拉取新版本，逐文件校验后自动替换，重启 Agent 即生效
 - **开放注册**：注册默认开放，邀请码可选；需要管控放量时可用邀请码（可选有效期、可撤销、支持 `?code=` 分享链接）
 
+## 界面截图
+
+![登录页](docs/screenshots/01-login.png)
+
+![信息概览 — 工作空间、同步状态、配额与最近会话](docs/screenshots/02-dashboard.png)
+
+![全部会话 — 跨工作空间统一列表，支持搜索与筛选](docs/screenshots/03-all-sessions.png)
+
+![工作空间详情 — 会话列表、项目与同步设备](docs/screenshots/04-workspace.png)
+
+![会话查看器 — Markdown 渲染（含代码块）](docs/screenshots/05-session-viewer.png)
+
 ## 支持的 Agent
 
 | Agent | 本地存储 | canonical id 前缀 | 写入约束 |
@@ -138,7 +150,7 @@ MCP 客户端内置自动更新：启动后约 15 秒检查一次、之后每 24
 - **下载包内的服务器默认地址**：每个下载的客户端包，其 `HERMES_SYNC_SERVER` 代码默认值都会被设为提供下载的服务端地址（按请求来源），若服务端配置了 `HERMES_SYNC_PUBLIC_URL` 则使用该值。迁移存量客户端到新地址：在服务端设置 `HERMES_SYNC_PUBLIC_URL` 为新地址并 bump `CLIENT_VERSION`——客户端从旧地址（保持可达直到全部升级完）拉取新包，重启 Agent 后自动切换。
 - 校验失败/网络不可达时保留旧文件，仅记录日志，不影响同步
 - 回滚：将 `.bak-<版本>/` 中的文件复制回 `mcp/` 目录并删除 `.hermes-sync-version`
-- **版本发布流程**：修改客户端后，同时 bump `mcp/updater.py` 与 `server/server.py`
+- **版本发布流程**：修改客户端后，同时 bump `mcp/updater.py` 与 `server/client_update.py`
   中的 `CLIENT_VERSION` 常量，部署服务端后所有客户端在下次检查时自动升级
 
 ## 多档案同步（Hermes profiles）

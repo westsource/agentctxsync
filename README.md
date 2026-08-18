@@ -23,6 +23,18 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 - **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself atomically; takes effect after the Agent is restarted
 - **Open registration**: invite codes are optional — registration is open by default; invite codes (optional expiry, revocable, shareable via `?code=` links) are available when you need controlled rollouts
 
+## Screenshots
+
+![Login page](docs/screenshots/01-login.png)
+
+![Dashboard — workspace overview, sync status, quota and recent sessions](docs/screenshots/02-dashboard.png)
+
+![All sessions — unified cross-workspace list with search and filters](docs/screenshots/03-all-sessions.png)
+
+![Workspace detail — session list, projects and sync devices](docs/screenshots/04-workspace.png)
+
+![Session viewer — Markdown rendering with code blocks](docs/screenshots/05-session-viewer.png)
+
 ## Supported Agents
 
 | Agent | Local storage | canonical id prefix | Write constraints |
@@ -134,7 +146,7 @@ MCP clients have built-in auto-update: a check runs about 15 seconds after start
 - **Server default in shipped packages**: every downloaded client package has its `HERMES_SYNC_SERVER` code default set to the server that served the download (per-request address), or to `HERMES_SYNC_PUBLIC_URL` when that server-side variable is configured. To migrate existing clients to a new address: set `HERMES_SYNC_PUBLIC_URL` to the new address on the server and bump `CLIENT_VERSION` — clients pull the new package from the old address (keep it reachable until they all update) and switch after the agent restarts.
 - If verification fails or the network is unreachable, the old files are kept and only a log entry is recorded; sync is unaffected
 - Rollback: copy the files from `.bak-<version>/` back into the `mcp/` directory and delete `.hermes-sync-version`
-- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/server.py`; once the server is deployed, all clients upgrade automatically at their next check
+- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/client_update.py`; once the server is deployed, all clients upgrade automatically at their next check
 
 ## Multi-Profile Sync (Hermes profiles)
 
