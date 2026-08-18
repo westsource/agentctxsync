@@ -142,14 +142,19 @@ class OpencodeAdapter(Adapter):
         # messages
         msg_dir = self.storage / "session" / "message" / sid
         if msg_dir.is_dir():
-            for mp in sorted(msg_dir.glob("*.json")):
+            # message files are named with random ids: sort by the message
+            # timestamp so the transcript stays chronological
+            msgs = []
+            for mp in msg_dir.glob("*.json"):
                 try:
                     msg = json.loads(mp.read_text(encoding="utf-8"))
                 except (ValueError, OSError):
                     continue
                 m = self._msg_to_canonical(sid, msg)
                 if m:
-                    session["messages"].append(m)
+                    msgs.append(m)
+            msgs.sort(key=lambda m: m.get("timestamp") or 0)
+            session["messages"] = msgs
         session["message_count"] = len(session["messages"])
         if not session["started_at"]:
             session["started_at"] = info_p.stat().st_mtime

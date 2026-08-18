@@ -37,14 +37,14 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 
 ## Supported Agents
 
-| Agent | Local storage | canonical id prefix | Write constraints |
+| Agent | Local storage | canonical id | Write constraints |
 |-------|----------|-------------------|----------|
-| Hermes | scans all archives under `%LOCALAPPDATA%\hermes` (POSIX: `~/.hermes`): `state.db` (default) + `profiles/<name>/state.db` (named profiles) (SQLite) | none (bare id, compatible with existing data); non-default profiles get a `<profile>:` prefix | SQLite transactions |
-| OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | `codex:` | append-only; titles must also be appended to `session_index.jsonl`; codex discovers new sessions via backfill |
-| opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON files) | `opencode:` | `.tmp` + rename atomic write; foreign sessions get a `ses_` id via idmap |
-| Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | `reasonix:` | append-only; sessions that are currently running (have a lock file) are skipped |
-| OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | `openclaw:` | schema auto-detection (experimental) |
-| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | `workbuddy:` | JSONL append + SQLite upsert; cwd dir auto-created; written sessions appear after WorkBuddy restart (MIGRATE scan) |
+| Hermes | scans all archives under `%LOCALAPPDATA%\hermes` (POSIX: `~/.hermes`): `state.db` (default) + `profiles/<name>/state.db` (named profiles) (SQLite) | bare id (hermes profile stored in the `profile_name` column, agent attribution in `agent_type`) | SQLite transactions |
+| OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | bare id | append-only; titles must also be appended to `session_index.jsonl`; codex discovers new sessions via backfill |
+| opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON files) | bare id | `.tmp` + rename atomic write; foreign sessions get a `ses_` id via idmap |
+| Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | bare id (file stem) | append-only; sessions that are currently running (have a lock file) are skipped |
+| OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | bare id | schema auto-detection (experimental) |
+| WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | bare id (uuid) | JSONL append + SQLite upsert; cwd dir auto-created; written sessions appear after WorkBuddy restart (MIGRATE scan) |
 
 Each Agent deploys its own MCP client instance (selected via `HERMES_SYNC_AGENT`); connect all of them to the same Workspace and they sync with each other. Adding a new Agent only requires implementing one adapter (see [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)) — zero changes to the server or the sync engine.
 
@@ -172,10 +172,10 @@ Scan:
 | Profile | canonical id | Description |
 |------|--------------|----------|
 | default | bare id (`20260808_180012_0c275f`) | backward compatible, behavior unchanged |
-| non-default (e.g. magic) | `magic:20260808_180012_0c275f` | prefix matches the `agent_type:` style; the server's composite primary key `(workspace_id, id)` distinguishes them naturally |
+| non-default (e.g. magic) | `20260808_180012_0c275f` | the profile travels in the `profile_name` column; bare ids never collide because profiles are a column, not part of the id |
 
 - **Zero server changes**: sessions of different profiles are distinguished purely by the id prefix, and the `profile_name` column is filled in with the profile name as a bonus.
-- **Push merges everything**: on push, the client reads `state.db` from every local profile — default sessions keep their bare ids, named-profile sessions carry a `<profile>:` prefix — and merges them into a single list to report.
+- **Push merges everything**: on push, the client reads `state.db` from every local profile and merges them into a single list to report; each session carries its `profile_name` (bare ids throughout).
 - **Pull routes per profile**: on pull, sessions are routed back to each profile's `state.db` by id prefix; sessions of profiles that don't exist locally (profiles unique to other machines) are skipped. Sessions from other agents are stored in the default profile with their canonical id intact — every client pulls the **full workspace pool** and pushes everything it holds (the server merges by canonical id; `agent_type` is preserved per session and messages dedupe by `(session_id, role, timestamp)`, so a foreign session continued locally pushes only its newly-added messages).
 
 ### Cross-Computer Sync Example
@@ -186,9 +186,9 @@ Machine A: default + magic profile     Machine B: default + magic profile
 t1: A only has default; B only has default
     → bare-id sessions merge on both sides, same behavior as single-profile sync
 t2: A creates the magic profile; B hasn't created it yet
-    → A pushes magic:-prefixed sessions; B skips them on pull (no local magic profile)
+    → A pushes sessions with `profile_name=magic`; B skips them on pull (no local magic profile)
 t3: A and B both have the magic profile
-    → magic sessions merge on both sides (ids all carry the magic: prefix); default syncs as usual
+    → magic sessions merge on both sides (profile_name=magic); default syncs as usual
 ```
 
 > Note: the client only syncs profiles that **already exist locally**. When a profile exists only on a remote device, the local pull skips that profile's sessions (the watermark still advances); once you create a profile with the same name locally, its historical sessions can be pulled back from the server.
@@ -197,7 +197,7 @@ t3: A and B both have the magic profile
 
 Hermes desktop projects (the sidebar project list) are stored in a **per-profile `projects.db`** (`<profile-dir>/projects.db`), alongside `state.db`. The client walks every `projects.db` by profile to sync projects across devices:
 
-- **Push**: reads `projects.db` from every local profile and merges them into a canonical list to push (default profile ids are bare ids, named profiles are `<profile>:<id>`).
+- **Push**: reads `projects.db` from every local profile and merges them into a canonical list to push (ids are bare, the `profile` field carries the hermes profile).
 - **Same-name merge**: for projects in the same workspace with the same `(profile, slug)` but different ids, the server merges them into the **earliest-created** project: folders are unioned, and a remap (`old_id → new_id`) is recorded so clients can converge.
 - **Pull**: pulls remote projects plus remap records and routes them back to each profile's `projects.db` by id prefix; folders merge incrementally (new paths inserted, existing paths updated, nothing deleted), and slug conflicts get a de-duplicated suffix automatically.
 - **Web session association**: the project list on the Web workspace page prefix-matches session `cwd` against project folders to show the sessions under each project (consistent with Hermes' native `project_for_path` logic; paths are per-machine and the Web shows the union).
@@ -225,7 +225,17 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 
 **When the old server goes offline directly**: clients can no longer pull updates from the old address and need manual handling — add `HERMES_SYNC_SERVER: http://new-address:8765` to the `env` section of `config.yaml` on each machine (environment variables take priority), or manually copy the new `server.py` into the `mcp/` directory.
 
-> **Watermark follows the server identity**: the incremental pull watermark records which server it belongs to. When a client points at a different server (via env var or the updated default address), the watermark mismatch triggers a full re-pull automatically — a leftover watermark from the old server can never suppress sessions on the new one.
+> **Id-scheme upgrade (2026.08.18)**: canonical session ids are bare for
+every agent — `agent_type` (sessions + messages) records the owning agent and
+`profile_name` records the hermes profile (projects: `profile` column). Legacy
+prefixed ids (`codex:...`, `magic:...`, ...) pushed by old clients are
+normalized by the server's inbound shim, so mixed-version deployments work.
+To migrate an existing database run `python scripts/migrate-id-scheme.py
+--apply` (dry-run by default; collisions are reported and skipped, never
+merged). After migration, hermes-profile and workbuddy sessions pull onto
+Windows machines too (their bare ids are legal file names).
+
+**Watermark follows the server identity**: the incremental pull watermark records which server it belongs to. When a client points at a different server (via env var or the updated default address), the watermark mismatch triggers a full re-pull automatically — a leftover watermark from the old server can never suppress sessions on the new one.
 
 ## MCP Tools
 

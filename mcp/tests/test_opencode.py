@@ -42,7 +42,7 @@ class OpencodeAdapterTest(unittest.TestCase):
         sessions = a.read_sessions()
         self.assertEqual(len(sessions), 1)
         s = sessions[0]
-        self.assertTrue(s["id"].startswith("opencode:ses_"))
+        self.assertTrue(s["id"].startswith("ses_"))
         self.assertEqual(s["title"], "Opencode Chat")
         self.assertEqual(s["model"], "claude-sonnet-4")
         self.assertEqual(s["started_at"], 1767300000.0)
@@ -53,10 +53,10 @@ class OpencodeAdapterTest(unittest.TestCase):
     def test_write_foreign_session_uses_idmap(self):
         a = OpencodeAdapter(storage_dir=self.storage)
         foreign = [{
-            "id": "hermes:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "started_at": 1767400000.0, "title": "From Hermes",
             "messages": [
-                {"session_id": "hermes:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                {"session_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                  "role": "assistant", "content": "sync me",
                  "timestamp": 1767400001.0}]}]
         first = a.write_sessions(foreign)
@@ -67,12 +67,12 @@ class OpencodeAdapterTest(unittest.TestCase):
         self.assertEqual(second["duplicates"], 1)
         self.assertEqual(second["new_messages"], 0)
         idmap = json.loads((self.storage / ".hermes-sync-idmap.json").read_text())
-        self.assertIn("hermes:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", idmap)
-        local = idmap["hermes:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+        self.assertIn("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", idmap)
+        local = idmap["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
         self.assertTrue(local.startswith("ses_"))
         # round-trip: session readable with its canonical id
         sessions = a.read_sessions()
-        found = [s for s in sessions if s["id"] == "hermes:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+        found = [s for s in sessions if s["id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
         self.assertEqual(len(found), 1)
         self.assertEqual(len(found[0]["messages"]), 1)
 

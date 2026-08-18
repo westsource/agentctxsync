@@ -105,7 +105,7 @@ class WorkBuddyReadTest(unittest.TestCase):
             sessions = a.read_sessions()
             self.assertEqual(len(sessions), 1)
             s = sessions[0]
-            self.assertEqual(s["id"], f"workbuddy:{SID}")
+            self.assertEqual(s["id"], SID)
             self.assertEqual(s["title"], "Fixture chat")
             self.assertEqual(s["model"], "custom-local:deepseek-v4-flash")
             self.assertEqual(s["cwd"], cwd)
@@ -123,7 +123,7 @@ class WorkBuddyReadTest(unittest.TestCase):
             self.assertEqual(msgs[4]["role"], "tool")
             self.assertEqual(msgs[4]["content"], "done")
             for m in msgs:
-                self.assertEqual(m["session_id"], f"workbuddy:{SID}")
+                self.assertEqual(m["session_id"], SID)
 
     def test_read_empty_store(self):
         with tempfile.TemporaryDirectory() as td:
@@ -136,18 +136,18 @@ class WorkBuddyWriteTest(unittest.TestCase):
     def _canonical(self, cwd: str, sid: str = SID,
                    title: str = "Written chat") -> dict:
         return {
-            "id": f"workbuddy:{sid}",
+            "id": sid,
             "started_at": TS_MS / 1000.0,
             "title": title,
             "model": "deepseek-v4-flash",
             "cwd": cwd,
             "messages": [
-                {"session_id": f"workbuddy:{sid}", "role": "user",
+                {"session_id": sid, "role": "user",
                  "content": "from server", "timestamp": (TS_MS + 1000) / 1000.0},
-                {"session_id": f"workbuddy:{sid}", "role": "assistant",
+                {"session_id": sid, "role": "assistant",
                  "content": "server reply",
                  "timestamp": (TS_MS + 2000) / 1000.0},
-                {"session_id": f"workbuddy:{sid}", "role": "tool",
+                {"session_id": sid, "role": "tool",
                  "content": "tool out", "tool_name": "search",
                  "tool_call_id": "call_zzz",
                  "timestamp": (TS_MS + 3000) / 1000.0},
@@ -208,17 +208,17 @@ class WorkBuddyWriteTest(unittest.TestCase):
             # -> tool) plus one genuinely new message
             c = self._canonical(cwd, title="Fixture chat")
             c["messages"] = [
-                {"session_id": f"workbuddy:{SID}", "role": "user",
+                {"session_id": SID, "role": "user",
                  "content": "hello workbuddy",
                  "timestamp": (TS_MS + 1000) / 1000.0},
-                {"session_id": f"workbuddy:{SID}", "role": "assistant",
+                {"session_id": SID, "role": "assistant",
                  "content": "",
                  "timestamp": (TS_MS + 2000) / 1000.0},
                 {"session_id": f"workbuddy:{SID}", "role": "tool",
                  "content": "done", "tool_name": "Skill",
                  "tool_call_id": "call_abc",
                  "timestamp": (TS_MS + 5000) / 1000.0},
-                {"session_id": f"workbuddy:{SID}", "role": "assistant",
+                {"session_id": SID, "role": "assistant",
                  "content": "one more", "timestamp": (TS_MS + 6000) / 1000.0},
             ]
             stats = a.write_sessions([c])

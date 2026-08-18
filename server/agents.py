@@ -273,44 +273,76 @@ AGENTS = {
         },
         "register": {
             "zh": (
-                "# 在 reasonix 配置中加入 MCP 插件（stdio；字段以官方文档为准）\n"
-                "[[plugins]]\n"
-                'name = "hermes-sync"\n'
-                'command = "<PYTHON>"\n'
-                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "reasonix", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+                "# Reasonix 桌面版：设置 → MCP与工具 → 添加服务器 → JSON 中粘贴（实测有效）\n"
+                "# 注意：env 三要素缺一不可——缺 HERMES_SYNC_AGENT 会退回 hermes 适配器\n"
+                "# 扫错目录，缺 HERMES_SYNC_API_KEY 会认证失败（401）；AUTO_UPDATE=0 避免\n"
+                "# reasonix 包未公开发布导致的更新检查报错。CLI 等价写法：config.toml 中\n"
+                "# [[plugins]] 块（name/type/command/args/env/auto_start 同字段）\n"
+                "{\n"
+                '  "hermes-sync": {\n'
+                '    "type": "stdio",\n'
+                '    "command": "<PYTHON>",\n'
+                '    "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '    "env": {\n'
+                '      "HERMES_SYNC_AGENT": "reasonix",\n'
+                '      "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '      "HERMES_SYNC_API_KEY": "<KEY>",\n'
+                '      "HERMES_SYNC_AUTO_UPDATE": "0"\n'
+                '    },\n'
+                '    "auto_start": true\n'
+                '  }\n'
+                "}"
             ),
             "en": (
-                "# Register the MCP plugin in the reasonix config (stdio; fields per official docs)\n"
-                "[[plugins]]\n"
-                'name = "hermes-sync"\n'
-                'command = "<PYTHON>"\n'
-                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "reasonix", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+                "# Reasonix desktop: Settings → MCP & Tools → Add Server → JSON, paste (verified)\n"
+                "# All three env vars are REQUIRED: without HERMES_SYNC_AGENT the client\n"
+                "# falls back to the hermes adapter (wrong store), without\n"
+                "# HERMES_SYNC_API_KEY every call fails auth (401); AUTO_UPDATE=0 avoids\n"
+                "# update-check errors while the reasonix package is not publicly\n"
+                "# released. CLI equivalent: a [[plugins]] block in config.toml\n"
+                "# (same name/type/command/args/env/auto_start fields)\n"
+                "{\n"
+                '  "hermes-sync": {\n'
+                '    "type": "stdio",\n'
+                '    "command": "<PYTHON>",\n'
+                '    "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '    "env": {\n'
+                '      "HERMES_SYNC_AGENT": "reasonix",\n'
+                '      "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '      "HERMES_SYNC_API_KEY": "<KEY>",\n'
+                '      "HERMES_SYNC_AUTO_UPDATE": "0"\n'
+                '    },\n'
+                '    "auto_start": true\n'
+                '  }\n'
+                "}"
             ),
         },
         "verify": "reasonix 会话中调用 hermes_sync_status",
         "env_agent": True,
         "uninstall": {
             "zh": (
-                "# 移除：删除 reasonix 配置中 [[plugins]] 的 hermes-sync 插件块（配置位置以官方文档为准）"
+                "# 移除：在 Reasonix 设置 → MCP与工具 中删除 hermes-sync 服务器条目；\n"
+                "# 若 config.toml 中有 [[plugins]] 块一并删除"
             ),
             "en": (
-                "# Remove: delete the hermes-sync [[plugins]] block in the reasonix config (location per official docs)"
+                "# Remove: delete the hermes-sync server entry in Reasonix Settings → MCP & Tools;\n"
+                "# also remove the [[plugins]] block from config.toml if present"
             ),
         },
         "install": {
             "zh": [
                 {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
-                {"text": "在 reasonix 配置中加入 MCP 插件（stdio；字段以官方文档为准，<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径）："},
+                {"text": "在 Reasonix 设置 → MCP与工具 → 添加服务器 → JSON 中粘贴以下配置（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为解压目录）："},
                 {"code": "<REGISTER>"},
-                {"text": "重启 reasonix（新会话生效）。"},
+                {"text": "重启 Reasonix——插件随桌面自动启动（auto_start），启动后约 8 秒执行增量拉取，之后每 300 秒自动双向同步。"},
+                {"text": "若重启后不自动同步：检查插件配置的 env 三要素（HERMES_SYNC_AGENT / HERMES_SYNC_SERVER / HERMES_SYNC_API_KEY）是否完整——缺任一项都会静默失败。"},
             ],
             "en": [
                 {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
-                {"text": "Add the MCP plugin to the reasonix config (stdio; fields per official docs, replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter):"},
+                {"text": "In Reasonix Settings → MCP & Tools → Add Server → JSON, paste the config below (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the unzip folder):"},
                 {"code": "<REGISTER>"},
-                {"text": "Restart reasonix (new sessions pick it up)."},
+                {"text": "Restart Reasonix — the plugin auto-starts with the desktop (auto_start), runs an incremental pull ~8s after startup, then syncs both ways every 300s."},
+                {"text": "If it does not auto-sync after restart: make sure all three env vars (HERMES_SYNC_AGENT / HERMES_SYNC_SERVER / HERMES_SYNC_API_KEY) are present — any missing one fails silently."},
             ],
         },
     },

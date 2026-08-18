@@ -42,7 +42,7 @@ class OpenClawAdapterTest(unittest.TestCase):
         sessions = a.read_sessions()
         self.assertEqual(len(sessions), 1)
         s = sessions[0]
-        self.assertEqual(s["id"], "openclaw:conv-1")
+        self.assertEqual(s["id"], "conv-1")
         self.assertEqual(s["title"], "OpenClaw Chat")
         self.assertEqual(s["started_at"], 1000.0)
         self.assertEqual(len(s["messages"]), 2)
@@ -51,9 +51,9 @@ class OpenClawAdapterTest(unittest.TestCase):
     def test_write_and_dedupe(self):
         a = OpenClawAdapter(db_path=self.db)
         foreign = [{
-            "id": "openclaw:conv-2", "started_at": 2000.0, "title": "New conv",
+            "id": "conv-2", "started_at": 2000.0, "title": "New conv",
             "messages": [
-                {"session_id": "openclaw:conv-2", "role": "user",
+                {"session_id": "conv-2", "role": "user",
                  "content": "from codex", "timestamp": 2000.5}]}]
         first = a.write_sessions(foreign)
         self.assertEqual(first["imported"], 1)
@@ -63,7 +63,7 @@ class OpenClawAdapterTest(unittest.TestCase):
         self.assertEqual(second["duplicates"], 1)
         self.assertEqual(second["new_messages"], 0)
         ids = [s["id"] for s in a.read_sessions()]
-        self.assertIn("openclaw:conv-2", ids)
+        self.assertIn("conv-2", ids)
 
 
 if __name__ == "__main__":

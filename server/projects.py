@@ -22,14 +22,26 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
         for p in projects:
             pid = p["id"]
             slug = p.get("slug") or p["name"]
-            # profile = prefix before ':' ('' for default)
-            profile = pid.split(":", 1)[0] if ":" in pid else ""
-            # find existing same (workspace, profile, slug)
+            # profile: explicit payload field (new scheme) or the legacy
+            # id prefix (<profile>:<p_xxx>; foreign-agent prefixes keep the
+            # default profile and are stripped from the stored id)
+            profile = p.get("profile") or ""
+            if ":" in pid:
+                pfx, bare = pid.split(":", 1)
+                if pfx not in ("codex", "opencode", "reasonix", "openclaw",
+                               "workbuddy") and pfx != "default":
+                    profile = profile or pfx
+                pid = bare
+            # find existing same (workspace, profile, slug); the legacy id
+            # prefix branch only matches unmigrated rows
             c.execute("""SELECT id FROM projects
                          WHERE workspace_id = %s AND agent_type = %s
-                           AND slug = %s AND (CASE WHEN id LIKE '%%:%%' THEN split_part(id,':',1) ELSE '' END) = %s
+                           AND slug = %s
+                           AND (COALESCE(profile,'') = %s
+                                OR (COALESCE(profile,'') = '' AND %s = ''
+                                    AND CASE WHEN id LIKE '%%:%%' THEN split_part(id,':',1) ELSE '' END = %s))
                          ORDER BY created_at ASC, id ASC LIMIT 1""",
-                      (wid, "hermes", slug, profile))
+                      (wid, "hermes", slug, profile, profile, profile))
             row = c.fetchone()
             if row and row[0] != pid:
                 # merge into the existing (earliest) project
@@ -60,8 +72,8 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                 c.execute(f"UPDATE projects SET {sets} WHERE id = %s AND workspace_id = %s", vals)
                 upd += 1
             else:
-                cols_all = ["id","workspace_id","slug","name","created_at","archived","agent_type"]
-                vals = [pid, wid, slug, p["name"], p.get("created_at") or now, p.get("archived") or 0, "hermes"]
+                cols_all = ["id","workspace_id","slug","name","created_at","archived","agent_type","profile"]
+                vals = [pid, wid, slug, p["name"], p.get("created_at") or now, p.get("archived") or 0, "hermes", profile]
                 for k in ("description","icon","color","board_slug","primary_path"):
                     if p.get(k) is not None:
                         cols_all.append(k); vals.append(p[k])

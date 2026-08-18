@@ -90,12 +90,51 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     return await loop.run_in_executor(None, push_sync, body, ws)
 
 
+# Legacy canonical-id prefixes (id-scheme upgrade inbound compat): old
+# clients push ids like "codex:<uuid>", "magic:<bare>", "workbuddy:<uuid>".
+# Storage now uses bare ids with agent_type/profile_name columns; map the
+# prefix into the fields. Bare ids return (None, None, id) and are left
+# untouched (new clients already carry attribution in the payload).
+_AGENT_ID_PREFIXES = {
+    "codex:": "codex", "opencode:": "opencode", "reasonix:": "reasonix",
+    "openclaw:": "openclaw", "workbuddy:": "workbuddy",
+}
+
+
+def _split_inbound_id(cid: str):
+    """-> (agent_type|None, profile_name|None, bare_id) for a pushed id."""
+    if ":" not in cid:
+        return None, None, cid
+    prefix, bare = cid.split(":", 1)
+    agent = _AGENT_ID_PREFIXES.get(prefix + ":")
+    if agent:
+        return agent, None, bare
+    if prefix == "default":
+        return "hermes", "", bare
+    return "hermes", prefix, bare  # hermes profile prefix (legacy scheme)
+
+
 def push_sync(body, ws):
     """Synchronous push core, run off the event loop (see the /push route)."""
     device_id = body.get("device_id", "unknown")
     sessions_data = body["sessions"]
     wid = ws["workspace_id"]
     now = datetime.now().timestamp()
+    # Normalize legacy prefixed ids into the column scheme BEFORE the quota
+    # gate and dedup-key snapshots: a legacy client re-pushing an existing
+    # (post-migration) session must match the same bare-id row, not appear
+    # as a brand-new session.
+    for session in sessions_data:
+        agent, profile, bare = _split_inbound_id(str(session.get("id", "")))
+        if agent is not None:
+            session["id"] = bare
+            session["agent_type"] = agent
+            session["profile_name"] = profile if profile is not None \
+                else session.get("profile_name") or ""
+            for m in session.get("messages", []):
+                msid = m.get("session_id")
+                if isinstance(msid, str) and ":" in msid:
+                    m["session_id"] = _split_inbound_id(msid)[2]
     imp_s, imp_m, upd_s, dup_m = 0, 0, 0, 0
     with get_conn() as conn:
         c = conn.cursor()
@@ -222,7 +261,19 @@ def push_sync(body, ws):
                 # (role -> contents) map is fetched lazily, once per session,
                 # only when a key miss actually needs the check.
                 content = msg.get("content")
-                if role is not None and isinstance(content, str) and content:
+                # Content-level fallback: hermes' "message-alternation repair"
+                # (after an interrupted turn) and reasonix' file normalization
+                # (rewrites transcripts with fresh timestamps + system prompt)
+                # both regenerate timestamps for identical content, so the
+                # (role, timestamp) triple no longer matches the original
+                # rows. For those agents an identical (role, content) with a
+                # different timestamp is the SAME message re-pushed, not a
+                # new turn. Other agents keep the triple-only dedup: they
+                # legitimately repeat identical content (e.g. codex tool
+                # outputs from distinct calls), and collapsing by content
+                # there would silently lose messages.
+                if session_agent in ("hermes", "reasonix") and role is not None \
+                        and isinstance(content, str) and content:
                     if msid not in content_cache:
                         c.execute("SELECT role, content FROM messages "
                                   "WHERE workspace_id = %s AND session_id = %s AND content IS NOT NULL",
@@ -245,25 +296,36 @@ def push_sync(body, ws):
                 new_msgs.append(md)
             if new_msgs:
                 # One multi-row statement per session (a single round trip
-                # instead of one INSERT per message). RETURNING reports the
-                # rows that actually landed, so a concurrent push stealing an
-                # auto id is detected without a second lookup.
+                # instead of one INSERT per message). ON CONFLICT DO NOTHING
+                # catches both the (workspace_id, session_id, id) PK and the
+                # uq_messages_dedup triple index (db.py); RETURNING reports
+                # the rows that actually landed.
                 from psycopg2.extras import execute_values
                 cols = sorted({k for md in new_msgs for k in md})
                 rows = [[md.get(k) for k in cols] for md in new_msgs]
                 insert_sql = (f"INSERT INTO messages ({', '.join(cols)}) VALUES %s "
-                              "ON CONFLICT (workspace_id, session_id, id) DO NOTHING "
-                              "RETURNING session_id, id")
+                              "ON CONFLICT DO NOTHING RETURNING session_id, id")
                 execute_values(c, insert_sql, rows, page_size=500)
                 inserted = set(c.fetchall())
                 imp_m += len(inserted)
-                # Concurrent-push id collisions: re-allocate and retry once.
+                # Rows skipped by ON CONFLICT: either a concurrent push stole
+                # the in-memory-allocated id, or the (session_id, role,
+                # timestamp) dedup triple already exists (raced past the
+                # msg_keys snapshot taken at the start of this push). A real
+                # duplicate is dropped; an id collision with a genuinely new
+                # message is retried once with a fresh id.
                 retry_sql = (f"INSERT INTO messages ({', '.join(cols)}) "
                              f"VALUES ({', '.join(['%s'] * len(cols))}) "
-                             "ON CONFLICT (workspace_id, session_id, id) DO NOTHING "
-                             "RETURNING session_id, id")
+                             "ON CONFLICT DO NOTHING RETURNING session_id, id")
                 for md in new_msgs:
                     if (md["session_id"], md["id"]) in inserted:
+                        continue
+                    c.execute("SELECT 1 FROM messages WHERE workspace_id=%s "
+                              "AND session_id=%s AND role=%s AND timestamp=%s",
+                              (wid, md["session_id"], md.get("role"),
+                               md.get("timestamp")))
+                    if c.fetchone():
+                        dup_m += 1
                         continue
                     md["id"] = next_ids.get(md["session_id"], 1)
                     next_ids[md["session_id"]] = md["id"] + 1

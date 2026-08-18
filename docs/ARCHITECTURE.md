@@ -173,8 +173,8 @@ User (admin / user)
 主键: `(device_id, workspace_id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 
 ### projects
-复合主键: `(workspace_id, id)`（canonical id：default 档案为裸 id，命名档案为 `<profile>:<id>`）
-列: `slug`（同 (workspace, profile) 唯一，同名合并依据）、`name`、`description`、`icon`、`color`、
+复合主键: `(workspace_id, id)`（canonical id 全部裸 id；agent 归属在 `agent_type` 列，hermes 档案在 `profile_name` 列；旧前缀 id 由 `server/sync.py` 的入站兼容层规范化）
+列: `slug`（同 (workspace, profile) 唯一，同名合并依据，profile 存于 `profile` 列）、`name`、`description`、`icon`、`color`、
 `board_slug`、`primary_path`、`created_at`、`archived`、`hidden`/`hidden_at`、`merged_into`、`agent_type`
 
 ### project_folders

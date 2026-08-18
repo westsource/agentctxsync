@@ -229,9 +229,11 @@ async def web_workspace_detail(ws_id: int, request: Request):
         agent_clause = ""
     else:
         agent_clause = " AND agent_type = %s"
-    # Profile filter: inferred from the session id prefix (hermes sessions).
-    #   bare id or 'default:' prefix  -> default profile
-    #   '<name>:' prefix              -> named profile
+    # Profile filter (hermes sessions): the profile_name column is
+    # authoritative; legacy prefixed ids (<name>:<bare>, default:<bare>)
+    # are matched too so an unmigrated DB still filters correctly.
+    #   bare id / '' / 'default:'  -> default profile
+    #   '<name>:' / profile_name   -> named profile
     # non-hermes agents are never filtered by profile.
     profile = request.query_params.get("profile", "all")
     if agent != "hermes":
@@ -240,7 +242,8 @@ async def web_workspace_detail(ws_id: int, request: Request):
         profile_clause = ""
     elif profile == "default":
         profile_clause = ("AND agent_type = 'hermes' "
-                          "AND (id NOT LIKE '%%:%%' OR id LIKE 'default:%%')")
+                          "AND (COALESCE(profile_name,'') = '' "
+                          "OR id LIKE 'default:%%')")
     else:
         # named profile: validate the name to avoid SQL injection
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", profile):
@@ -248,9 +251,11 @@ async def web_workspace_detail(ws_id: int, request: Request):
             profile_clause = ""
         else:
             profile_clause = ("AND agent_type = 'hermes' "
-                              f"AND id LIKE '{profile}:%%'")
+                              f"AND (profile_name = '{profile}' "
+                              f"OR id LIKE '{profile}:%%')")
     profile_sel = (""", CASE
                          WHEN agent_type <> 'hermes' THEN NULL
+                         WHEN COALESCE(profile_name,'') <> '' THEN profile_name
                          WHEN id LIKE 'default:%%' THEN 'default'
                          WHEN id LIKE '%%:%%' THEN split_part(id, ':', 1)
                          ELSE 'default' END AS profile""")
@@ -300,10 +305,17 @@ async def web_workspace_detail(ws_id: int, request: Request):
                          ORDER BY COALESCE(s.pinned,0) DESC, {sort_col} {dir} NULLS LAST, s.id
                          LIMIT {size} OFFSET %s""", params + [(page - 1) * size])
         sessions = [dict(r) for r in c.fetchall()]
-        # available profiles for the filter dropdown: hermes id prefixes
-        c.execute("""SELECT DISTINCT split_part(id, ':', 1) AS pfx
+        # available profiles for the filter dropdown: hermes profile column
+        # (plus legacy id prefixes on unmigrated DBs)
+        c.execute("""SELECT DISTINCT profile_name AS pfx FROM sessions
+                     WHERE workspace_id = %s AND agent_type = 'hermes'
+                       AND COALESCE(profile_name,'') <> ''
+                     UNION
+                     SELECT DISTINCT split_part(id, ':', 1) AS pfx
                      FROM sessions WHERE workspace_id = %s AND agent_type = 'hermes'
-                       AND id LIKE '%%:%%' AND id NOT LIKE 'default:%%'""", (ws_id,))
+                       AND id LIKE '%%:%%' AND id NOT LIKE 'default:%%'
+                       AND COALESCE(profile_name,'') = ''""",
+                  (ws_id, ws_id))
         profile_options = [r["pfx"] for r in c.fetchall()]
         c.execute("SELECT * FROM sync_state WHERE workspace_id = %s ORDER BY last_sync_at DESC", (ws_id,))
         devices = [dict(r) for r in c.fetchall()]

@@ -238,6 +238,110 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["duplicates"], 1)
         self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
 
+    def test_content_fallback_dedupes_reasonix_normalized_file(self):
+        # reasonix rewrites local transcripts (fresh timestamps + system
+        # prompt), so its re-push carries identical content under new
+        # timestamps. The content fallback must dedupe it like hermes'.
+        sessions = [{"id": "r1", "agent_type": "reasonix",
+                     "messages": [{"role": "system", "content": "sys",
+                                   "timestamp": 200.0},
+                                  {"role": "user", "content": "same",
+                                   "timestamp": 201.0}]}]
+        resp, cur = self._push(
+            sessions, msg_keys={("r1", "user", 100.0)},
+            msg_contents={("r1", "system", "sys"), ("r1", "user", "same")})
+        self.assertEqual(resp["new_messages"], 0)
+        self.assertEqual(resp["duplicates"], 2)
+        self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_content_fallback_not_applied_to_codex_repeated_output(self):
+        # codex legitimately repeats identical content (tool outputs from
+        # distinct calls) — the triple-only dedup must keep those
+        sessions = [{"id": "c1", "agent_type": "codex",
+                     "messages": [{"role": "tool", "content": "same output",
+                                   "timestamp": 2.0}]}]
+        resp, cur = self._push(sessions, msg_keys={("c1", "tool", 1.0)},
+                               msg_contents={("c1", "tool", "same output")})
+        self.assertEqual(resp["new_messages"], 1)
+        self.assertEqual(resp["duplicates"], 0)
+        self.assertTrue(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_concurrent_triple_race_does_not_duplicate(self):
+        # A concurrent push committed the (session, role, timestamp) triple
+        # after this push's msg_keys snapshot was taken (the snapshot is a
+        # SELECT at push start, so a racing push lands in between). The batch
+        # insert must skip it via ON CONFLICT DO NOTHING + the per-row triple
+        # check — NOT retry it under a fresh id (that is what used to
+        # duplicate the row).
+        sessions = [{"id": "s1", "title": "t",
+                     "messages": [{"role": "user", "content": "raced",
+                                   "timestamp": 1.0}]}]
+        cur = (ScriptedCursor()
+               .add(r"SELECT id FROM sessions", [])
+               .add(r"information_schema\.columns.*sessions",
+                    [(c,) for c in SESS_COLS])
+               .add(r"information_schema\.columns.*messages",
+                    [(c,) for c in MSG_COLS])
+               # dedup-key snapshot: EMPTY — the racing push committed later
+               .add(r"SELECT session_id, role, timestamp FROM messages", [])
+               .add(r"GROUP BY session_id", [("s1", 5)])
+               .add(r"SELECT role, content FROM messages", {})
+               # the racing push's row is now visible to the per-row check
+               .add(r"SELECT 1 FROM messages WHERE workspace_id=%s AND session_id=%s AND role=%s AND timestamp=%s",
+                    {("s1", "user", 1.0): [("s1",)]}, key=lambda p: p[1:])
+               .add(r"SELECT 1 FROM messages", [])
+               .add(r"INSERT INTO messages.*VALUES \(%s", rows=[("s1", 0)])
+               .add(r"INSERT INTO messages", rows=[]))
+        conn = FakeConn(cur)
+        with mock.patch.object(sync, "get_conn", return_value=FakeCtx(conn)), \
+             mock.patch("psycopg2.extras.execute_values",
+                        side_effect=fake_execute_values):
+            resp = run(sync.push(JsonRequest({"device_id": "dev1",
+                                              "sessions": sessions}),
+                                 {"workspace_id": 1, "user_id": None}))
+        self.assertEqual(resp["imported"], 1)
+        self.assertEqual(resp["new_messages"], 0)   # raced row not re-inserted
+        self.assertEqual(resp["duplicates"], 1)
+        # no fresh-id retry happened for the raced message
+        self.assertFalse(any(s.startswith("INSERT INTO messages") and "VALUES (%s" in s
+                             for s, _ in cur.executed))
+
+    def test_inbound_legacy_prefixed_ids_normalized(self):
+        # id-scheme upgrade inbound compat: old clients still push
+        # codex:<uuid> / magic:<bare> ids. The shim maps them to bare ids
+        # with agent_type/profile_name columns.
+        sessions = [
+            {"id": "codex:019fc071-fab4-7661-9a0b-2afaa65cbb31", "title": "c",
+             "messages": [{"session_id": "codex:019fc071-fab4-7661-9a0b-2afaa65cbb31",
+                           "role": "user", "content": "x", "timestamp": 1.0}]},
+            {"id": "magic:20260808_205157_c272fe", "title": "m", "messages": []},
+            {"id": "default:20260808_180012_0c275f", "title": "d", "messages": []},
+        ]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["imported"], 3)
+        rows = {r["id"]: r for r in insert_rows(cur, "sessions")}
+        self.assertIn("019fc071-fab4-7661-9a0b-2afaa65cbb31", rows)
+        self.assertEqual(rows["019fc071-fab4-7661-9a0b-2afaa65cbb31"]["agent_type"], "codex")
+        self.assertEqual(rows["20260808_205157_c272fe"]["agent_type"], "hermes")
+        self.assertEqual(rows["20260808_205157_c272fe"]["profile_name"], "magic")
+        self.assertEqual(rows["20260808_180012_0c275f"]["agent_type"], "hermes")
+        self.assertEqual(rows["20260808_180012_0c275f"]["profile_name"], "")
+        # message session_id normalized to the bare id
+        msg_rows = insert_rows(cur, "messages")
+        self.assertTrue(all(m["session_id"] == "019fc071-fab4-7661-9a0b-2afaa65cbb31"
+                            for m in msg_rows))
+
+    def test_new_scheme_profile_name_field_written(self):
+        # new clients push bare ids with explicit fields; profile_name and
+        # agent_type pass through to the columns
+        sessions = [{"id": "20260808_180013_0c275e", "agent_type": "hermes",
+                     "profile_name": "magic", "title": "m", "messages": []}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["imported"], 1)
+        rows = {r["id"]: r for r in insert_rows(cur, "sessions")}
+        self.assertEqual(rows["20260808_180013_0c275e"]["profile_name"], "magic")
+        self.assertEqual(rows["20260808_180013_0c275e"]["agent_type"], "hermes")
+
     def test_quota_gate_skipped_for_master_key(self):
         # user_id None (master key) -> no quota queries at all
         sessions = [{"id": "s1", "messages": []}]
@@ -277,6 +381,20 @@ class PullTest(unittest.TestCase):
         # incremental cutoff is applied to the session query
         sess_sql = [s for s, _ in cur.executed if "FROM sessions" in s and "ORDER BY" in s][0]
         self.assertIn("last_synced_at >", sess_sql)
+
+    def test_pull_returns_agent_and_profile_columns(self):
+        # the /pull payload carries agent_type/profile_name so clients can
+        # route and tag sessions under the column-based id scheme
+        sessions = [{"id": "20260808_180013_0c275e", "title": "m",
+                     "agent_type": "hermes", "profile_name": "magic"},
+                    {"id": "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06", "title": "w",
+                     "agent_type": "workbuddy", "profile_name": None}]
+        resp, _ = self._pull({"device_id": "d", "last_sync_at": 5.0}, sessions, {})
+        by_id = {s["id"]: s for s in resp["sessions"]}
+        self.assertEqual(by_id["20260808_180013_0c275e"]["agent_type"], "hermes")
+        self.assertEqual(by_id["20260808_180013_0c275e"]["profile_name"], "magic")
+        self.assertEqual(by_id["3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"]["agent_type"],
+                         "workbuddy")
 
     def test_agent_filter_applied_to_session_query(self):
         sessions = [{"id": "a", "title": "A"}]

@@ -302,8 +302,8 @@ class WorkBuddyAdapter(Adapter):
                 _, bare = split_agent_prefix(local_id)
                 if bare:
                     local_id = bare
-            if not session["id"].startswith("workbuddy:"):
-                self._remember_foreign(local_id)
+            if session.get("agent_type") != "workbuddy":
+                self._remember_foreign(local_id, session.get("agent_type"))
             if not validate_local_id(local_id):
                 continue  # untrusted remote id: skip
             msgs = s.pop("messages", []) or []

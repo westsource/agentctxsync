@@ -42,6 +42,11 @@ jobs:
       - name: Install server deps
         run: pip install --quiet fastapi uvicorn psycopg2-binary jinja2 markdown
 
+      # server/tests are fake-DB (scripted cursors), no PostgreSQL needed;
+      # test_migration skips itself when no database is reachable.
+      - name: Run server unit tests
+        run: python -m unittest discover -s server/tests
+
       - name: Syntax check server
         run: python -m py_compile server/main.py server/config.py server/db.py server/render.py server/auth.py server/invites.py server/workspace.py server/admin.py server/sync.py server/projects.py server/client_update.py server/web_help.py server/agents.py server/translations.py
 

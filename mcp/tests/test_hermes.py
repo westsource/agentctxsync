@@ -71,7 +71,7 @@ class HermesMultiProfileTest(unittest.TestCase):
                               "messages": []})
         self.assertEqual(out["id"], "20260808_180012_0c275f")
 
-    def test_named_profile_prefixes_id(self):
+    def test_named_profile_id_bare_with_profile_field(self):
         make_db(self.root / "state.db", "x")
         magic = self.root / "profiles" / "magic"
         magic.mkdir(parents=True)
@@ -79,10 +79,10 @@ class HermesMultiProfileTest(unittest.TestCase):
         a = HermesAdapter()
         sub = a._sub_adapter("magic", magic / "state.db")
         self.assertEqual(sub.profile_name, "magic")
-        self.assertEqual(sub._id_prefix(), "magic:")
         out = sub.canonicalize({"id": "20260808_180013_0c275e", "started_at": 1.0,
                                 "messages": []})
-        self.assertEqual(out["id"], "magic:20260808_180013_0c275e")
+        self.assertEqual(out["id"], "20260808_180013_0c275e")
+        self.assertEqual(out["profile_name"], "magic")
 
     def test_named_profile_roundtrip(self):
         make_db(self.root / "state.db", "x")
@@ -95,7 +95,8 @@ class HermesMultiProfileTest(unittest.TestCase):
                 "messages": [{"session_id": "20260808_180013_0c275e",
                               "role": "user", "content": "hi", "timestamp": 1.0}]}
         canon = sub.canonicalize(orig)
-        self.assertEqual(canon["id"], "magic:20260808_180013_0c275e")
+        self.assertEqual(canon["id"], "20260808_180013_0c275e")
+        self.assertEqual(canon["profile_name"], "magic")
         back = sub.localize(canon)
         self.assertEqual(back["id"], orig["id"])
         self.assertEqual(back["messages"][0]["session_id"],
@@ -111,10 +112,10 @@ class HermesMultiProfileTest(unittest.TestCase):
         make_db(magic / "state.db", "20260808_180013_0c275e", title="magic-sess")
         a = HermesAdapter()
         sessions = {s["id"]: s for s in a.read_sessions()}
-        # default keeps bare id, magic gets prefix
+        # both profiles keep bare ids; the profile travels in the field
         self.assertIn("20260808_180012_0c275f", sessions)
-        self.assertIn("magic:20260808_180013_0c275e", sessions)
-        self.assertNotIn("20260808_180013_0c275e", sessions)
+        self.assertIn("20260808_180013_0c275e", sessions)
+        self.assertEqual(sessions["20260808_180013_0c275e"].get("profile_name"), "magic")
 
     # ------------------------------------------------------------------
     # routed write (pull)
@@ -130,24 +131,32 @@ class HermesMultiProfileTest(unittest.TestCase):
              "messages": [{"session_id": "20260808_180014_0c276f",
                            "role": "user", "content": "to-default",
                            "timestamp": 2.0}]},
-            {"id": "magic:20260808_180015_0c277e", "started_at": 2.0,
-             "messages": [{"session_id": "magic:20260808_180015_0c277e",
+            {"id": "20260808_180015_0c277e", "started_at": 2.0,
+             "profile_name": "magic",
+             "messages": [{"session_id": "20260808_180015_0c277e",
                            "role": "user", "content": "to-magic",
+                           "timestamp": 2.0}]},
+            # legacy prefixed payload still routes via the prefix fallback
+            {"id": "magic:20260808_180016_0c278f", "started_at": 2.0,
+             "messages": [{"session_id": "magic:20260808_180016_0c278f",
+                           "role": "user", "content": "to-magic-legacy",
                            "timestamp": 2.0}]},
         ]
         stats = a.write_sessions(sessions)
-        self.assertEqual(stats["imported"], 2)
+        self.assertEqual(stats["imported"], 3)
         # default db got the bare session
         c = sqlite3.connect(str(self.root / "state.db"))
         self.assertEqual(c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 2)
         self.assertIsNotNone(c.execute(
             "SELECT 1 FROM sessions WHERE id='20260808_180014_0c276f'").fetchone())
         c.close()
-        # magic db got the magic session (stored as bare id locally)
+        # magic db got the magic sessions (stored as bare ids locally)
         c = sqlite3.connect(str(magic / "state.db"))
-        self.assertEqual(c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 2)
+        self.assertEqual(c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 3)
         self.assertIsNotNone(c.execute(
             "SELECT 1 FROM sessions WHERE id='20260808_180015_0c277e'").fetchone())
+        self.assertIsNotNone(c.execute(
+            "SELECT 1 FROM sessions WHERE id='20260808_180016_0c278f'").fetchone())
         c.close()
 
     def test_pull_skips_unknown_profile(self):
@@ -159,8 +168,9 @@ class HermesMultiProfileTest(unittest.TestCase):
                            "role": "user", "content": "default",
                            "timestamp": 2.0}]},
             # coder profile does not exist on this machine -> skipped
-            {"id": "coder:20260808_180015_0c277e", "started_at": 2.0,
-             "messages": [{"session_id": "coder:20260808_180015_0c277e",
+            {"id": "20260808_180015_0c277e", "started_at": 2.0,
+             "profile_name": "coder",
+             "messages": [{"session_id": "20260808_180015_0c277e",
                            "role": "user", "content": "coder",
                            "timestamp": 2.0}]},
         ]
@@ -266,9 +276,11 @@ class HermesMultiProfileTest(unittest.TestCase):
         a = HermesAdapter()
         projects = a.read_projects()
         ids = {p["id"] for p in projects}
+        by_id = {p["id"]: p for p in projects}
         self.assertIn("p_a", ids)          # default bare
-        self.assertIn("magic:p_b", ids)    # named prefixed
-        self.assertNotIn("p_b", ids)
+        self.assertIn("p_b", ids)          # named profile, bare id
+        self.assertEqual(by_id["p_a"].get("profile"), "")
+        self.assertEqual(by_id["p_b"].get("profile"), "magic")
 
     def test_write_projects_routes_and_slug_dedupe(self):
         self._make_projects_db(self.root, [{"id": "p_a", "slug": "same", "name": "A"}])
@@ -276,7 +288,8 @@ class HermesMultiProfileTest(unittest.TestCase):
         magic.mkdir(parents=True)
         a = HermesAdapter()
         projects = [
-            {"id": "magic:p_b", "slug": "same", "name": "B",
+            {"id": "p_b", "slug": "same", "name": "B",
+             "profile": "magic",
              "folders": [{"path": "/x", "is_primary": 1, "added_at": 1}],
              "created_at": 1},
         ]

@@ -100,40 +100,30 @@ CANONICAL_MESSAGE_FIELDS = (
 def canonical_id(agent_type: str, local_id) -> str:
     """Build the canonical session id for ``local_id`` in ``agent_type``.
 
-    ``hermes`` returns the bare id (legacy); every other agent is prefixed.
+    id-scheme: every agent keeps its bare local id (no prefix); agent
+    attribution travels in the ``agent_type`` session field and hermes
+    profiles in ``profile_name``. AGENT_PREFIXES remains only for
+    recognizing legacy prefixed ids (old servers/clients).
     """
-    prefix = AGENT_PREFIXES.get(agent_type)
-    if prefix is None:
-        return str(local_id)
-    return f"{prefix}{local_id}"
+    return str(local_id)
 
 
 def local_id(agent_type: str, canonical: str) -> str:
-    """Strip the agent prefix from a canonical id, validating it matches.
+    """Map a canonical id to the local form.
 
-    Raises ValueError when the canonical id belongs to a different agent.
-    """
-    prefix = AGENT_PREFIXES.get(agent_type)
-    if prefix is None:
-        return canonical
-    if not canonical.startswith(prefix):
-        raise ValueError(
-            f"canonical id {canonical!r} does not match agent {agent_type!r} "
-            f"(expected prefix {prefix!r})")
-    return canonical[len(prefix):]
-
-
-def local_id_lenient(agent_type: str, canonical: str) -> str:
-    """Like local_id but accepts foreign/legacy ids unchanged.
-
-    Used by adapters whose local id format is free-form (codex UUIDs,
-    reasonix file stems): a session pushed by hermes arrives as a bare id
-    (hermes has no prefix) and must be usable as a local id as-is.
+    New scheme: identity. A legacy prefixed canonical id (``codex:...``,
+    the agent's own prefix) is stripped so pre-migration local data still
+    round-trips.
     """
     prefix = AGENT_PREFIXES.get(agent_type)
     if prefix and canonical.startswith(prefix):
         return canonical[len(prefix):]
     return canonical
+
+
+def local_id_lenient(agent_type: str, canonical: str) -> str:
+    """Compatibility alias: same as ``local_id`` (ids are bare now)."""
+    return local_id(agent_type, canonical)
 
 
 def validate_local_id(local_id: str) -> bool:
@@ -145,6 +135,25 @@ def validate_local_id(local_id: str) -> bool:
     if not local_id or local_id in (".", ".."):
         return False
     if any(sep in local_id for sep in ("/", "\\", os.sep, os.altsep or "")):
+        return False
+    return True
+
+
+def validate_file_id(local_id: str) -> bool:
+    """``validate_local_id`` plus Windows file-name safety.
+
+    ':' is reserved on Windows: NTFS treats "name:id" as an alternate data
+    stream, so ``open("rollout-<ts>-workbuddy:abc.jsonl", "w")`` succeeds
+    but writes into a hidden ``:abc.jsonl`` stream — the visible file is a
+    0-byte stub the adapter's listing regex never matches. One-file-per-
+    session adapters (codex, reasonix) MUST use this; adapters that store
+    ids in table columns (hermes, workbuddy, openclaw) keep using
+    ``validate_local_id`` (their own ``magic:``/``openclaw:`` ids are
+    valid there on every platform).
+    """
+    if not validate_local_id(local_id):
+        return False
+    if os.name == "nt" and ":" in local_id:
         return False
     return True
 
@@ -293,36 +302,47 @@ class Adapter(abc.ABC):
     # ------------------------------------------------------------------
     # Foreign id memory (free-form local id agents)
     # ------------------------------------------------------------------
-    # Sessions pushed by other agents (hermes bare ids, other prefixes) keep
-    # their id as-is in free-form stores (codex file stems, reasonix file
-    # names). Remembering those ids lets canonicalize() round-trip them
-    # without re-prefixing (which would change identity on the next push).
+    # Sessions pushed by other agents keep their bare id in free-form
+    # stores (codex file stems, reasonix file names). Remembering those
+    # ids lets push_sessions tag the correct owner agent: with the
+    # prefix-free id scheme the agent can no longer be derived from the
+    # id, so the registry stores {id: agent_type} (legacy plain-id-list
+    # files are read as unknown-agent entries and upgraded on write).
     def _foreign_ids_file(self) -> Path | None:
         """Sidecar file remembering foreign local ids (None = not supported)."""
         return None
 
-    def _is_foreign(self, local_id: str) -> bool:
+    def _foreign_ids(self) -> dict[str, str]:
+        """{local_id: owner agent or ''} for sessions pulled from the server."""
         f = self._foreign_ids_file()
         if f is None or not f.exists():
-            return False
+            return {}
         try:
-            return local_id in json.loads(f.read_text(encoding="utf-8"))
+            data = json.loads(f.read_text(encoding="utf-8"))
         except (ValueError, OSError):
-            return False
+            return {}
+        if isinstance(data, list):  # legacy plain-id list
+            return {str(i): "" for i in data}
+        if isinstance(data, dict):
+            return {str(k): str(v or "") for k, v in data.items()}
+        return {}
 
-    def _remember_foreign(self, local_id: str):
+    def _is_foreign(self, local_id: str) -> bool:
+        return local_id in self._foreign_ids()
+
+    def _foreign_agent(self, local_id: str) -> str:
+        """Owner agent of a foreign local id ('' when unknown)."""
+        return self._foreign_ids().get(local_id, "")
+
+    def _remember_foreign(self, local_id: str, agent: str = ""):
         f = self._foreign_ids_file()
         if f is None:
             return
-        ids = set()
-        if f.exists():
-            try:
-                ids = set(json.loads(f.read_text(encoding="utf-8")))
-            except (ValueError, OSError):
-                ids = set()
-        if local_id not in ids:
-            ids.add(local_id)
-            f.write_text(json.dumps(sorted(ids)), encoding="utf-8")
+        ids = self._foreign_ids()
+        if local_id not in ids or ids[local_id] != agent:
+            ids[local_id] = agent
+            f.write_text(json.dumps(ids, ensure_ascii=False, sort_keys=True),
+                         encoding="utf-8")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -330,37 +350,32 @@ class Adapter(abc.ABC):
     def canonicalize(self, local_session: dict) -> dict:
         """Convert a local session row to canonical form.
 
-        Foreign ids (sessions written into this store by other agents,
-        tracked via ``_is_foreign``) keep their id untouched; native ids
-        get the agent prefix. Returns a deep-enough copy: caller-owned
-        message dicts are never mutated.
+        id-scheme: canonical ids are bare for every agent (no prefix);
+        attribution lives in the ``agent_type``/``profile_name`` fields.
+        Legacy prefixed local ids (old data) pass through unchanged — the
+        server's inbound shim normalizes them. Returns a deep-enough copy:
+        caller-owned message dicts are never mutated.
         """
         s = dict(local_session)
         lid = str(s["id"])
-        if self._is_foreign(lid):
-            s["id"] = lid
-            s["messages"] = [dict(m) for m in s.get("messages", [])]
-            for m in s["messages"]:
-                m["session_id"] = lid
-            return s
-        s["id"] = canonical_id(self.agent_type, s["id"])
+        s["id"] = lid
         s["messages"] = [dict(m) for m in s.get("messages", [])]
         for m in s["messages"]:
-            m["session_id"] = canonical_id(self.agent_type, m.get("session_id", s["id"]))
+            m["session_id"] = m.get("session_id") or lid
         return s
 
     def localize(self, canonical_session: dict, strict: bool = True) -> dict:
         """Convert a canonical session back to local form (id stripping).
 
-        ``strict=False`` (free-form local id agents such as codex/reasonix)
-        accepts foreign or legacy ids unchanged instead of raising.
+        ids are bare; a legacy agent-prefixed canonical id is stripped so
+        pre-migration payloads still land in the local store.
         """
         s = dict(canonical_session)
-        resolver = local_id if strict else local_id_lenient
-        s["id"] = resolver(self.agent_type, s["id"])
+        s["id"] = local_id(self.agent_type, str(s["id"]))
         s["messages"] = [dict(m) for m in s.get("messages", [])]
         for m in s["messages"]:
-            m["session_id"] = resolver(self.agent_type, m.get("session_id", s["id"]))
+            m["session_id"] = local_id(self.agent_type,
+                                       str(m.get("session_id", s["id"])))
         return s
 
     @staticmethod
