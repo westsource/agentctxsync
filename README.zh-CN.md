@@ -37,9 +37,9 @@
 
 ## 支持的 Agent
 
-| Agent | 本地存储 | canonical id 前缀 | 写入约束 |
+| Agent | 本地存储 | canonical id | 写入约束 |
 |-------|----------|-------------------|----------|
-| Hermes | `%LOCALAPPDATA%\hermes`（POSIX：`~/.hermes`）下扫描全部档案：`state.db`（default）+ `profiles/<name>/state.db`（命名档案）(SQLite) | 无（裸 id，兼容存量）；非 default 档案叠加 `<profile>:` 前缀 | SQLite 事务 |
+| Hermes | `%LOCALAPPDATA%\hermes`（POSIX：`~/.hermes`）下扫描全部档案：`state.db`（default）+ `profiles/<name>/state.db`（命名档案）(SQLite) | 裸 id（hermes 档案存于 `profile_name` 列，归属存于 `agent_type`） | SQLite 事务 |
 | OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | `codex:` | append-only；标题需追加 `session_index.jsonl`；codex 靠 backfill 感知新会话 |
 | opencode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | `opencode:` | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | `reasonix:` | append-only；运行中（有锁文件）的会话跳过 |
@@ -182,12 +182,12 @@ Hermes 桌面应用支持多档案（profile）：每个命名档案是**完全�
 | 档案 | canonical id | 说明 |
 |------|--------------|------|
 | default | 裸 id（`20260808_180012_0c275f`） | 存量兼容，行为不变 |
-| 非 default（如 magic） | `magic:20260808_180012_0c275f` | 前缀与 `agent_type:` 风格一致，服务端主键 `(workspace_id, id)` 天然区分 |
+| 非 default（如 magic） | `20260808_180012_0c275f` | 档案存于 `profile_name` 列；id 全部裸 id，档案是列而非 id 的一部分 |
 
-- 服务端**零改动**：靠 id 前缀区分不同档案的会话，`profile_name` 列顺带填充档案名。
+- 服务端区分档案：`profile_name` 列权威；旧前缀 id（`<profile>:<bare>`）由入站兼容层规范化。
 - **Push 全量合并**：推送时读取本机全部档案的 `state.db`，default 会话保持裸 id，
-  命名档案会话带 `<profile>:` 前缀，合并为一份列表上报。
-- **Pull 按档案路由**：拉取时按 id 前缀路由回各档案的 `state.db`；本机不存在的档案
+  命名档案会话带 `profile_name` 字段，合并为一份列表上报（id 全部裸 id）。
+- **Pull 按档案路由**：拉取时按 `profile_name` 字段路由回各档案的 `state.db`；本机不存在的档案
   （其他电脑独有的档案）直接跳过；其他 agent 的会话以完整 canonical id 存入 default 档案——每个客户端拉取**整个工作空间会话池**，并推送本地持有的全部会话（服务端按 canonical id 合并；`agent_type` 按会话归属保留、消息按 `(session_id, role, timestamp)` 去重，因此本地续写的其他 agent 会话只会把新增消息推上去）。
 
 ### 跨电脑同步示例

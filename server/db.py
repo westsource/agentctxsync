@@ -148,9 +148,11 @@ def init_db():
             PRIMARY KEY (device_id, workspace_id)
         )""")
         # Projects (hermes per-profile project store synced across devices).
-        # id is the canonical id (<profile>:<p_xxx> or bare for default).
-        # slug is unique per (workspace, profile) so same-named projects in
-        # the same profile merge on push; merged_into records the surviving id.
+        # id is the bare canonical id; profile holds the hermes profile
+        # ('' = default). slug is unique per (workspace, profile) so
+        # same-named projects in the same profile merge on push; merged_into
+        # records the surviving id. Legacy prefixed ids (<profile>:<p_xxx>)
+        # are split into profile + bare id by the id-scheme migration.
         c.execute("""CREATE TABLE IF NOT EXISTS projects (
             id TEXT, workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE,
             slug TEXT NOT NULL, name TEXT NOT NULL, description TEXT,
@@ -158,8 +160,12 @@ def init_db():
             created_at DOUBLE PRECISION, archived INTEGER DEFAULT 0,
             hidden INTEGER DEFAULT 0, hidden_at DOUBLE PRECISION,
             merged_into TEXT, agent_type TEXT DEFAULT 'hermes',
+            profile TEXT DEFAULT '',
             PRIMARY KEY (workspace_id, id)
         )""")
+        # id-scheme upgrade: existing deployments get projects.profile added
+        # in place (CREATE TABLE above includes it for fresh installs).
+        c.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS profile TEXT DEFAULT ''")
         c.execute("""CREATE TABLE IF NOT EXISTS project_folders (
             workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE,
             project_id TEXT NOT NULL, path TEXT NOT NULL, label TEXT,
@@ -186,6 +192,27 @@ def init_db():
         c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hidden_at DOUBLE PRECISION")
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden INTEGER DEFAULT 0")
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_at DOUBLE PRECISION")
+        # Concurrent pushes from two devices can race past the SELECT-based
+        # message dedup (its key snapshot is taken per request), inserting the
+        # same (session_id, role, timestamp) triple twice under different ids.
+        # A partial unique index makes the insert itself idempotent; the
+        # cleanup runs only when the index is missing (i.e. once per upgrade)
+        # and keeps the earliest row per triple.
+        c.execute("""DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                           WHERE indexname = 'uq_messages_dedup') THEN
+                DELETE FROM messages a USING messages b
+                WHERE a.workspace_id = b.workspace_id
+                  AND a.session_id = b.session_id
+                  AND a.role IS NOT NULL AND a.timestamp IS NOT NULL
+                  AND a.role = b.role AND a.timestamp = b.timestamp
+                  AND a.id > b.id;
+                CREATE UNIQUE INDEX uq_messages_dedup
+                    ON messages (workspace_id, session_id, role, timestamp)
+                    WHERE role IS NOT NULL AND timestamp IS NOT NULL;
+            END IF;
+        END $$""")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 0")
         # Account-level language preference (Web UI): persisted on the user so
         # it follows the account across devices; landing page still uses the

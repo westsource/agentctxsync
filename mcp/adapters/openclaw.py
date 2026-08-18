@@ -169,8 +169,8 @@ class OpenClawAdapter(Adapter):
         for session in sessions:
             s = dict(session)
             s["id"] = local_id_lenient(self.agent_type, s["id"])
-            if not session["id"].startswith("openclaw:"):
-                self._remember_foreign(s["id"])
+            if session.get("agent_type") != "openclaw":
+                self._remember_foreign(s["id"], session.get("agent_type"))
             sid = str(s["id"])
             if not validate_local_id(sid):
                 continue  # untrusted remote id: skip

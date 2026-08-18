@@ -20,7 +20,7 @@ import os
 import time
 from pathlib import Path
 
-from .base import JSONLAdapter, validate_local_id
+from .base import JSONLAdapter, validate_file_id
 
 
 class ReasonixAdapter(JSONLAdapter):
@@ -52,35 +52,24 @@ class ReasonixAdapter(JSONLAdapter):
             d = Path.home() / ".reasonix" / "sessions"
         return d if d.is_dir() else None
 
-    def _foreign_ids(self) -> set[str]:
-        """Ids of sessions pulled from the remote server (other agents').
-
-        These are stored in the local sessions dir so reasonix can display
-        them, but they must NEVER be pushed back: read_sessions() (used by
-        push) skips them, so a pulled hermes session is not re-marked as
-        reasonix and re-uploaded (which would overwrite the server's
-        agent_type/title).
-        """
-        f = self._foreign_ids_file()
-        if not f or not f.exists():
-            return set()
-        try:
-            return set(json.loads(f.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            return set()
-
     def read_sessions(self, limit: int | None = None) -> list[dict]:
         """Push view: all local sessions, foreign ones included (they may
         have been continued locally; push_sessions tags each by its owner
-        and the server dedupes, so only locally-added messages flow up)."""
+        and the server dedupes, so only locally-added messages flow up).
+        Foreign sessions never carry the local-id title fallback: they
+        were pulled without title data, and sending title=<id> would
+        overwrite the server's real title on push."""
         paths = self._session_paths()
         if limit:
             paths = paths[:limit]
         sessions = []
         for path, local_id in paths:
             s = self._read_session_file(path, local_id)
-            if s is not None:
-                sessions.append(self.canonicalize(s))
+            if s is None:
+                continue
+            if self._is_foreign(local_id) and s.get("title") == local_id:
+                s.pop("title", None)
+            sessions.append(self.canonicalize(s))
         return sessions
 
     def _session_paths(self) -> list[tuple[Path, str]]:
@@ -141,9 +130,9 @@ class ReasonixAdapter(JSONLAdapter):
         for session in sessions:
             s = self.localize(session, strict=False)
             local_id = str(s["id"])
-            if not session["id"].startswith("reasonix:"):
-                self._remember_foreign(local_id)
-            if not validate_local_id(local_id):
+            if session.get("agent_type") != "reasonix":
+                self._remember_foreign(local_id, session.get("agent_type"))
+            if not validate_file_id(local_id):
                 continue  # untrusted remote id: skip
             path = self.sessions_dir / f"{local_id}.jsonl"
             lock = self.sessions_dir / f"{local_id}.jsonl.lock"
@@ -153,8 +142,22 @@ class ReasonixAdapter(JSONLAdapter):
             if path.exists():
                 existing = self._read_session_file(path, local_id) or {"messages": []}
                 old_ts = {(m["role"], m["timestamp"]) for m in existing["messages"]}
+                # The reasonix desktop normalizes transcripts it scans:
+                # timestamps are stripped and a system prompt prepended, so
+                # re-reads get mtime-derived fallback timestamps and the
+                # (role, timestamp) triple no longer matches the server's
+                # real timestamps. Without a content fallback every pull
+                # would re-append the same messages and the file grows
+                # forever. Identical (role, content) = the same message
+                # re-delivered (the server is the dedupe authority);
+                # empty content is exempt (consecutive empty tool results
+                # are legitimately distinct).
+                old_content = {(m["role"], m["content"]) for m in existing["messages"]
+                               if m.get("content")}
                 new_lines = [m for m in msgs
-                             if (m.get("role"), m.get("timestamp")) not in old_ts]
+                             if (m.get("role"), m.get("timestamp")) not in old_ts
+                             and (not m.get("content")
+                                  or (m.get("role"), m.get("content")) not in old_content)]
                 if new_lines:
                     with open(path, "a", encoding="utf-8") as f:
                         for m in new_lines:
@@ -173,6 +176,41 @@ class ReasonixAdapter(JSONLAdapter):
                 "new_messages": new_messages, "duplicates": duplicates}
 
     @staticmethod
+    def _normalize_tool_calls(tc):
+        """Reasonix expects ``tool_calls`` as a list of
+        ``{"id", "name", "arguments"}``. The sync pipeline can deliver
+        OpenAI-style objects (``{"type": "function", "function": {name,
+        arguments}}``) or a JSON-encoded string of either shape (hermes
+        stores tool_calls as text in state.db and the server keeps it as
+        text). Normalize so the transcript stays parseable by the reasonix
+        desktop app; unparseable input is dropped rather than corrupting
+        the whole session file."""
+        if tc is None:
+            return None
+        if isinstance(tc, str):
+            try:
+                tc = json.loads(tc)
+            except (ValueError, TypeError):
+                return None
+        if not isinstance(tc, list):
+            return None
+        out = []
+        for item in tc:
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("function"), dict):
+                # OpenAI style: {id, type: "function", function: {name,
+                # arguments}} -> {id, name, arguments}
+                fn = item["function"]
+                item = {**fn, "id": item.get("id", fn.get("id", ""))}
+            call = {"id": item.get("id", ""),
+                    "name": item.get("name", ""),
+                    "arguments": item.get("arguments", "")}
+            if any(call.values()):
+                out.append(call)
+        return out or None
+
+    @staticmethod
     def _to_line(m: dict) -> str:
         out: dict = {"role": m.get("role", "assistant"),
                      "content": m.get("content", "")}
@@ -181,7 +219,9 @@ class ReasonixAdapter(JSONLAdapter):
         if m.get("tool_name"):
             out["name"] = m["tool_name"]
         if m.get("tool_calls") is not None:
-            out["tool_calls"] = m["tool_calls"]
+            tc = ReasonixAdapter._normalize_tool_calls(m["tool_calls"])
+            if tc is not None:
+                out["tool_calls"] = tc
         if m.get("timestamp") is not None:
             out["timestamp"] = m["timestamp"]
         return json.dumps(out, ensure_ascii=False)

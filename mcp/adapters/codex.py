@@ -5,9 +5,19 @@ Local store: <CODEX_HOME or ~/.codex>/sessions/
   - one session per file:  rollout-<ts>-<uuid>.jsonl
       (ts format %Y-%m-%dT%H-%M-%S; archived copies may be .jsonl.zst)
   - session id = the UUID in the file name
-  - first line is a SessionMetaLine: {"meta": {...}, "git": {...}}
+  - CLI 0.142+ (Codex Desktop) partitions files by year/month/day:
+      sessions/2026/06/29/rollout-2026-06-29T22-05-24-<uuid>.jsonl
+    older CLI versions kept them flat under sessions/; both layouts are
+    scanned recursively (new writes go into the year/month/day partition
+    matching the file timestamp, mirroring what codex itself does)
+  - first line is a SessionMetaLine: legacy CLI writes {"meta": {...},
+    "git": {}}; 0.142+ writes {"type": "session_meta", "payload": {...}}
   - conversation lines are tagged RolloutItems, mostly
-    {"type": "response_item", "payload": {...}} (OpenAI Responses API items)
+    {"type": "response_item", "payload": {...}} (OpenAI Responses API
+    items; 0.142+ also carries the timestamp at top level); non-conversation
+    lines (event_msg / turn_context / compacted) are handled explicitly:
+    lifecycle events are skipped, compaction summaries are kept as
+    assistant messages
   - titles live in ~/.codex/session_index.jsonl (append-only,
     {"id": <thread_id>, "thread_name": ..., "updated_at": ...}); codex
     backfills its SQLite index from the jsonl files, so new sessions become
@@ -25,7 +35,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import JSONLAdapter, validate_local_id
+from .base import JSONLAdapter, validate_file_id
 
 # ts matches codex's fixed %Y-%m-%dT%H-%M-%S (19 chars); the id after the
 # last "-" is free-form so foreign ids (hermes bare ids) round-trip.
@@ -121,6 +131,22 @@ class CodexAdapter(JSONLAdapter):
         with open(idx, "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
+    @staticmethod
+    def _unique_ts(used: set, role: str, ts: float) -> float:
+        """Make the (role, timestamp) dedup triple unique per session.
+
+        Codex stamps bursts of items with the same millisecond timestamp
+        (observed: hundreds of distinct tool items sharing one ms), and the
+        pool dedups messages by (session_id, role, timestamp) — two distinct
+        messages with the same triple would silently collapse on pull/push
+        round-trips. Nudge colliding timestamps upward by 1ms until free.
+        Deterministic: the same file always maps to the same timestamps.
+        """
+        while (role, ts) in used:
+            ts += 0.001
+        used.add((role, ts))
+        return ts
+
     # ------------------------------------------------------------------
     # session file listing
     # ------------------------------------------------------------------
@@ -131,7 +157,11 @@ class CodexAdapter(JSONLAdapter):
         if not sess_dir.is_dir():
             return []
         out = []
-        for p in sorted(sess_dir.iterdir(), reverse=True):
+        # 0.142+ partitions by year/month/day (sessions/2026/06/29/...);
+        # older CLI versions kept files flat under sessions/. Recursive
+        # scan covers both. Sorting the full path reverse orders by the
+        # fixed-width ts in the file name, i.e. newest-first.
+        for p in sorted(sess_dir.rglob("rollout-*.jsonl*"), reverse=True):
             m = ROLLOUT_RE.match(p.name)
             if m:
                 out.append((p, m.group("id")))
@@ -148,6 +178,7 @@ class CodexAdapter(JSONLAdapter):
         except OSError:
             return None
         session: dict = {"id": local_id, "started_at": 0.0, "messages": []}
+        used_ts: set = set()  # (role, timestamp) triples already emitted
         meta_ts = None
         meta_model = None
         fallback_ts = None
@@ -158,7 +189,8 @@ class CodexAdapter(JSONLAdapter):
                 continue
             if not isinstance(row, dict):
                 continue
-            # SessionMetaLine
+            ltype = row.get("type")
+            # SessionMetaLine, legacy CLI format: {"meta": {...}, "git": {}}
             if "meta" in row and isinstance(row["meta"], dict):
                 m = row["meta"]
                 meta_ts = _parse_ts(m.get("timestamp") or m.get("ts"))
@@ -172,20 +204,99 @@ class CodexAdapter(JSONLAdapter):
                 if m.get("thread_name") and not session.get("title"):
                     session["title"] = m["thread_name"]
                 continue
-            # conversation items
-            payload = row.get("payload") if row.get("type") == "response_item" else row
+            # session_meta (0.142+): metadata only, never a message
+            if ltype == "session_meta":
+                p = row.get("payload")
+                if isinstance(p, dict):
+                    mid = p.get("id") or p.get("session_id")
+                    ts = _parse_ts(p.get("timestamp") or row.get("timestamp"))
+                    if mid and not session["started_at"]:
+                        session["id"] = str(mid)
+                    if ts and not session["started_at"]:
+                        session["started_at"] = ts
+                    if p.get("cwd") and not session.get("cwd"):
+                        session["cwd"] = p["cwd"]
+                    if not meta_model:
+                        mp = p.get("model_provider")
+                        if mp and mp not in ("custom", "unknown"):
+                            meta_model = mp
+                continue
+            # event_msg / turn_context: internal lifecycle events, not
+            # conversation; turn_context carries the per-turn model/cwd
+            if ltype in ("event_msg", "turn_context"):
+                if ltype == "turn_context":
+                    p = row.get("payload")
+                    if isinstance(p, dict):
+                        if not meta_model and p.get("model"):
+                            meta_model = p["model"]
+                        if p.get("cwd") and not session.get("cwd"):
+                            session["cwd"] = p["cwd"]
+                continue
+            # compacted: handoff summary another model produced, injected
+            # as assistant context after compaction — keep it as a message
+            if ltype == "compacted":
+                p = row.get("payload")
+                text = p.get("message") if isinstance(p, dict) else None
+                ts = _parse_ts(row.get("timestamp")) if row.get("timestamp") else None
+                if text and ts is not None:
+                    session["messages"].append({
+                        "session_id": local_id, "role": "assistant",
+                        "content": text,
+                        "timestamp": self._unique_ts(used_ts, "assistant", ts)})
+                continue
+            # conversation items: response_item, or bare payload dicts in
+            # the legacy line format; anything else is not conversation
+            if ltype == "response_item":
+                payload = row.get("payload")
+            elif ltype is None:
+                payload = row
+            else:
+                continue
             if not isinstance(payload, dict):
                 continue
-            role, content = _item_role_content(payload)
-            ts = _parse_ts(payload.get("timestamp") or row.get("ts"))
+            ts = _parse_ts(payload.get("timestamp") or row.get("ts")
+                           or row.get("timestamp"))
             if ts is None and isinstance(row.get("ts_nanos"), (int, float)):
                 ts = row["ts_nanos"] / 1e9
+            ptype = payload.get("type")
+            # tool round-trips map to the shared pool's "tool" role (the
+            # Web viewer renders them as collapsible cards)
+            if ptype in ("function_call", "custom_tool_call"):
+                arg = payload.get("arguments") if ptype == "function_call" \
+                    else payload.get("input")
+                if isinstance(arg, (dict, list)):
+                    arg = json.dumps(arg, ensure_ascii=False)
+                session["messages"].append({
+                    "session_id": local_id, "role": "tool",
+                    "content": str(arg or ""),
+                    "timestamp": self._unique_ts(used_ts, "tool", ts or 0.0),
+                    "tool_name": payload.get("name"),
+                    "tool_call_id": payload.get("call_id"),
+                })
+                continue
+            if ptype in ("function_call_output", "custom_tool_call_output"):
+                session["messages"].append({
+                    "session_id": local_id, "role": "tool",
+                    "content": str(payload.get("output") or ""),
+                    "timestamp": self._unique_ts(used_ts, "tool", ts or 0.0),
+                    "tool_call_id": payload.get("call_id"),
+                })
+                continue
+            # reasoning: internal thinking, not part of the conversation
+            if ptype == "reasoning":
+                continue
+            role, content = _item_role_content(payload)
+            if role == "developer":
+                role = "system"  # system prompt; shared pool has no developer
             if ts is None:
                 # stable monotonic fallback (unique per line)
                 base = session["started_at"] or meta_ts or (time.time() - len(lines))
                 ts = base + (i / 10.0)
+            if not content and not payload.get("name") and not payload.get("call_id"):
+                continue  # empty item: nothing to sync
             msg: dict = {"session_id": local_id, "role": role or "assistant",
-                         "content": content or "", "timestamp": ts}
+                         "content": content or "",
+                         "timestamp": self._unique_ts(used_ts, role or "assistant", ts)}
             if payload.get("name"):
                 msg["tool_name"] = payload["name"]
             if payload.get("call_id"):
@@ -221,7 +332,7 @@ class CodexAdapter(JSONLAdapter):
         sess = self.codex_home / "sessions"
         if not sess.is_dir():
             return None
-        for p in sess.iterdir():
+        for p in sorted(sess.rglob("rollout-*.jsonl*")):
             m = ROLLOUT_RE.match(p.name)
             if m and m.group("id") == local_id and not p.name.endswith(".zst"):
                 return p
@@ -237,13 +348,18 @@ class CodexAdapter(JSONLAdapter):
         for session in sessions:
             s = self.localize(session, strict=False)
             local_id = str(s["id"])
-            if not session["id"].startswith("codex:"):
-                self._remember_foreign(local_id)
-            if not validate_local_id(local_id):
+            if session.get("agent_type") != "codex":
+                self._remember_foreign(local_id, session.get("agent_type"))
+            if not validate_file_id(local_id):
                 continue  # untrusted remote id: skip
             msgs = s.pop("messages", [])
-            path = self._existing_path(local_id) or (
-                sess_dir / f"rollout-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}-{local_id}.jsonl")
+            # New files go into the year/month/day partition matching the
+            # timestamp (0.142+ layout); updates append to the existing file
+            # wherever it lives (flat or partitioned).
+            now = datetime.now()
+            new_path = (sess_dir / now.strftime("%Y/%m/%d")
+                        / f"rollout-{now.strftime('%Y-%m-%dT%H-%M-%S')}-{local_id}.jsonl")
+            path = self._existing_path(local_id) or new_path
             if path.exists():
                 existing = self._read_session_file(path, local_id) or {"messages": []}
                 old_ts = {(m["role"], m["timestamp"]) for m in existing["messages"]}
@@ -258,6 +374,7 @@ class CodexAdapter(JSONLAdapter):
                     duplicates += len(msgs)
                 updated += 1
             else:
+                path.parent.mkdir(parents=True, exist_ok=True)
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(self._meta_line(local_id, s) + "\n")
                     for m in msgs:
@@ -271,14 +388,13 @@ class CodexAdapter(JSONLAdapter):
 
     @staticmethod
     def _meta_line(local_id: str, s: dict) -> str:
-        meta = {
-            "id": local_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "model_provider": s.get("model") or "unknown",
-        }
+        ts = datetime.now(timezone.utc).isoformat()
+        payload = {"id": local_id, "session_id": local_id, "timestamp": ts,
+                   "model_provider": s.get("model") or "unknown"}
         if s.get("cwd"):
-            meta["cwd"] = s["cwd"]
-        return json.dumps({"meta": meta, "git": {}}, ensure_ascii=False)
+            payload["cwd"] = s["cwd"]
+        return json.dumps({"timestamp": ts, "type": "session_meta",
+                           "payload": payload}, ensure_ascii=False)
 
     @staticmethod
     def _to_rollout_line(m: dict) -> str:
@@ -293,8 +409,8 @@ class CodexAdapter(JSONLAdapter):
         if m.get("tool_call_id"):
             payload["call_id"] = m["tool_call_id"]
         return json.dumps(
-            {"type": "response_item", "ts": ts_iso, "payload": payload},
-            ensure_ascii=False)
+            {"type": "response_item", "ts": ts_iso, "timestamp": ts_iso,
+             "payload": payload}, ensure_ascii=False)
 
     # ------------------------------------------------------------------
     # status

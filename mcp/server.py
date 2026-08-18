@@ -35,20 +35,6 @@ from adapters.base import AGENT_PREFIXES
 import updater
 
 
-def _owner_agent(canonical_id: str) -> str:
-    """Which agent owns a canonical session id.
-
-    Bare ids and `<hermes-profile>:` ids belong to hermes (profiles are
-    not agent prefixes); the six known agent prefixes map to their agents.
-    Used by push_sessions to re-push only locally-owned sessions.
-    """
-    if ":" in canonical_id:
-        prefix = canonical_id.split(":", 1)[0] + ":"
-        for agent, pfx in AGENT_PREFIXES.items():
-            if pfx == prefix:
-                return agent
-    return "hermes"
-
 SYNC_SERVER = os.environ.get("HERMES_SYNC_SERVER", "http://localhost:8765")
 SYNC_API_KEY = os.environ.get("HERMES_SYNC_API_KEY", "hsk_placeholder")
 SYNC_INTERVAL = int(os.environ.get("HERMES_SYNC_INTERVAL", "300"))
@@ -321,25 +307,33 @@ def push_sessions():
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
 
-    sessions_data = adapter.read_sessions(limit=50)
+    sessions_data = adapter.read_sessions()
     if not sessions_data:
         return {"message": "No local sessions to push"}
     # Push EVERYTHING the local store holds, own sessions and foreign ones
     # pulled from the shared pool. A foreign session may have been continued
     # locally (e.g. a hermes session edited in workbuddy gains new messages)
     # and those additions MUST flow back to the server. Tag each session
-    # with the agent that OWNS its canonical id: the server never overwrites
-    # agent_type on re-push and dedupes messages by (session_id, role,
-    # timestamp), so re-pushing pulled content is idempotent and only
-    # locally-added messages insert.
+    # with the agent that OWNS it: with the prefix-free id scheme the owner
+    # is the adapter's own agent_type for local sessions and the recorded
+    # owner in the foreign-id registry for pulled ones (the server never
+    # overwrites agent_type on re-push, so re-pushing pulled content is
+    # idempotent and only locally-added messages insert).
     for s in sessions_data:
-        s["agent_type"] = _owner_agent(str(s["id"]))
+        sid = str(s["id"])
+        agent = adapter.agent_type
+        if adapter._is_foreign(sid):
+            agent = adapter._foreign_agent(sid) or "hermes"
+        s["agent_type"] = agent
 
     # Batch pushes so each request stays small and fast: the remote server
     # does a per-message dedup SELECT for every row, so one giant request
     # (50 sessions, thousands of messages) can exceed the HTTP timeout as
     # the workspace grows (observed: 31s on a ~6k-message push with a 30s
-    # timeout). Partial failures report how far we got.
+    # timeout). Push the WHOLE local store (the pool contract: "pushes
+    # everything it holds"); _chunk_sessions bounds every request by
+    # session count + message count, so large stores never time out and
+    # no session starves behind a per-cycle cap.
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
     processed = 0
     for chunk in _chunk_sessions(sessions_data):
@@ -412,7 +406,7 @@ def pull_projects():
 TOOL_SPECS = [
     ("sync_status", "Show sync status: local store totals and remote server status."),
     ("sync_pull", "Pull latest sessions from remote server into the local store.",
-     {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50)"},
+     {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50; a full pull is uncapped unless set)"},
       "full": {"type": "boolean", "description": "Full pull ignoring the sync watermark (default: false)"}}),
     ("sync_push", "Push local sessions to remote server."),
     ("sync_full", "Full sync: push local changes then pull remote changes."),
@@ -442,8 +436,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = {"agent": adapter.agent_type, "local": local, "remote": remote}
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_pull":
-        limit = arguments.get("limit", 50)
+        # A FULL pull means "everything": the default limit=50 would
+        # silently cap it and drop the oldest sessions. Only cap when the
+        # caller explicitly passes `limit`.
+        limit = arguments.get("limit")
         full = bool(arguments.get("full", False))
+        if limit is None:
+            limit = None if full else 50
         result = await loop.run_in_executor(
             None, lambda: pull_sessions(last_sync_at=0 if full else None,
                                         limit=limit))

@@ -125,26 +125,35 @@ class HermesAdapter(SQLiteAdapter):
         return f"{name}:" if name else ""
 
     def canonicalize(self, local_session: dict) -> dict:
+        """Canonicalize a session from this adapter's profile.
+
+        id-scheme: canonical ids are bare (no ``<profile>:`` prefix); the
+        hermes profile travels in the ``profile_name`` field. Legacy
+        prefixed local rows (old pulls stored ``magic:...`` pass-through
+        ids) are left untouched — the server's inbound shim normalizes
+        them.
+        """
         s = dict(local_session)
         lid = str(s["id"])
-        prefix = self._id_prefix()
         # NOTE: _is_foreign() is always False for hermes (no foreign-ids
         # sidecar is defined), kept for symmetry with the base contract.
         if self._is_foreign(lid):
-            s["id"] = lid
-            s["messages"] = [dict(m) for m in s.get("messages", [])]
-            for m in s["messages"]:
-                m["session_id"] = lid
-            return s
-        if prefix:
-            s["id"] = f"{prefix}{lid}"
-            s["messages"] = [dict(m) for m in s.get("messages", [])]
-            for m in s["messages"]:
-                m["session_id"] = f"{prefix}{m.get('session_id', lid)}"
-            return s
-        return super().canonicalize(local_session)
+            return super().canonicalize(local_session)
+        name = self.profile_name
+        s["id"] = lid
+        if name:
+            s["profile_name"] = name
+        s["messages"] = [dict(m) for m in s.get("messages", [])]
+        for m in s["messages"]:
+            m["session_id"] = m.get("session_id") or lid
+        return s
 
     def localize(self, canonical_session: dict, strict: bool = True) -> dict:
+        """Map a canonical session to this adapter's profile's local form.
+
+        ids are bare; a legacy ``<profile>:``-prefixed id is stripped so
+        pre-migration payloads still land in the right profile store.
+        """
         s = dict(canonical_session)
         prefix = self._id_prefix()
         cid = str(s["id"])
@@ -181,33 +190,34 @@ class HermesAdapter(SQLiteAdapter):
 
     def write_sessions(self, sessions: list[dict]) -> dict:
         """Pull view: route each canonical session to the profile that owns
-        its id prefix.  Sessions whose profile does not exist locally (other
-        machines' profiles) are skipped.  Foreign-agent sessions
-        (codex:/workbuddy:/...) land in the default profile with their
-        canonical id intact — hermes' pass-through id handling round-trips
-        them verbatim, and push_sessions never re-pushes them (owner
-        filter).
+        it (``profile_name`` field; legacy id-prefix fallback). Sessions
+        whose profile does not exist locally (other machines' profiles) are
+        skipped.  Foreign-agent sessions land in the default profile with
+        their canonical id intact — hermes' pass-through id handling
+        round-trips them verbatim, and push_sessions never re-pushes them
+        (owner filter).
         """
         if not self._aggregate:
             return super().write_sessions(sessions)
-        # build prefix -> sub-adapter map
+        # build profile -> sub-adapter map ('' = default profile)
         route: dict[str, HermesAdapter] = {}
         for name, db in self._profile_dbs():
-            route[f"{name}:"] = self._sub_adapter(name, db)
+            route[name] = self._sub_adapter(name, db)
         totals = {"imported": 0, "updated": 0, "new_messages": 0, "duplicates": 0}
         skipped = 0
         for s in sessions:
             cid = str(s["id"])
-            # default (bare) ids are the legacy hermes namespace
-            target = route.get(":")  # default profile: '' prefix -> ':'
-            if ":" in cid:
-                prefix = cid.split(":", 1)[0] + ":"
-                target = route.get(prefix)
-                if target is None and prefix in AGENT_PREFIXES.values():
-                    # known foreign agent (codex:/opencode:/reasonix:/
-                    # openclaw:/workbuddy:): store in the default profile
-                    # with the canonical id intact
-                    target = route.get(":")
+            profile = str(s.get("profile_name") or "")
+            if not profile and ":" in cid:
+                # legacy prefixed id (<profile>:<bare> / <agent>:<bare>):
+                # hermes-profile prefix -> profile; known agent prefix ->
+                # foreign session in the default profile
+                pfx, _ = cid.split(":", 1)
+                if pfx + ":" in AGENT_PREFIXES.values():
+                    profile = ""
+                elif pfx != "default":
+                    profile = pfx
+            target = route.get(profile)  # '' -> default profile
             if target is None:
                 skipped += 1
                 continue
@@ -249,7 +259,10 @@ class HermesAdapter(SQLiteAdapter):
         return out
 
     def read_projects(self) -> list[dict]:
-        """Push view: projects + folders from EVERY profile, prefixed."""
+        """Push view: projects + folders from EVERY profile, merged.
+
+        ids are bare; the hermes profile travels in the ``profile`` field.
+        """
         if not self._aggregate:
             return self._read_projects_from(self._home, "")
         merged: list[dict] = []
@@ -259,8 +272,9 @@ class HermesAdapter(SQLiteAdapter):
         return merged
 
     def _read_projects_from(self, home: Path, profile: str) -> list[dict]:
-        """Read projects.db under ``home``; id prefixed with ``<profile>:``
-        when profile is non-empty (default stays bare)."""
+        """Read projects.db under ``home``; ids stay bare, profile is set
+        as a field (legacy prefixed ids are stripped so pre-migration rows
+        round-trip under the new scheme)."""
         import sqlite3
         db = home / "projects.db"
         if not db.exists():
@@ -274,7 +288,8 @@ class HermesAdapter(SQLiteAdapter):
             out = []
             for row in c.fetchall():
                 d = dict(row)
-                d["id"] = f"{prefix}{d['id']}"
+                pid = str(d["id"])
+                d["id"] = pid[len(prefix):] if prefix and pid.startswith(prefix) else pid
                 d["profile"] = profile
                 c.execute("""SELECT path, label, is_primary, added_at
                              FROM project_folders WHERE project_id = ?""",
@@ -287,43 +302,52 @@ class HermesAdapter(SQLiteAdapter):
             return []
 
     def write_projects(self, projects: list[dict], remaps: list[dict] | None = None) -> dict:
-        """Pull view: route each canonical project to its profile's projects.db.
-        Applies server-side remap records (old_id -> new_id) so a project that
-        was merged into another on the server converges locally."""
+        """Pull view: route each canonical project to its profile's projects.db
+        (``profile`` field; legacy id-prefix fallback).  Applies server-side
+        remap records (old_id -> new_id) so a project that was merged into
+        another on the server converges locally."""
         if not self._aggregate:
             self._write_projects_to(self._home, "", projects, remaps or [])
             return {"imported": len(projects)}
         route: dict[str, Path] = {}
         for name, db in self._project_dbs():
-            route[f"{name}:"] = db.parent
+            route[name] = db.parent
         # also allow creating a profile dir if a project for it arrives
         default_home = self._platform_root()
         import sqlite3
         for p in projects:
-            cid = str(p["id"])
-            profile = cid.split(":", 1)[0] if ":" in cid else ""
-            home = route.get(f"{profile}:")
+            profile = self._project_profile(p)
+            home = route.get(profile)
             if home is None:
                 # no local projects.db for this profile: create the dir
                 home = default_home / self.profiles_dir / profile if profile \
                     else default_home
                 home.mkdir(parents=True, exist_ok=True)
-                route[f"{profile}:"] = home
+                route[profile] = home
         # group by profile
         by_home: dict[Path, list[dict]] = {}
         for p in projects:
-            cid = str(p["id"])
-            profile = cid.split(":", 1)[0] if ":" in cid else ""
-            by_home.setdefault(route[f"{profile}:"], []).append(p)
+            profile = self._project_profile(p)
+            by_home.setdefault(route[profile], []).append(p)
         total = 0
         for home, plist in by_home.items():
-            # derive the profile name from the first project id
-            prof = ""
-            if plist:
-                cid = str(plist[0]["id"])
-                prof = cid.split(":", 1)[0] if ":" in cid else ""
-            total += self._write_projects_to(home, prof, plist, remaps or [])
+            total += self._write_projects_to(home, self._project_profile(plist[0]),
+                                             plist, remaps or [])
         return {"imported": total}
+
+    @staticmethod
+    def _project_profile(p: dict) -> str:
+        """Profile for a canonical project: the explicit ``profile`` field,
+        else the legacy id prefix ('' for bare/default ids)."""
+        profile = p.get("profile") or ""
+        if profile:
+            return profile
+        cid = str(p.get("id", ""))
+        if ":" in cid:
+            pfx = cid.split(":", 1)[0]
+            if pfx != "default":
+                return pfx
+        return ""
 
     def _write_projects_to(self, home: Path, profile: str, projects: list[dict],
                            remaps: list[dict]) -> int:
@@ -352,7 +376,7 @@ class HermesAdapter(SQLiteAdapter):
                 cand = base[: 64 - len(suffix)].rstrip("-_") + suffix
             return cand
 
-        # build remap: old canonical id -> new canonical id (prefix-aware)
+        # build remap: old canonical id -> new canonical id
         remap = {}
         for r in remaps or []:
             old, new = str(r.get("old_id", "")), str(r.get("new_id", ""))
@@ -364,6 +388,8 @@ class HermesAdapter(SQLiteAdapter):
                 raw_id = str(p["id"])
                 if raw_id in remap:
                     raw_id = remap[raw_id]
+                # ids are bare under the new scheme; strip a legacy
+                # ``<profile>:`` prefix if the payload still carries one
                 local_id = raw_id[len(prefix):] if prefix and raw_id.startswith(prefix) else raw_id
                 slug = p.get("slug") or p["name"]
                 # if target slug exists under a DIFFERENT id, rename this one
