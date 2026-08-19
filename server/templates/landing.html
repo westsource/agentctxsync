@@ -95,7 +95,7 @@
     box-shadow: 0 2px 10px rgba(110,86,207,.08);
   }
   .hero .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(52,168,83,.18); }
-  .hero h1 { font-size: 48px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.16; color: var(--text); }
+  .hero h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.16; color: var(--text); }
   .hero h1 .grad {
     background: linear-gradient(92deg, #6E56CF 0%, #5B45B9 50%, #3D5AC9 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -248,10 +248,16 @@
   footer .links a { color: var(--muted); text-decoration: none; }
   footer .links a:hover { color: var(--accent); }
   footer p { color: var(--muted); font-size: 12px; }
-  footer .icp { color: var(--muted-2); font-size: 12px; margin-top: 6px; }
+  footer .icp { margin-top: 10px; }
+  footer .icp a {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--muted); font-size: 12px; text-decoration: none; transition: color .15s;
+  }
+  footer .icp a:hover { color: var(--accent); }
+  footer .icp svg { width: 12px; height: 12px; color: var(--muted-2); flex-shrink: 0; }
 
   @media (max-width: 720px) {
-    .hero h1 { font-size: 33px; }
+    .hero h1 { font-size: 28px; }
     .nav-links { display: none; }
     .hero { padding: 64px 0 54px; }
     .section { padding: 64px 0; }
@@ -507,6 +513,7 @@
     <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
   </div>
   <p>{{ t.lp_footer }}</p>
+  <div class="icp"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"/></svg>京ICP备2026053460号-1</a></div>
 </footer>
 
 </body>
