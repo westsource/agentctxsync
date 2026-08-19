@@ -10,17 +10,71 @@ Log lines carry a REQ prefix, e.g.:
   REQ src=203.0.113.7 host=www.agentctxsync.com proto=https method=POST
       path=/push status=200 ms=42 device=my-pc
 
+Access statistics: every counted request increments the daily counter in
+the `access_stats` table, bucketed by channel -- 'domain' when the Host
+header is a hostname, 'ip' when it is an IP literal (direct IP:port
+access). The admin page (/web/admin/access) shows the split. Static
+assets and health checks are excluded so the counts reflect real usage.
+
 The middleware reads the request body BEFORE passing it downstream;
 starlette caches the body so handlers calling request.json() still see it.
 """
+import ipaddress
 import json
 import time
+from datetime import date
 from urllib.parse import unquote
 
 from fastapi import Request
 
+from db import get_conn
+
 # POST bodies carry device_id for these paths.
 _SYNC_POST = {"/push", "/pull", "/api/projects/push", "/api/projects/pull"}
+
+# Requests that are not real usage: asset files, health checks, favicon.
+_SKIP_PREFIXES = ("/static/",)
+_SKIP_PATHS = {"/health", "/favicon.ico"}
+
+
+def classify_channel(host):
+    """'domain' when Host is a hostname, 'ip' when it is an IP literal.
+
+    Strips the port suffix (IPv4:port, [IPv6]:port, host:port). Direct
+    machine access via 'localhost' counts as 'ip'.
+    """
+    h = (host or "").strip().lower()
+    if not h:
+        return "ip"
+    if h.startswith("["):
+        addr = h.split("]", 1)[0][1:]
+    elif h.count(":") == 1:
+        addr = h.rsplit(":", 1)[0]
+    else:
+        addr = h
+    if addr == "localhost":
+        return "ip"
+    try:
+        ipaddress.ip_address(addr)
+    except ValueError:
+        return "domain"
+    return "ip"
+
+
+def _record_access(host):
+    """Increment today's counter for the channel derived from the Host header."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO access_stats (stat_date, channel, count) "
+                "VALUES (%s, %s, 1) "
+                "ON CONFLICT (stat_date, channel) "
+                "DO UPDATE SET count = access_stats.count + 1",
+                (date.today(), classify_channel(host)),
+            )
+    except Exception:
+        pass  # statistics must never break the request path
 
 
 async def request_log_middleware(request: Request, call_next):
@@ -39,6 +93,10 @@ async def request_log_middleware(request: Request, call_next):
         return response
     finally:
         try:
+            host = request.headers.get("host", "")
+            path = request.url.path
+            if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
+                _record_access(host)
             device_id = ""
             if body:
                 try:

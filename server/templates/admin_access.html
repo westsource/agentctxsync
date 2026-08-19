@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ t.accs_title }} - Agent Context Sync{% endblock %}
+{% block content %}
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ t.common_back }}
+    </a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ t.accs_title }}</h1>
+    <p class="text-sm text-gray-400 mt-1">{{ t.accs_subtitle }}</p>
+  </div>
+</div>
+
+<!-- Today -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[13px] font-medium text-gray-400">{{ t.accs_today_domain }}</p>
+      <div class="w-8 h-8 rounded-lg bg-[#E8F1FE] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#4285F4]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+    </div>
+    <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ today.domain }}</p>
+  </div>
+  <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[13px] font-medium text-gray-400">{{ t.accs_today_ip }}</p>
+      <div class="w-8 h-8 rounded-lg bg-[#FDECEC] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#EB5757]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+      </div>
+    </div>
+    <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ today.ip }}</p>
+  </div>
+  <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[13px] font-medium text-gray-400">{{ t.accs_today_total }}</p>
+      <div class="w-8 h-8 rounded-lg bg-[#EDE9FB] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      </div>
+    </div>
+    <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ today.total }}</p>
+  </div>
+</div>
+
+<!-- All-time totals -->
+<div class="bg-white border border-gray-100 rounded-2xl shadow-sm mb-6">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-6">
+    <span class="text-sm font-medium text-gray-500">{{ t.accs_total_all }}: <span class="font-bold text-gray-900 tabular-nums">{{ total_domain + total_ip }}</span></span>
+    <span class="inline-flex items-center gap-1.5 text-sm text-gray-500"><span class="w-2.5 h-2.5 rounded-full bg-[#4285F4] inline-block"></span>{{ t.accs_domain }} <span class="font-bold text-gray-900 tabular-nums">{{ total_domain }}</span></span>
+    <span class="inline-flex items-center gap-1.5 text-sm text-gray-500"><span class="w-2.5 h-2.5 rounded-full bg-[#EB5757] inline-block"></span>{{ t.accs_ip }} <span class="font-bold text-gray-900 tabular-nums">{{ total_ip }}</span></span>
+  </div>
+</div>
+
+<!-- Daily table -->
+<div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-100 bg-[#F9F8FD]">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_date }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_domain }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_ip }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_total }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for d in days %}
+        <tr class="hover:bg-[#F6F5FA] transition-colors">
+          <td class="px-6 py-4 text-sm font-medium text-gray-900 tabular-nums">{{ d.date }}</td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip }}</span></td>
+          <td class="px-6 py-4 text-sm text-gray-500 tabular-nums">{{ d.total }}</td>
+        </tr>
+        {% endfor %}
+        {% if not days %}
+        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_data }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
