@@ -6,7 +6,7 @@
 [![CI](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml/badge.svg)](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](mcp/)
 
-> 官网：https://www.agentctxsync.com · 备案号：京ICP备2026053460号-1
+> 官网：https://www.agentctxsync.com
 
 跨设备、跨 Agent 同步会话的完整解决方案。支持多用户、多 Workspace 隔离，基于 PostgreSQL 后端，通过 MCP Server 实现 Agent 启动时自动同步。
 
