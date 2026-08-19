@@ -174,6 +174,9 @@
             <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="font-medium text-gray-900 hover:text-[#6E56CF] transition-colors truncate">{{ s.title or s.id }}</a>
           </div>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+            {% if s.profile %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-[#EDE9FB] text-[#6E56CF] text-[10px] font-semibold leading-none" title="{{ t.ws_profile }}: {{ s.profile }}">{{ s.profile }}</span>
+            {% endif %}
             <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
             <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
             <span>{{ t.ws_session_created }} {{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
@@ -225,6 +228,9 @@
             <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="font-medium text-gray-900 hover:text-[#6E56CF] transition-colors truncate">{{ s.title or s.id }}</a>
           </div>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+            {% if s.profile %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-[#EDE9FB] text-[#6E56CF] text-[10px] font-semibold leading-none" title="{{ t.ws_profile }}: {{ s.profile }}">{{ s.profile }}</span>
+            {% endif %}
             <code class="font-mono text-[11px] text-gray-400/80">{{ s.id }}</code>
             <span class="w-1 h-1 rounded-full bg-gray-300 inline-block"></span>
             <span>{{ t.ws_session_created }} {{ s.started_at|timestamp_fmt if s.started_at else t.common_none }}</span>
