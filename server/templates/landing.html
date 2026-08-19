@@ -7,25 +7,25 @@
 <meta name="description" content="{{ t.lp_meta_desc }}">
 <style>
   /* ============================================================
-     配色体系与 base.html / login.html 一致（Tailwind 色板）：
-       bg-gray-50 / text-gray-900 / border-gray-200
-       accent: #6E56CF 薰衣草紫（hover #5B45B9, soft #f4f2fc）
-       success: emerald-600 #059669 · error: red
+     配色体系（与 base.html / login.html / _macros.html 一致）：
+       画布 #F6F5FA · 品牌紫 #6E56CF · 成功绿 #34A853
+       Agent 六色: hermes #6E56CF · workbuddy #0D9488 · codex #F2994A
+                   opencode #64748B · reasonix #4285F4 · openclaw #EB5757
      ============================================================ */
   :root {
-    --bg: #f6f5fa;            /* 设计稿画布色 */
-    --bg-alt: #f4f2fc;        /* 品牌 soft（交替区块） */
-    --card: #ffffff;          /* white */
-    --border: #e5e7eb;        /* gray-200 */
-    --text: #1A1A2E;          /* 深墨色 */
-    --muted: #5A5A72;         /* 次级文字 */
-    --muted-2: #9ca3af;       /* gray-400 */
-    --accent: #6E56CF;        /* 品牌紫 */
-    --accent-hover: #5B45B9;  /* 深紫 */
-    --accent-soft: #EDE9FB;   /* 浅紫底 */
-    --success: #34A853;       /* 品牌绿 */
-    --radius: 1rem;           /* rounded-2xl（内部卡片规范） */
-    --shadow: 0 1px 3px 0 rgba(0,0,0,.06), 0 1px 2px -1px rgba(0,0,0,.06);
+    --bg: #F6F5FA;
+    --bg-alt: #F4F2FC;
+    --card: #ffffff;
+    --border: #E7E5F0;
+    --text: #1A1A2E;
+    --muted: #5A5A72;
+    --muted-2: #9CA3AF;
+    --accent: #6E56CF;
+    --accent-hover: #5B45B9;
+    --accent-soft: #EDE9FB;
+    --success: #34A853;
+    --radius: 1rem;
+    --shadow: 0 1px 3px 0 rgba(30,20,60,.06), 0 8px 24px -8px rgba(30,20,60,.08);
     --mono: "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,31 +35,32 @@
     background: var(--bg); color: var(--text); line-height: 1.7;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 
   /* ---------- 导航 ---------- */
   nav {
     position: sticky; top: 0; z-index: 100;
-    background: rgba(255,255,255,.88); backdrop-filter: blur(12px);
+    background: rgba(255,255,255,.86); backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
   }
-  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-  .logo { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 10px; color: var(--text); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 62px; }
+  .logo { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; }
   .logo .mark {
-    width: 32px; height: 32px; border-radius: 8px; background: var(--accent-soft);
+    width: 32px; height: 32px; border-radius: 9px; background: var(--accent-soft);
     display: flex; align-items: center; justify-content: center;
   }
   .logo small { color: var(--muted); font-weight: 400; font-size: 12px; }
   .nav-links { display: flex; gap: 26px; font-size: 14px; }
   .nav-links a { color: var(--muted); text-decoration: none; transition: color .15s; }
   .nav-links a:hover { color: var(--accent); }
+  .nav-right { display: flex; align-items: center; gap: 14px; }
   .nav-cta {
-    font-size: 13px; padding: 7px 16px; border-radius: 8px; text-decoration: none;
-    background: var(--accent); color: #fff; font-weight: 500; transition: background .15s;
+    font-size: 13px; padding: 8px 18px; border-radius: 9px; text-decoration: none;
+    background: var(--accent); color: #fff; font-weight: 500; transition: background .15s, box-shadow .15s;
   }
-  .nav-cta:hover { background: var(--accent-hover); }
+  .nav-cta:hover { background: var(--accent-hover); box-shadow: 0 6px 18px rgba(110,86,207,.3); }
   .lang-switch {
-    display: flex; gap: 2px; padding: 2px; margin-left: 10px;
+    display: flex; gap: 2px; padding: 2px;
     border: 1px solid var(--border); background: #fff; border-radius: 999px;
   }
   .lang-switch a {
@@ -70,124 +71,179 @@
   .lang-switch a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
   /* ---------- Hero ---------- */
-  .hero { padding: 90px 0 70px; text-align: center; position: relative; overflow: hidden; }
+  .hero { padding: 96px 0 76px; text-align: center; position: relative; overflow: hidden; }
   .hero::before {
-    content: ""; position: absolute; inset: -40% -20% auto;
-    height: 90%; background: radial-gradient(ellipse at 50% 0%, rgba(110,86,207,.12), transparent 60%);
+    content: ""; position: absolute; inset: -50% -30% auto; height: 110%;
+    background:
+      radial-gradient(ellipse 60% 55% at 50% 0%, rgba(110,86,207,.14), transparent 62%),
+      radial-gradient(ellipse 35% 40% at 82% 8%, rgba(66,133,244,.08), transparent 60%);
     pointer-events: none;
   }
-  .hero .badge {
-    display: inline-block; font-size: 13px; padding: 6px 16px; border-radius: 999px;
-    border: 1px solid rgba(110,86,207,.25); color: var(--accent);
-    background: var(--accent-soft); margin-bottom: 26px; font-weight: 500;
+  .hero::after {
+    content: ""; position: absolute; inset: 0; opacity: .5;
+    background-image: linear-gradient(rgba(110,86,207,.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(110,86,207,.05) 1px, transparent 1px);
+    background-size: 44px 44px; pointer-events: none;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+            mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
   }
-  .hero h1 { font-size: 46px; font-weight: 800; letter-spacing: -1px; line-height: 1.2; color: var(--text); }
+  .hero .wrap { position: relative; }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 18px; border-radius: 999px;
+    border: 1px solid rgba(110,86,207,.28); color: var(--accent);
+    background: rgba(255,255,255,.75); margin-bottom: 28px; font-weight: 500;
+    box-shadow: 0 2px 10px rgba(110,86,207,.08);
+  }
+  .hero .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(52,168,83,.18); }
+  .hero h1 { font-size: 48px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.16; color: var(--text); }
   .hero h1 .grad {
-    background: linear-gradient(90deg, #6E56CF, #5B45B9 55%, #3D5AC9);
+    background: linear-gradient(92deg, #6E56CF 0%, #5B45B9 50%, #3D5AC9 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .hero .sub { color: var(--muted); font-size: 17px; max-width: 640px; margin: 20px auto 0; }
-  .hero .actions { display: flex; gap: 14px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
+  .hero .sub { color: var(--muted); font-size: 17.5px; max-width: 660px; margin: 22px auto 0; }
+  .hero .actions { display: flex; gap: 14px; justify-content: center; margin-top: 36px; flex-wrap: wrap; }
   .btn {
-    display: inline-block; padding: 13px 30px; border-radius: 10px; font-size: 15px;
+    display: inline-flex; align-items: center; gap: 8px; padding: 13px 30px; border-radius: 11px; font-size: 15px;
     font-weight: 500; text-decoration: none; transition: all .15s;
   }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 8px 24px rgba(110,86,207,.28); }
-  .btn-ghost { border: 1px solid var(--border); color: var(--text); background: var(--card); }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 10px 26px rgba(110,86,207,.3); }
+  .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,.7); }
   .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
   .hero .hint { margin-top: 22px; font-size: 13px; color: var(--muted); font-family: var(--mono); }
 
-  /* ---------- 终端演示（代码展示保持深色，与浅色页面成对比焦点） ---------- */
+  /* ---------- 终端演示（深色对比焦点） ---------- */
   .terminal {
-    max-width: 760px; margin: 56px auto 0; background: #1e293b; border: 1px solid #334155;
-    border-radius: 12px; text-align: left; box-shadow: 0 20px 50px rgba(15,23,42,.18);
+    max-width: 780px; margin: 54px auto 0; background: #171331; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px; text-align: left; box-shadow: 0 24px 60px rgba(23,19,49,.35);
   }
-  .terminal .bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .terminal .bar { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
   .terminal .bar i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-  .terminal .bar i:nth-child(1) { background: #ff5f57; }
-  .terminal .bar i:nth-child(2) { background: #febc2e; }
-  .terminal .bar i:nth-child(3) { background: #28c840; }
-  .terminal .bar span { margin-left: 10px; font-size: 12px; color: #94a3b8; font-family: var(--mono); }
-  .terminal pre { padding: 20px 24px; font-family: var(--mono); font-size: 13.5px; line-height: 1.9; overflow-x: auto; color: #e2e8f0; white-space: pre-wrap; overflow-wrap: break-word; }
-  .terminal .c { color: #64748b; }
-  .terminal .g { color: #34A853; }
-  .terminal .y { color: #fcd34d; }
+  .terminal .bar i:nth-child(1) { background: #FF5F57; }
+  .terminal .bar i:nth-child(2) { background: #FEBC2E; }
+  .terminal .bar i:nth-child(3) { background: #28C840; }
+  .terminal .bar span { margin-left: 10px; font-size: 12px; color: #9A93C8; font-family: var(--mono); }
+  .terminal pre { padding: 20px 24px; font-family: var(--mono); font-size: 13.5px; line-height: 1.95; overflow-x: auto; color: #E6E2F8; white-space: pre-wrap; overflow-wrap: break-word; }
+  .terminal .c { color: #7A72A8; }
+  .terminal .g { color: #34D399; }
+  .terminal .y { color: #FCD34D; }
   .terminal .b { color: #9B8FEA; }
+  .terminal .t { color: #7DD3FC; }
+
+  /* ---------- 通用区块 ---------- */
+  .section { padding: 84px 0; }
+  .section.alt { background: var(--bg-alt); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .section-head { text-align: center; margin-bottom: 54px; }
+  .section-head .tag { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; }
+  .section-head h2 { font-size: 33px; font-weight: 800; letter-spacing: -.5px; margin-top: 10px; color: var(--text); }
+  .section-head p { color: var(--muted); max-width: 580px; margin: 14px auto 0; font-size: 15.5px; }
 
   /* ---------- 特性 ---------- */
-  .section { padding: 80px 0; }
-  .section.alt { background: var(--bg-alt); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-  .section-head { text-align: center; margin-bottom: 52px; }
-  .section-head .tag { color: var(--accent); font-size: 13px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; }
-  .section-head h2 { font-size: 32px; font-weight: 700; margin-top: 10px; color: var(--text); }
-  .section-head p { color: var(--muted); max-width: 560px; margin: 14px auto 0; font-size: 15px; }
-  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 20px; }
   .feat {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 26px; box-shadow: var(--shadow); transition: transform .15s, border-color .15s;
+    padding: 28px; box-shadow: var(--shadow); transition: transform .18s, border-color .18s, box-shadow .18s;
   }
-  .feat:hover { transform: translateY(-3px); border-color: rgba(110,86,207,.4); }
+  .feat:hover { transform: translateY(-4px); border-color: rgba(110,86,207,.4); box-shadow: 0 16px 36px -12px rgba(110,86,207,.18); }
   .feat .icon {
-    width: 42px; height: 42px; border-radius: 10px; background: var(--accent-soft);
-    display: flex; align-items: center; justify-content: center; font-size: 20px;
-    color: var(--accent);
+    width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-soft), #F0EDFB);
+    display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--accent);
   }
-  .feat h3 { font-size: 17px; margin: 14px 0 8px; color: var(--text); font-weight: 600; }
+  .feat h3 { font-size: 17.5px; margin: 16px 0 8px; color: var(--text); font-weight: 650; }
   .feat p { color: var(--muted); font-size: 14px; }
 
-  /* ---------- Agent 徽章（四色体系，与内部一致） ---------- */
-  .agents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 40px; }
+  /* ---------- 同步引擎（深色区块） ---------- */
+  .engine {
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(110,86,207,.25), transparent 60%), #14122B;
+    color: #E6E2F8;
+  }
+  .engine .section-head h2 { color: #fff; }
+  .engine .section-head p { color: #B9B2DC; }
+  .engine .section-head .tag { color: #9B8FEA; }
+  .eng-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .eng-item {
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 14px;
+    padding: 24px; transition: background .18s, border-color .18s, transform .18s;
+  }
+  .eng-item:hover { background: rgba(255,255,255,.08); border-color: rgba(155,143,234,.4); transform: translateY(-3px); }
+  .eng-item .k { display: flex; align-items: center; gap: 9px; font-size: 15.5px; font-weight: 650; color: #fff; }
+  .eng-item .k svg { width: 18px; height: 18px; color: #9B8FEA; flex-shrink: 0; }
+  .eng-item p { color: #B9B2DC; font-size: 13.5px; margin-top: 8px; }
+
+  /* ---------- Agent 徽章（六色体系，与 _macros.html 一致） ---------- */
+  .agents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 42px; }
   .agent-pill {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 9px 18px; border-radius: 999px;
-    font-size: 14px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 9px; position: relative;
+    padding: 10px 20px; border-radius: 999px; font-size: 14px; font-weight: 650;
+    box-shadow: var(--shadow);
   }
   .agent-pill .a-icon { width: 20px; height: 20px; flex-shrink: 0; }
+  .agent-pill .new-tag {
+    position: absolute; top: -8px; right: -6px;
+    background: linear-gradient(135deg, #EB5757, #F2994A); color: #fff;
+    font-size: 10px; font-weight: 700; letter-spacing: .5px;
+    padding: 2px 8px; border-radius: 999px; box-shadow: 0 3px 8px rgba(235,87,87,.35);
+  }
 
   /* ---------- 流程 ---------- */
   .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; counter-reset: step; }
   .step {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 26px; position: relative; box-shadow: var(--shadow);
+    padding: 28px; position: relative; box-shadow: var(--shadow);
   }
   .step::before {
     counter-increment: step; content: counter(step);
     position: absolute; top: -14px; left: 22px;
-    width: 28px; height: 28px; border-radius: 50%;
-    background: var(--accent); color: #fff; font-weight: 600;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #5B45B9); color: #fff; font-weight: 700;
     display: flex; align-items: center; justify-content: center; font-size: 14px;
+    box-shadow: 0 4px 12px rgba(110,86,207,.35);
   }
-  .step h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); font-weight: 600; }
+  .step h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); font-weight: 650; }
   .step p { color: var(--muted); font-size: 13.5px; }
   .step code {
     font-family: var(--mono); font-size: 12px; background: var(--accent-soft);
-    color: var(--accent); padding: 2px 6px; border-radius: 4px;
+    color: var(--accent); padding: 2px 7px; border-radius: 5px;
   }
 
   /* ---------- 开源 ---------- */
   .opensource { text-align: center; }
-  .opensource .big { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
-  .opensource p { color: var(--muted); max-width: 640px; margin: 0 auto; font-size: 15px; }
-  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 40px; }
+  .opensource .big { font-size: 20px; font-weight: 650; margin-bottom: 8px; color: var(--text); }
+  .opensource p { color: var(--muted); max-width: 660px; margin: 0 auto; font-size: 15px; }
+  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 42px; }
   .os-item {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 20px; box-shadow: var(--shadow);
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 24px; box-shadow: var(--shadow);
   }
-  .os-item .num { font-size: 26px; font-weight: 800; color: var(--accent); }
+  .os-item .num {
+    font-size: 28px; font-weight: 800; color: var(--accent);
+    background: linear-gradient(92deg, #6E56CF, #3D5AC9);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
   .os-item .lbl { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .os-item .more {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
+    font-size: 11.5px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); padding: 3px 10px; border-radius: 999px;
+  }
+  .os-item .more svg { width: 11px; height: 11px; }
 
   /* ---------- CTA ---------- */
   .cta-band {
-    background: linear-gradient(135deg, rgba(110,86,207,.10), rgba(94,84,207,.05));
-    border: 1px solid rgba(110,86,207,.28); border-radius: var(--radius);
-    padding: 54px 32px; text-align: center; margin: 20px 0 80px;
+    background: linear-gradient(135deg, rgba(110,86,207,.12), rgba(61,90,201,.06));
+    border: 1px solid rgba(110,86,207,.3); border-radius: var(--radius);
+    padding: 56px 32px; text-align: center; margin: 24px 0 84px; position: relative; overflow: hidden;
   }
-  .cta-band h2 { font-size: 28px; font-weight: 700; color: var(--text); }
-  .cta-band p { color: var(--muted); margin: 12px auto 26px; max-width: 520px; }
+  .cta-band::before {
+    content: ""; position: absolute; inset: -60% -20% auto; height: 90%;
+    background: radial-gradient(ellipse 55% 55% at 50% 0%, rgba(110,86,207,.16), transparent 62%);
+    pointer-events: none;
+  }
+  .cta-band h2 { font-size: 30px; font-weight: 800; letter-spacing: -.5px; color: var(--text); position: relative; }
+  .cta-band p { color: var(--muted); margin: 12px auto 28px; max-width: 540px; position: relative; }
 
   /* ---------- 页脚 ---------- */
-  footer { border-top: 1px solid var(--border); padding: 36px 0; text-align: center; }
+  footer { border-top: 1px solid var(--border); padding: 38px 0; text-align: center; background: rgba(255,255,255,.5); }
   footer .links { display: flex; gap: 22px; justify-content: center; font-size: 13px; margin-bottom: 14px; }
   footer .links a { color: var(--muted); text-decoration: none; }
   footer .links a:hover { color: var(--accent); }
@@ -195,9 +251,10 @@
   footer .icp { color: var(--muted-2); font-size: 12px; margin-top: 6px; }
 
   @media (max-width: 720px) {
-    .hero h1 { font-size: 32px; }
+    .hero h1 { font-size: 33px; }
     .nav-links { display: none; }
-    .hero { padding: 60px 0 50px; }
+    .hero { padding: 64px 0 54px; }
+    .section { padding: 64px 0; }
   }
 </style>
 </head>
@@ -206,22 +263,25 @@
 <!-- ========== 导航 ========== -->
 <nav>
   <div class="wrap">
-    <div class="logo">
+    <a class="logo" href="/">
       <span class="mark" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 4px 10px rgba(94,84,207,.3)">
         <svg width="18" height="18" viewBox="0 0 44 44" fill="none"><path d="M11.5 13.1 C14.1 8 19.3 5.5 22 5.5 C24.7 5.5 29.9 8 32.5 13.1" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M32.5 13.1 C32.3 15.6 30.4 17.1 28.1 17.1 C30.1 15.9 31.5 14.4 32.5 13.1" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.5 30.9 C29.9 36 24.7 38.5 22 38.5 C19.3 38.5 14.1 36 11.5 30.9" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M11.5 30.9 C11.7 33.4 13.6 34.9 15.9 34.9 C13.9 33.7 12.5 32.2 11.5 30.9" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="22" r="4.5" fill="#FFD166"/></svg>
       </span>
       Agent Context Sync <small>{{ t.lp_nav_oss }}</small>
-    </div>
+    </a>
     <div class="nav-links">
       <a href="#features">{{ t.lp_nav_features }}</a>
+      <a href="#engine">{{ t.lp_nav_engine }}</a>
       <a href="#agents">{{ t.lp_nav_agents }}</a>
       <a href="#usage">{{ t.lp_nav_quickstart }}</a>
       <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
     </div>
-    <a class="nav-cta" href="/web/">{{ t.lp_enter }}</a>
-    <div class="lang-switch" role="group" aria-label="Language">
-      <a href="/web/set-language/zh-CN" class="{% if lang == 'zh-CN' %}active{% endif %}">中文</a>
-      <a href="/web/set-language/en" class="{% if lang == 'en' %}active{% endif %}">EN</a>
+    <div class="nav-right">
+      <a class="nav-cta" href="/web/">{{ t.lp_enter }}</a>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <a href="/web/set-language/zh-CN" class="{% if lang == 'zh-CN' %}active{% endif %}">中文</a>
+        <a href="/web/set-language/en" class="{% if lang == 'en' %}active{% endif %}">EN</a>
+      </div>
     </div>
   </div>
 </nav>
@@ -229,7 +289,7 @@
 <!-- ========== Hero ========== -->
 <header class="hero">
   <div class="wrap">
-    <span class="badge">{{ t.lp_badge }}</span>
+    <span class="badge"><span class="dot"></span>{{ t.lp_badge }}</span>
     <h1>{{ t.lp_hero_l1 }}<br>{{ t.lp_hero_l2a }}<span class="grad">{{ t.lp_hero_l2b }}</span></h1>
     <p class="sub">{{ t.lp_hero_sub }}</p>
     <div class="actions">
@@ -242,9 +302,10 @@
       <div class="bar"><i></i><i></i><i></i><span>agentctxsync — sync</span></div>
       <pre><span class="c">$</span> python mcp/server.py <span class="c"># {{ t.lp_term_start }}</span>
 <span class="c">→</span> {{ t.lp_term_pull }}
-<span class="c">→</span> {{ t.lp_term_manual }}<span class="y">hermes_sync_full</span>
+<span class="c">→</span> {{ t.lp_term_manual }}<span class="y">sync_full</span>
 <span class="g">✓ {{ t.lp_term_done }}</span> {{ t.lp_term_merge }}
-<span class="y">local:</span> 12 sessions / 348 messages
+<span class="c">·</span> <span class="t">full-pool</span> {{ t.lp_eng1_t }}
+<span class="y">local:</span>  12 sessions / 348 messages
 <span class="y">remote:</span> 128 sessions / 3,462 messages <span class="b">{{ t.lp_term_agents }}</span></pre>
     </div>
   </div>
@@ -261,45 +322,100 @@
     <div class="features">
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 8a8 8 0 0114-4M20 16a8 8 0 01-14 4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M18 2l1.7 3.3L23 7l-3.3 1.7L18 12l-1.7-3.3L13 7l3.3-1.7L18 2zM6 12l1.7 3.3L11 17l-3.3 1.7L6 22l-1.7-3.3L1 17l3.3-1.7L6 12z"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 8a8 8 0 0114-4M20 16a8 8 0 01-14 4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M18 2l1.7 3.3L23 7l-3.3 1.7L18 12l-1.7-3.3L13 7l3.3-1.7L18 2zM6 12l1.7 3.3L11 17l-3.3 1.7L6 22l-1.7-3.3L1 17l3.3-1.7L6 12z"/></svg>
         </div>
         <h3>{{ t.lp_feat1_t }}</h3>
         <p>{{ t.lp_feat1_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="9" height="17" rx="2" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M6.5 18.5h1"/><rect x="14.5" y="4.5" width="7" height="9.5" rx="1.5" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M18 16.5V20M15 20h6M13.6 8.6c2 1.5 2 3.3 0 4.8"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="9" height="17" rx="2" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M6.5 18.5h1"/><rect x="14.5" y="4.5" width="7" height="9.5" rx="1.5" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M18 16.5V20M15 20h6M13.6 8.6c2 1.5 2 3.3 0 4.8"/></svg>
         </div>
         <h3>{{ t.lp_feat2_t }}</h3>
         <p>{{ t.lp_feat2_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M8 8.5h8M8 12h8M8 15.5h5"/><circle cx="16.5" cy="15.5" r="1" fill="currentColor" stroke="none"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
         </div>
         <h3>{{ t.lp_feat3_t }}</h3>
         <p>{{ t.lp_feat3_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/><rect x="9.5" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/><rect x="16" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/><rect x="9.5" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/><rect x="16" y="4.5" width="5" height="15" rx="1.5" stroke-width="1.8"/></svg>
         </div>
         <h3>{{ t.lp_feat4_t }}</h3>
         <p>{{ t.lp_feat4_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 14l3-3-3-3M15 10h-3M13 20H7a3 3 0 01-3-3V7a3 3 0 013-3h8a3 3 0 013 3v5.5"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13.5 20l3-3 3 3-3 3-3-3z"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 5v14M5 12h14"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.5 3h7M8.5 21h7"/></svg>
         </div>
         <h3>{{ t.lp_feat5_t }}</h3>
         <p>{{ t.lp_feat5_d }}</p>
       </div>
       <div class="feat">
         <div class="icon">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 11a8 8 0 10-2.3 5.7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 4v7h-7"/></svg>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 11a8 8 0 10-2.3 5.7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 4v7h-7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 2"/></svg>
         </div>
         <h3>{{ t.lp_feat6_t }}</h3>
         <p>{{ t.lp_feat6_d }}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 同步引擎 ========== -->
+<section class="section engine" id="engine">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="tag">Engine</div>
+      <h2>{{ t.lp_eng_title }}</h2>
+      <p>{{ t.lp_eng_sub }}</p>
+    </div>
+    <div class="eng-grid">
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8a8 8 0 0114-4M20 16a8 8 0 01-14 4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 2l1.7 3.3L23 7l-3.3 1.7L18 12l-1.7-3.3L13 7l3.3-1.7L18 2z"/></svg>
+          {{ t.lp_eng1_t }}
+        </div>
+        <p>{{ t.lp_eng1_d }}</p>
+      </div>
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+          {{ t.lp_eng2_t }}
+        </div>
+        <p>{{ t.lp_eng2_d }}</p>
+      </div>
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h11M4 12h16M4 19h8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 3l3 2-3 2M13 17l3 2-3 2"/></svg>
+          {{ t.lp_eng3_t }}
+        </div>
+        <p>{{ t.lp_eng3_d }}</p>
+      </div>
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20h16M6 20V8M10 20V4M14 20v-9M18 20V6"/></svg>
+          {{ t.lp_eng4_t }}
+        </div>
+        <p>{{ t.lp_eng4_d }}</p>
+      </div>
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" stroke-width="2"/></svg>
+          {{ t.lp_eng5_t }}
+        </div>
+        <p>{{ t.lp_eng5_d }}</p>
+      </div>
+      <div class="eng-item">
+        <div class="k">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M8 10V7a4 4 0 018 0v3"/></svg>
+          {{ t.lp_eng6_t }}
+        </div>
+        <p>{{ t.lp_eng6_d }}</p>
       </div>
     </div>
   </div>
@@ -315,11 +431,12 @@
     </div>
     <div class="agents">
       <span class="agent-pill" style="background:#EDE9FB;color:#6E56CF"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Hermes</span>
+      <span class="agent-pill" style="background:#F0FDFA;color:#0D9488"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> WorkBuddy<span class="new-tag">{{ t.lp_agent_workbuddy_tag }}</span></span>
       <span class="agent-pill" style="background:#FFF7E6;color:#F2994A"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenAI Codex</span>
       <span class="agent-pill" style="background:#F1F5F9;color:#64748B"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> opencode</span>
       <span class="agent-pill" style="background:#E8F1FE;color:#4285F4"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Reasonix</span>
       <span class="agent-pill" style="background:#FDECEC;color:#EB5757"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenClaw</span>
-      <span class="agent-pill" style="background:#F6F5FA;color:#8A8AA3"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 5v14M5 12h14"/></svg> {{ t.lp_more_agents }}</span>
+      <span class="agent-pill" style="background:#F6F5FA;color:#8A8AA3;border:1px dashed #D9D6EA"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 5v14M5 12h14"/></svg> {{ t.lp_more_agents }}</span>
     </div>
   </div>
 </section>
@@ -363,9 +480,9 @@
       <p>{{ t.lp_oss_sub }}</p>
     </div>
     <div class="os-grid">
-      <div class="os-item"><div class="num">5</div><div class="lbl">{{ t.lp_os_agents_lbl }}</div></div>
+      <div class="os-item"><div class="num">6+</div><div class="lbl">{{ t.lp_os_agents_lbl }}</div><div class="more"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M12 5v14M5 12h14"/></svg>{{ t.lp_more_agents }}</div></div>
       <div class="os-item"><div class="num">3 层</div><div class="lbl">{{ t.lp_os_layers_lbl }}</div></div>
-      <div class="os-item"><div class="num">33</div><div class="lbl">{{ t.lp_os_tests_lbl }}</div></div>
+      <div class="os-item"><div class="num">MIT</div><div class="lbl">{{ t.lp_os_tests_lbl }}</div></div>
       <div class="os-item"><div class="num">0 元</div><div class="lbl">{{ t.lp_os_cost_lbl }}</div></div>
     </div>
   </div>
@@ -384,6 +501,7 @@
 <footer>
   <div class="links">
     <a href="#features">{{ t.lp_nav_features }}</a>
+    <a href="#engine">{{ t.lp_nav_engine }}</a>
     <a href="#agents">{{ t.lp_nav_agents }}</a>
     <a href="#usage">{{ t.lp_nav_quickstart }}</a>
     <a href="https://github.com/westsource/agentctxsync" target="_blank" rel="noopener">{{ t.lp_nav_opensource }}</a>
