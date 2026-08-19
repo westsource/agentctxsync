@@ -260,29 +260,44 @@ def push_sync(body, ws):
                 # push as a duplicate instead of duplicating the row. The
                 # (role -> contents) map is fetched lazily, once per session,
                 # only when a key miss actually needs the check.
+                #
+                # Scope: hermes/reasonix keep full-role content dedup (their
+                # session rebuilds rewrite tool rows too). Every OTHER agent
+                # gets it for user/assistant rows only: cross-client re-pushes
+                # (a foreign session pulled by another agent and pushed back
+                # with a floating-point-shifted timestamp) must not create
+                # duplicate rows, while tool rows keep the triple-only dedup
+                # (codex tool outputs legitimately repeat identical text from
+                # distinct calls).
                 content = msg.get("content")
-                # Content-level fallback: hermes' "message-alternation repair"
-                # (after an interrupted turn) and reasonix' file normalization
-                # (rewrites transcripts with fresh timestamps + system prompt)
-                # both regenerate timestamps for identical content, so the
-                # (role, timestamp) triple no longer matches the original
-                # rows. For those agents an identical (role, content) with a
-                # different timestamp is the SAME message re-pushed, not a
-                # new turn. Other agents keep the triple-only dedup: they
-                # legitimately repeat identical content (e.g. codex tool
-                # outputs from distinct calls), and collapsing by content
-                # there would silently lose messages.
-                if session_agent in ("hermes", "reasonix") and role is not None \
-                        and isinstance(content, str) and content:
+                dedup_text = content if isinstance(content, str) and content else None
+                if dedup_text is None:
+                    # Damaged rows: some clients push messages whose content
+                    # was lost in a foreign-store round-trip but whose text
+                    # survives as a bare string in meta (JSONB string, not
+                    # object). Treat that text as the dedup key too so a
+                    # re-push of the same damaged message is still caught.
+                    meta_v = msg.get("meta")
+                    if isinstance(meta_v, str) and meta_v.strip():
+                        dedup_text = meta_v
+                if dedup_text is not None and role is not None and (
+                        session_agent in ("hermes", "reasonix")
+                        or role in ("user", "assistant")):
                     if msid not in content_cache:
-                        c.execute("SELECT role, content FROM messages "
-                                  "WHERE workspace_id = %s AND session_id = %s AND content IS NOT NULL",
+                        c.execute("SELECT role, content, meta FROM messages "
+                                  "WHERE workspace_id = %s AND session_id = %s",
                                   (wid, msid))
                         by_role = {}
-                        for r_role, r_content in c.fetchall():
-                            by_role.setdefault(r_role, set()).add(r_content)
+                        for r_role, r_content, r_meta in c.fetchall():
+                            pool = set()
+                            if isinstance(r_content, str) and r_content:
+                                pool.add(r_content)
+                            if isinstance(r_meta, str) and r_meta.strip():
+                                pool.add(r_meta)
+                            if pool:
+                                by_role.setdefault(r_role, set()).update(pool)
                         content_cache[msid] = by_role
-                    if content in content_cache[msid].get(role, ()):
+                    if dedup_text in content_cache[msid].get(role, ()):
                         dup_m += 1
                         continue
                 md = {k: _pg_val(v) for k, v in msg.items()

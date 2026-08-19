@@ -147,7 +147,7 @@ class PushTest(unittest.TestCase):
         msg_contents: existing (sid, role, content) triples on the server."""
         content_by_sid = {}
         for sid, role, content in msg_contents:
-            content_by_sid.setdefault(sid, []).append((role, content))
+            content_by_sid.setdefault(sid, []).append((role, content, None))
         cur = (ScriptedCursor()
                .add(r"SELECT id FROM sessions", [(i,) for i in existing_ids])
                .add(r"information_schema\.columns.*sessions",
@@ -161,7 +161,7 @@ class PushTest(unittest.TestCase):
                .add(r"GROUP BY session_id",
                     [(s["id"], next_id) for s in sessions])
                # lazy content fallback map, fetched per session
-               .add(r"SELECT role, content FROM messages", content_by_sid,
+               .add(r"SELECT role, content, meta FROM messages", content_by_sid,
                     key=lambda p: p[1])
                # legacy id-based dedup check (role/timestamp missing)
                .add(r"SELECT 1 FROM messages", [])
@@ -266,6 +266,49 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["duplicates"], 0)
         self.assertTrue(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
 
+    def test_content_fallback_dedupes_foreign_session_repush(self):
+        # A workbuddy session was pulled by the hermes client and pushed
+        # back with a floating-point-shifted timestamp (cross-client
+        # re-push). user/assistant rows with identical content must be
+        # deduped for EVERY agent, not just hermes/reasonix.
+        sessions = [{"id": "w1", "agent_type": "workbuddy",
+                     "messages": [{"role": "user", "content": "same",
+                                   "timestamp": 99.0005},
+                                  {"role": "assistant", "content": "reply",
+                                   "timestamp": 100.0005}]}]
+        resp, cur = self._push(sessions, msg_keys={("w1", "user", 99.0),
+                                                   ("w1", "assistant", 100.0)},
+                               msg_contents={("w1", "user", "same"),
+                                             ("w1", "assistant", "reply")})
+        self.assertEqual(resp["new_messages"], 0)
+        self.assertEqual(resp["duplicates"], 2)
+        self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_content_fallback_keeps_workbuddy_tool_repeats(self):
+        # non-hermes/reasonix agents keep triple-only dedup for tool rows:
+        # identical tool outputs from distinct calls must survive
+        sessions = [{"id": "w1", "agent_type": "workbuddy",
+                     "messages": [{"role": "tool", "content": "same output",
+                                   "timestamp": 2.0}]}]
+        resp, cur = self._push(sessions, msg_keys={("w1", "tool", 1.0)},
+                               msg_contents={("w1", "tool", "same output")})
+        self.assertEqual(resp["new_messages"], 1)
+        self.assertEqual(resp["duplicates"], 0)
+        self.assertTrue(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_meta_bare_string_fallback_dedupes_lost_content(self):
+        # a client whose foreign-store round-trip lost message content may
+        # push the text as a bare meta string (JSONB string, not object).
+        # The dedup key falls back to that text so the re-push is caught.
+        sessions = [{"id": "w1", "agent_type": "workbuddy",
+                     "messages": [{"role": "user", "content": None,
+                                   "meta": "same", "timestamp": 99.0005}]}]
+        resp, cur = self._push(sessions, msg_keys={("w1", "user", 99.0)},
+                               msg_contents={("w1", "user", "same")})
+        self.assertEqual(resp["new_messages"], 0)
+        self.assertEqual(resp["duplicates"], 1)
+        self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
     def test_concurrent_triple_race_does_not_duplicate(self):
         # A concurrent push committed the (session, role, timestamp) triple
         # after this push's msg_keys snapshot was taken (the snapshot is a
@@ -285,7 +328,7 @@ class PushTest(unittest.TestCase):
                # dedup-key snapshot: EMPTY — the racing push committed later
                .add(r"SELECT session_id, role, timestamp FROM messages", [])
                .add(r"GROUP BY session_id", [("s1", 5)])
-               .add(r"SELECT role, content FROM messages", {})
+               .add(r"SELECT role, content, meta FROM messages", {})
                # the racing push's row is now visible to the per-row check
                .add(r"SELECT 1 FROM messages WHERE workspace_id=%s AND session_id=%s AND role=%s AND timestamp=%s",
                     {("s1", "user", 1.0): [("s1",)]}, key=lambda p: p[1:])
