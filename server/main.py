@@ -12,6 +12,7 @@ import db
 import invites
 import projects
 import render
+import requestlog
 import sync
 import web_help
 import workspace
@@ -26,6 +27,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # runs before flash_middleware exactly as before.
 app.middleware("http")(render.flash_middleware)
 app.middleware("http")(auth.enforce_password_change)
+# Outermost: wraps everything, so every request gets a REQ log line.
+app.middleware("http")(requestlog.request_log_middleware)
 
 
 @app.on_event("shutdown")
