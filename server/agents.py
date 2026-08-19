@@ -69,12 +69,12 @@ AGENTS = {
     "workbuddy": {
         "label": "WorkBuddy",
         "desc": {
-            "zh": "腾讯 WorkBuddy 桌面智能体（5.3.x），会话为 ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db。",
+            "zh": "腾讯 WorkBuddy 桌面智能体（5.3.x），会话为 ~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<slug>/*.jsonl + workbuddy.db。",
             "en": "Tencent WorkBuddy desktop agent (5.3.x); sessions in ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db.",
         },
         "store": {
-            "zh": "本地存储：~/.workbuddy/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy/workbuddy.db（元数据）",
-            "en": "Local store: ~/.workbuddy/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy/workbuddy.db (metadata)",
+            "zh": "本地存储：~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
+            "en": "Local store: ~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
         },
         "register": {
             "zh": (
@@ -124,6 +124,7 @@ AGENTS = {
                 {"text": "打开 WorkBuddy，进入「专家 · 技能 · 连接器」，点击「添加自定义连接器」，新建一个自定义 MCP server（类型选 <b>stdio</b>）。"},
                 {"text": "在连接器的 <code>mcpServers</code> 配置中加入 <code>hermes-sync</code>，完整配置示例如下（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步解压目录，<code>&lt;KEY&gt;</code> 替换为下方工作空间 API Key）："},
                 {"code": "<REGISTER>"},
+                {"text": "配置 MCP server 后，首次连接时需要信任（WorkBuddy 会提示确认，选择信任该 server 后即可正常调用工具）。"},
                 {"text": "重启 WorkBuddy（新会话生效）。注意：适配器写入的会话需要重启 WorkBuddy 后才会出现在会话列表（启动时 MIGRATE 扫描识别）。"},
             ],
             "en": [
@@ -131,6 +132,7 @@ AGENTS = {
                 {"text": "Open WorkBuddy → \"Experts · Skills · Connectors\", click \"Add Custom Connector\" to create a custom MCP server (type: <b>stdio</b>)."},
                 {"text": "Add <code>hermes-sync</code> under <code>mcpServers</code> in the connector config. Full example below (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter, <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1, <code>&lt;KEY&gt;</code> with the workspace API key below):"},
                 {"code": "<REGISTER>"},
+                {"text": "After configuring the MCP server, the first connection requires trust (WorkBuddy prompts for confirmation; choose to trust the server so tools can be called normally)."},
                 {"text": "Restart WorkBuddy (new sessions pick it up). Note: sessions written by the adapter only appear in the list after WorkBuddy restarts (MIGRATE scan on startup)."},
             ],
         },

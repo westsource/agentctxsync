@@ -1,7 +1,9 @@
 """
 WorkBuddy desktop adapter (bidirectional).
 
-Local store: ~/.workbuddy/  (Windows: %USERPROFILE%\\.workbuddy)
+Local store: ~/.workbuddy-ai/  (Windows: %USERPROFILE%\\.workbuddy-ai;
+some WorkBuddy 5.3.x installs still use the legacy ~/.workbuddy — the
+adapter prefers whichever exists, .workbuddy-ai first)
   - session messages : projects/<slug>/<conversationId>.jsonl  (JSONL,
     one event per line; slug is the cwd with drive/separators flattened,
     e.g. F:\\OpenCode\\agentctxsync -> f-OpenCode-agentctxsync)
@@ -90,9 +92,22 @@ class WorkBuddyAdapter(Adapter):
     # discovery
     # ------------------------------------------------------------------
     def discover(self) -> Path | None:
-        home = Path(os.environ.get("WORKBUDDY_HOME",
-                                   Path.home() / ".workbuddy"))
-        return home if home.is_dir() else None
+        env = os.environ.get("WORKBUDDY_HOME")
+        if env:
+            home = Path(env)
+            return home if home.is_dir() else None
+        # WorkBuddy 5.3.x keeps the unified sessions db at the current app
+        # home: most installs use `~/.workbuddy-ai` (AppServerDatabase logs
+        # "Unified database ready: ...\.workbuddy-ai\workbuddy.db"), while
+        # older builds use `~/.workbuddy`. Some machines keep BOTH dirs —
+        # writing sessions into the legacy one makes WorkBuddy's startup
+        # MIGRATE see zero local sessions, so prefer the current layout.
+        home = Path.home()
+        for name in (".workbuddy-ai", ".workbuddy"):
+            cand = home / name
+            if cand.is_dir():
+                return cand
+        return None
 
     def _foreign_ids_file(self) -> Path | None:
         if self.home:
@@ -161,11 +176,25 @@ class WorkBuddyAdapter(Adapter):
         return rows
 
     def _user_id(self) -> str | None:
-        """Real WorkBuddy user id (first existing session) or env fallback."""
+        """Real WorkBuddy user id: env override, then the app's stored owner
+        uid (settings.json `claw.legacyOwnerUid`), then the first existing
+        session's user_id as a last resort."""
+        env = os.environ.get(_ENV_USER_ID)
+        if env:
+            return env
+        if self.home:
+            try:
+                cfg = json.loads(
+                    (self.home / "settings.json").read_text(encoding="utf-8"))
+                uid = (cfg.get("claw") or {}).get("legacyOwnerUid")
+                if uid:
+                    return str(uid)
+            except (OSError, ValueError, AttributeError):
+                pass
         for row in self._session_rows(limit=1):
             if row.get("user_id"):
                 return str(row["user_id"])
-        return os.environ.get(_ENV_USER_ID)
+        return None
 
     # ------------------------------------------------------------------
     # reading: jsonl events -> canonical messages
