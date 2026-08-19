@@ -138,22 +138,29 @@ async def web_admin_access(request: Request):
     nav_ws = get_nav_workspaces(user["sub"])
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""SELECT stat_date, channel, count FROM access_stats
+        c.execute("""SELECT stat_date, channel, kind, count FROM access_stats
                      ORDER BY stat_date DESC""")
         rows = [dict(r) for r in c.fetchall()]
     days = {}
     for r in rows:
-        d = days.setdefault(r["stat_date"],
-                            {"date": r["stat_date"], "domain": 0, "ip": 0, "total": 0})
-        if r["channel"] in ("domain", "ip"):
-            d[r["channel"]] = r["count"]
+        d = days.setdefault(r["stat_date"], {
+            "date": r["stat_date"],
+            "web_domain": 0, "api_domain": 0, "web_ip": 0, "api_ip": 0,
+            "total": 0})
+        key = f'{r["kind"]}_{r["channel"]}'
+        if key in d:
+            d[key] = r["count"]
             d["total"] += r["count"]
     today_iso = date.today().isoformat()
-    today = days.get(today_iso) or {"date": today_iso, "domain": 0, "ip": 0, "total": 0}
+    today = days.get(today_iso) or {
+        "date": today_iso, "web_domain": 0, "api_domain": 0,
+        "web_ip": 0, "api_ip": 0, "total": 0}
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_access",
            "days": list(days.values()), "today": today,
-           "total_domain": sum(d["domain"] for d in days.values()),
-           "total_ip": sum(d["ip"] for d in days.values())}
+           "total_web_domain": sum(d["web_domain"] for d in days.values()),
+           "total_api_domain": sum(d["api_domain"] for d in days.values()),
+           "total_web_ip": sum(d["web_ip"] for d in days.values()),
+           "total_api_ip": sum(d["api_ip"] for d in days.values())}
     return await render_page("admin_access.html", ctx)
 
 @router.get("/web/admin/invites", response_class=HTMLResponse)

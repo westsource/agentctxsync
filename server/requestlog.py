@@ -13,8 +13,10 @@ Log lines carry a REQ prefix, e.g.:
 Access statistics: every counted request increments the daily counter in
 the `access_stats` table, bucketed by channel -- 'domain' when the Host
 header is a hostname, 'ip' when it is an IP literal (direct IP:port
-access). The admin page (/web/admin/access) shows the split. Static
-assets and health checks are excluded so the counts reflect real usage.
+access) -- and by kind -- 'web' for browser pages (/web/* and the /
+landing page), 'api' for sync push/pull and the rest. The admin page
+(/web/admin/access) shows the split. Static assets and health checks are
+excluded so the counts reflect real usage.
 
 The middleware reads the request body BEFORE passing it downstream;
 starlette caches the body so handlers calling request.json() still see it.
@@ -61,17 +63,22 @@ def classify_channel(host):
     return "ip"
 
 
-def _record_access(host):
-    """Increment today's counter for the channel derived from the Host header."""
+def classify_kind(path):
+    """'web' for browser pages (/web/* and the / landing page), else 'api'."""
+    return "web" if path == "/" or path.startswith("/web/") else "api"
+
+
+def _record_access(host, path):
+    """Increment today's counter for the (channel, kind) of this request."""
     try:
         with get_conn() as conn:
             c = conn.cursor()
             c.execute(
-                "INSERT INTO access_stats (stat_date, channel, count) "
-                "VALUES (%s, %s, 1) "
-                "ON CONFLICT (stat_date, channel) "
+                "INSERT INTO access_stats (stat_date, channel, kind, count) "
+                "VALUES (%s, %s, %s, 1) "
+                "ON CONFLICT (stat_date, channel, kind) "
                 "DO UPDATE SET count = access_stats.count + 1",
-                (date.today(), classify_channel(host)),
+                (date.today(), classify_channel(host), classify_kind(path)),
             )
     except Exception:
         pass  # statistics must never break the request path
@@ -96,7 +103,7 @@ async def request_log_middleware(request: Request, call_next):
             host = request.headers.get("host", "")
             path = request.url.path
             if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
-                _record_access(host)
+                _record_access(host, path)
             device_id = ""
             if body:
                 try:

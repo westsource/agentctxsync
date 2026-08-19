@@ -250,14 +250,34 @@ def init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)")
         # Access statistics: daily request counts bucketed by channel
-        # ('domain' = hostname Host header, 'ip' = IP-literal Host header).
+        # ('domain' = hostname Host header, 'ip' = IP-literal Host header)
+        # and kind ('web' = browser pages, 'api' = sync push/pull & friends).
         # Written by the requestlog middleware, read by /web/admin/access.
         c.execute("""CREATE TABLE IF NOT EXISTS access_stats (
             stat_date DATE NOT NULL,
             channel TEXT NOT NULL,
+            kind TEXT NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (stat_date, channel)
+            PRIMARY KEY (stat_date, channel, kind)
         )""")
+        # Upgrade path for deployments that shipped before the kind column:
+        # add it, backfill legacy rows as 'api' (their web/api split is not
+        # recoverable), and rebuild the primary key to include kind.
+        c.execute("ALTER TABLE access_stats ADD COLUMN IF NOT EXISTS kind TEXT")
+        c.execute("""DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_index i
+                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = 'access_stats'::regclass AND i.indisprimary AND a.attname = 'kind'
+            ) THEN
+                ALTER TABLE access_stats DROP CONSTRAINT access_stats_pkey;
+                ALTER TABLE access_stats ALTER COLUMN kind SET DEFAULT 'api';
+                UPDATE access_stats SET kind = 'api' WHERE kind IS NULL;
+                ALTER TABLE access_stats ALTER COLUMN kind SET NOT NULL;
+                ALTER TABLE access_stats ADD PRIMARY KEY (stat_date, channel, kind);
+            END IF;
+        END $$""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
             VALUES ('free', 200, NULL) ON CONFLICT (plan) DO NOTHING""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
