@@ -242,6 +242,66 @@ class HermesMultiProfileTest(unittest.TestCase):
                          self.root / ".hermes-sync-watermark")
 
     # ------------------------------------------------------------------
+    # foreign owner registry (agent attribution for pulled sessions)
+    # ------------------------------------------------------------------
+    def test_pull_records_foreign_owner(self):
+        make_db(self.root / "state.db", "local-hermes-session")
+        a = HermesAdapter()
+        a.write_sessions([
+            {"id": "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06",
+             "agent_type": "workbuddy", "started_at": 2.0,
+             "messages": [{"session_id": "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06",
+                           "role": "user", "content": "w", "timestamp": 2.0}]},
+            {"id": "20260808_180015_0c277e", "started_at": 2.0,
+             "agent_type": "hermes",
+             "messages": [{"session_id": "20260808_180015_0c277e",
+                           "role": "user", "content": "h", "timestamp": 2.0}]},
+            {"id": "20260808_180016_0c278f", "started_at": 2.0,
+             "messages": []},  # no agent_type -> own session
+        ])
+        self.assertTrue(a._is_foreign("3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"))
+        self.assertEqual(a._foreign_agent("3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"),
+                         "workbuddy")
+        # hermes' own sessions are never registered
+        self.assertFalse(a._is_foreign("20260808_180015_0c277e"))
+        self.assertFalse(a._is_foreign("20260808_180016_0c278f"))
+        # sidecar lives at the root next to state.db
+        self.assertTrue((self.root / ".hermes-sync-foreign.json").exists())
+
+    def test_foreign_session_canonicalize_keeps_bare_id(self):
+        # a registered foreign session round-trips verbatim (bare id, no
+        # hermes profile prefix) through the adapter's canonicalize path
+        make_db(self.root / "state.db", "local-hermes-session")
+        a = HermesAdapter()
+        a.write_sessions([
+            {"id": "1b8fc026-d2b4-4dfb-bdef-2ea8e73013e4",
+             "agent_type": "codex", "started_at": 2.0, "messages": []},
+        ])
+        out = a.canonicalize({"id": "1b8fc026-d2b4-4dfb-bdef-2ea8e73013e4",
+                              "started_at": 2.0, "messages": []})
+        self.assertEqual(out["id"], "1b8fc026-d2b4-4dfb-bdef-2ea8e73013e4")
+        self.assertNotIn("profile_name", out)
+
+    def test_push_owner_tagging_uses_registry(self):
+        # push_sessions' owner filter (mcp/server.py) relies on
+        # _is_foreign/_foreign_agent: foreign sessions must be tagged with
+        # their recorded owner, not the hermes adapter's own type
+        make_db(self.root / "state.db", "local-hermes-session")
+        a = HermesAdapter()
+        a.write_sessions([
+            {"id": "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06",
+             "agent_type": "workbuddy", "started_at": 2.0,
+             "messages": [{"session_id": "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06",
+                           "role": "user", "content": "w", "timestamp": 2.0}]},
+        ])
+        # mirror mcp/server.py push_sessions tagging logic
+        sid = "3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"
+        agent = a.agent_type
+        if a._is_foreign(sid):
+            agent = a._foreign_agent(sid) or "hermes"
+        self.assertEqual(agent, "workbuddy")
+
+    # ------------------------------------------------------------------
     # projects
     # ------------------------------------------------------------------
     def _make_projects_db(self, home: Path, rows: list):
