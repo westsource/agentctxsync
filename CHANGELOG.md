@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.19.1] - 2026-08-19
+
+### Added
+- **管理员访问统计**：新增 `/web/admin/access` 页面，按日统计请求数并区分域名访问（Host 为域名，经 nginx HTTPS 代理）与 IP 直连（Host 为 IP:port）；数据落库 `access_stats` 表（`init_db()` 启动时幂等建表），统计排除静态资源与健康检查
+
 ## [2026.08.18.3] - 2026-08-18
 
 ### Changed

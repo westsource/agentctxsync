@@ -11,6 +11,7 @@ TRANSLATIONS = {
         "nav_admin": "管理员",
         "nav_user_management": "用户管理",
         "nav_all_workspaces": "所有空间",
+        "nav_access_stats": "访问统计",
         "nav_language": "语言",
         "nav_edit_profile": "更改信息",
         "nav_account_menu": "账户菜单",
@@ -159,6 +160,19 @@ TRANSLATIONS = {
         "admin_total_messages": "总消息",
         "admin_workspace": "工作空间",
         "admin_owner": "所有者",
+
+        # Admin Access Stats
+        "accs_title": "访问统计",
+        "accs_subtitle": "按日统计请求数，区分域名访问（Host 为域名，经 HTTPS）与 IP 直连（Host 为 IP:port）",
+        "accs_today_domain": "今日域名访问",
+        "accs_today_ip": "今日 IP 直连",
+        "accs_today_total": "今日总访问",
+        "accs_total_all": "累计总访问",
+        "accs_domain": "域名访问",
+        "accs_ip": "IP 直连",
+        "accs_date": "日期",
+        "accs_total": "总计",
+        "accs_no_data": "暂无数据，访问后自动开始统计",
         
         # Login
         "login_title": "登录 Agent Context Sync",
@@ -378,6 +392,7 @@ TRANSLATIONS = {
         "nav_admin": "Admin",
         "nav_user_management": "User Management",
         "nav_all_workspaces": "All Workspaces",
+        "nav_access_stats": "Access Stats",
         "nav_language": "Language",
         "nav_edit_profile": "Edit Profile",
         "nav_account_menu": "Account menu",
@@ -526,6 +541,19 @@ TRANSLATIONS = {
         "admin_total_messages": "Total Messages",
         "admin_workspace": "Workspace",
         "admin_owner": "Owner",
+
+        # Admin Access Stats
+        "accs_title": "Access Statistics",
+        "accs_subtitle": "Daily request counts split by domain access (hostname Host, via HTTPS) vs direct IP access (IP:port Host)",
+        "accs_today_domain": "Domain Today",
+        "accs_today_ip": "Direct IP Today",
+        "accs_today_total": "Total Today",
+        "accs_total_all": "All-Time Total",
+        "accs_domain": "Domain",
+        "accs_ip": "Direct IP",
+        "accs_date": "Date",
+        "accs_total": "Total",
+        "accs_no_data": "No data yet - counts start on first access",
         
         # Login
         "login_title": "Login to Agent Context Sync",
