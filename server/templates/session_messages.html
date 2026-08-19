@@ -135,10 +135,14 @@
               </button>
               <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
                     onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')">
-                <button type="submit" class="p-1 rounded-md text-[11px] font-medium
-                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-white{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
+                <button type="submit" class="p-1 rounded-md
+                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-red-500 hover:bg-white{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
                   title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-                  {{ t.msg_unhide if m.hidden else t.msg_hide }}
+                  {% if m.hidden %}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5"/></svg>
+                  {% else %}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  {% endif %}
                 </button>
               </form>
               <span class="text-[11px] text-[#A5A5BC] shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
@@ -173,10 +177,14 @@
               </button>
               <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
                     onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')">
-                <button type="submit" class="p-1 rounded-md text-[11px] font-medium
-                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-50{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
+                <button type="submit" class="p-1 rounded-md
+                  {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-red-500 hover:bg-gray-50{% endif %} opacity-0 group-hover:opacity-100 transition-opacity"
                   title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-                  {{ t.msg_unhide if m.hidden else t.msg_hide }}
+                  {% if m.hidden %}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5"/></svg>
+                  {% else %}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  {% endif %}
                 </button>
               </form>
               <span class="text-[11px] text-[#A5A5BC] ml-auto shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
@@ -200,10 +208,14 @@
           <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
                 onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
                 class="absolute top-1.5 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-            <button type="submit" class="px-1.5 py-0.5 rounded-md text-[11px] font-medium
-              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-400 hover:text-gray-600 hover:bg-white{% endif %} transition-colors"
+            <button type="submit" class="p-1 rounded-md
+              {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-400 hover:text-red-500 hover:bg-white{% endif %} transition-colors"
               title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-              {{ t.msg_unhide if m.hidden else t.msg_hide }}
+              {% if m.hidden %}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5"/></svg>
+              {% else %}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              {% endif %}
             </button>
           </form>
           <div x-show="!open" x-cloak class="px-4 pb-3 text-xs text-gray-400 whitespace-pre-wrap break-words line-clamp-2">{{ m.content|truncate(300, True, '…') or '' }}</div>
@@ -218,10 +230,14 @@
         <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
               onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
               class="absolute -right-16 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button type="submit" class="p-1 rounded-md text-[11px] font-medium
-            {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-gray-600 hover:bg-gray-100{% endif %} transition-colors"
+          <button type="submit" class="p-1 rounded-md
+            {% if m.hidden %}text-emerald-500 hover:text-emerald-400{% else %}text-gray-300 hover:text-red-500 hover:bg-gray-100{% endif %} transition-colors"
             title="{{ t.msg_unhide if m.hidden else t.msg_hide }}">
-            {{ t.msg_unhide if m.hidden else t.msg_hide }}
+            {% if m.hidden %}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5"/></svg>
+            {% else %}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            {% endif %}
           </button>
         </form>
       </div>
