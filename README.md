@@ -6,7 +6,7 @@
 [![CI](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml/badge.svg)](https://github.com/westsource/agentctxsync/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](mcp/)
 
-> Official website: http://www.agentctxsync.com *(ICP filing in progress, coming soon)*
+> Official website: https://www.agentctxsync.com · ICP filing: 京ICP备2026053460号-1
 
 A complete solution for syncing sessions across devices and agents. Supports multi-user, multi-Workspace isolation with a PostgreSQL backend, and syncs automatically when an Agent starts via MCP Server.
 
