@@ -42,9 +42,9 @@
         </span>
         <span class="whitespace-nowrap">{{ agent.label }}</span>
         {% if agent.downloadable %}
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" title="{{ t.help_flow_download }}"></span>
+        <span class="w-1.5 h-1.5 rounded-full {{ agent_color_solid(agent_key) }}" title="{{ t.help_flow_download }}"></span>
         {% else %}
-        <span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="{{ t.help_badge_adapting }}"></span>
+        <span class="w-1.5 h-1.5 rounded-full {{ agent_color_solid(agent_key) }}" title="{{ t.help_badge_adapting }}"></span>
         {% endif %}
       </button>
       {% endfor %}
