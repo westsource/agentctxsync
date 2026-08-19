@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.19.2] - 2026-08-19
+
+### Changed
+- **访问统计按类型拆分**：`access_stats` 新增 `kind` 列（`web` = `/web/*` 页面与 `/` 落地页，`api` = 拉取/推送及全部 API），主键改为 `(stat_date, channel, kind)`；`init_db()` 启动时自动迁移存量表（历史行回填为 `api`）。管理页新增今日四象限卡片（域名 Web / 域名 API / IP Web / IP API）与按日六列明细表
+
 ## [2026.08.19.1] - 2026-08-19
 
 ### Added

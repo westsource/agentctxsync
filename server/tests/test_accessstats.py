@@ -1,8 +1,9 @@
-"""requestlog channel classification + access-counting tests.
+"""requestlog channel/kind classification + access-counting tests.
 
 Pins the observable contract of the admin access-statistics feature:
 the Host header decides the channel (hostname -> 'domain', IP literal ->
-'ip'), every counted request triggers one upsert into access_stats, and
+'ip'), the path decides the kind ('/web/*' and '/' -> 'web', else 'api'),
+every counted request triggers one upsert into access_stats, and
 static/health traffic is excluded.
 """
 import asyncio
@@ -73,28 +74,41 @@ class ClassifyChannelTest(unittest.TestCase):
         self.assertEqual(requestlog.classify_channel(None), "ip")
 
 
+class ClassifyKindTest(unittest.TestCase):
+    def test_web_paths(self):
+        for p in ("/", "/web/", "/web/login", "/web/admin/access"):
+            self.assertEqual(requestlog.classify_kind(p), "web", p)
+
+    def test_api_paths(self):
+        for p in ("/push", "/pull", "/api/projects/push", "/api/projects/pull",
+                  "/api/client/download", "/status/dev1"):
+            self.assertEqual(requestlog.classify_kind(p), "api", p)
+
+
 class RecordAccessTest(unittest.TestCase):
-    def _record(self, host):
+    def _record(self, host, path):
         cur = FakeCursor()
         with mock.patch.object(requestlog, "get_conn",
                                return_value=FakeCtx(FakeConn(cur))):
-            requestlog._record_access(host)
+            requestlog._record_access(host, path)
         return cur.executed[0]
 
-    def test_upsert_domain_channel(self):
-        sql, params = self._record("www.agentctxsync.com")
+    def test_upsert_domain_web(self):
+        sql, params = self._record("www.agentctxsync.com", "/web/login")
         self.assertIn("INSERT INTO access_stats", sql)
         self.assertIn("ON CONFLICT", sql)
         self.assertEqual(params[0], date.today())
         self.assertEqual(params[1], "domain")
+        self.assertEqual(params[2], "web")
 
-    def test_upsert_ip_channel(self):
-        _, params = self._record("47.95.214.236:8765")
+    def test_upsert_ip_api(self):
+        _, params = self._record("47.95.214.236:8765", "/push")
         self.assertEqual(params[1], "ip")
+        self.assertEqual(params[2], "api")
 
     def test_db_failure_swallowed(self):
         with mock.patch.object(requestlog, "get_conn", side_effect=RuntimeError("pg down")):
-            requestlog._record_access("www.agentctxsync.com")  # must not raise
+            requestlog._record_access("www.agentctxsync.com", "/web/login")  # must not raise
 
 
 class MiddlewareCountingTest(unittest.TestCase):
@@ -118,15 +132,19 @@ class MiddlewareCountingTest(unittest.TestCase):
 
     def test_web_request_counted_with_host(self):
         rec = self._run("/web/login", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com")
+        rec.assert_called_once_with("www.agentctxsync.com", "/web/login")
 
     def test_ip_host_passed_through(self):
         rec = self._run("/web/login", host="47.95.214.236:8765")
-        rec.assert_called_once_with("47.95.214.236:8765")
+        rec.assert_called_once_with("47.95.214.236:8765", "/web/login")
 
-    def test_sync_post_counted(self):
+    def test_root_landing_counted_as_web(self):
+        rec = self._run("/", host="www.agentctxsync.com")
+        rec.assert_called_once_with("www.agentctxsync.com", "/")
+
+    def test_sync_post_counted_as_api(self):
         rec = self._run("/push", host="www.agentctxsync.com", method="POST")
-        rec.assert_called_once_with("www.agentctxsync.com")
+        rec.assert_called_once_with("www.agentctxsync.com", "/push")
 
     def test_static_health_favicon_skipped(self):
         for path in ("/static/app.js", "/static/favicon.svg", "/health", "/favicon.ico"):
