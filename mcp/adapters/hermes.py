@@ -221,6 +221,14 @@ class HermesAdapter(SQLiteAdapter):
             if target is None:
                 skipped += 1
                 continue
+            # Remember the owner agent of foreign-agent sessions so
+            # push_sessions can tag them correctly. hermes' state.db has no
+            # agent_type column, so without this registry a pulled
+            # workbuddy/codex session would be re-pushed tagged as hermes
+            # and every message would be mis-attributed on the server.
+            owner = s.get("agent_type") or ""
+            if owner and owner != "hermes":
+                target._remember_foreign(cid, owner)
             stats = target.write_sessions([s])
             for k in totals:
                 totals[k] += stats.get(k, 0)
@@ -441,6 +449,18 @@ class HermesAdapter(SQLiteAdapter):
 
     def _watermark_file(self) -> Path | None:
         return self._home / ".hermes-sync-watermark"
+
+    def _foreign_ids_file(self) -> Path | None:
+        """Sidecar remembering owner agents of pulled foreign sessions.
+
+        hermes' state.db has no agent_type column, so sessions pulled from
+        the shared pool (workbuddy/codex/...) would lose their owner and be
+        re-pushed tagged as hermes. The registry lives next to the default
+        profile's state.db (foreign sessions always land in the default
+        profile), so both the aggregating adapter and the default-profile
+        sub-adapter see the same file.
+        """
+        return self._home / ".hermes-sync-foreign.json"
 
 
 # registry alias (mcp/adapters/__init__.py looks up ``module.Adapter``)
