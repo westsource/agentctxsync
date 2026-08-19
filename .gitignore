@@ -21,6 +21,7 @@ server/.env.*
 .env.reasonix/
 .reasonix/
 .workbuddy/
+.workbuddy-ai/
 
 # Local Reasonix sandbox config (may contain local-only paths)
 reasonix.toml
