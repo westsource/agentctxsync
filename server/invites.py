@@ -28,7 +28,13 @@ def quota_ui_active(conn=None):
     any UI change). Pass an open connection to stay inside a transaction.
     """
     def _query(c):
+        # Show the quota UI when a limited plan is reachable: a free-granting
+        # invite exists, OR open registration has produced free-plan users
+        # (default since the no-invite registration now grants 'free').
         c.execute("SELECT 1 FROM invites WHERE revoked = 0 AND grant_plan != 'unlimited' LIMIT 1")
+        if c.fetchone():
+            return True
+        c.execute("SELECT 1 FROM users WHERE plan = 'free' LIMIT 1")
         return c.fetchone() is not None
     if conn is not None:
         return _query(conn.cursor())
