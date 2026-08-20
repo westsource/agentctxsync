@@ -43,14 +43,16 @@
     <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ total_messages }}</p>
     <p class="text-xs text-gray-400 mt-1.5 font-medium">{{ t.dash_messages_total }}</p>
   </div>
-  <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+  <div class="group bg-white rounded-2xl p-5 shadow-sm border border-gray-100 cursor-pointer hover:border-[#F2994A]/40 hover:shadow-md transition-all"
+       onclick="document.getElementById('dashDevicesModal').classList.remove('hidden')"
+       title="{{ t.ws_sync_devices }}">
     <div class="flex items-center justify-between mb-2">
       <p class="text-[13px] font-medium text-gray-900">{{ t.dash_devices }}</p>
       <div class="w-8 h-8 rounded-lg bg-[#FFF7E6] flex items-center justify-center">
         <svg class="w-4 h-4 text-[#F2994A]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
       </div>
     </div>
-    <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ ws_list|sum(attribute='device_count') }}</p>
+    <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ devices|length }}</p>
     <p class="text-xs text-gray-400 mt-1.5 font-medium">{{ t.dash_devices_conn }}</p>
   </div>
 </div>
@@ -266,6 +268,62 @@
         <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_save }}</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Devices Modal（设备数卡片触发） -->
+<div id="dashDevicesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <h3 class="text-[17px] font-semibold text-gray-900">{{ t.ws_sync_devices }}</h3>
+        <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ devices|length }}</span>
+      </div>
+      <button type="button" onclick="document.getElementById('dashDevicesModal').classList.add('hidden')"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="{{ t.common_close }}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 14 14"><path stroke-linecap="round" stroke-width="1.4" d="M4 4L10 10M10 4L4 10"/></svg>
+      </button>
+    </div>
+    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="bg-[#F9F8FD]">
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_device }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_owner }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_workspaces }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_sessions_synced }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_messages_synced }}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for d in devices %}
+          <tr class="hover:bg-[#F9F8FD] transition-colors">
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-[#EDE9FB] flex items-center justify-center shrink-0">
+                  <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M6 5.5C6 4.1 7.1 3 8.5 3H11.5C12.9 3 14 4.1 14 5.5V9.5C14 10.9 12.9 12 11.5 12H8.5C7.1 12 6 10.9 6 9.5V5.5Z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M7.5 15H12.5M8.5 17.5H11.5"/></svg>
+                </div>
+                <div>
+                  <p class="font-medium text-gray-900 text-sm font-mono">{{ d.device_id }}</p>
+                  <p class="text-[11px] text-gray-400 mt-0.5">{{ t.ws_device }}</p>
+                </div>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ d.user_display_name }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ d.workspace_name }}</td>
+            <td class="px-6 py-4 text-sm text-gray-500">{{ d.last_sync_at|timestamp_fmt if d.last_sync_at else t.common_never }}</td>
+            <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.sessions_synced }}</span></td>
+            <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ d.messages_synced }}</span></td>
+          </tr>
+          {% endfor %}
+          {% if not devices %}
+          <tr><td colspan="6" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.ws_no_devices }}</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="px-6 py-3 border-t border-gray-100 text-xs text-gray-400">{{ t.ws_sync_freq }}</div>
   </div>
 </div>
 <script>
