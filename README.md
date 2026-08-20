@@ -13,6 +13,7 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 ## Features
 
 - **Cross-agent sync**: Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy share the same session pool. Every client pulls the **full pool** (all agents) and pushes everything it holds, so A's sessions can be pulled by B and written to its local storage; a session continued on another device only pushes its newly-added messages
+- **Sub-agent folding**: Hermes sub-agent (delegated-task) conversations are merged into the main session at sync time — the main agent and its sub-agents surface as one conversation, and sub-agent messages carry a badge in the session viewer
 - **Multi-tenancy**: multi-user + multi-Workspace isolation, each Workspace has its own API Key; admins manage users, invite codes and workspace metadata but **cannot read any user's sessions or messages**
 - **Automatic sync**: incremental pull on startup with bootstrap push on first pairing, then periodic auto-sync; batched to avoid timeouts, lock-safe (single-writer), idempotent message dedup across devices
 - **Quota enforcement**: per-user session-storage limits and Agent allowlists via `free` / `unlimited` plans; enforced server-side on new session writes, DB-driven (no restart), with an audit trail
