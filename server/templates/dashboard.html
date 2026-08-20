@@ -57,37 +57,7 @@
   </div>
 </div>
 
-<!-- Quota (rendered only when a limited plan is reachable via invites;
-     otherwise the mechanism stays fully invisible) -->
-{% if quota %}
-<div class="bg-white border border-gray-100 rounded-2xl p-5 mb-8">
-  <div class="flex items-center justify-between mb-3">
-    <div class="flex items-center gap-2">
-      <span class="text-sm font-semibold text-gray-900">{{ t.dash_quota_title }}</span>
-      {% if quota.plan == 'unlimited' %}
-      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ t.plan_unlimited }}</span>
-      {% else %}
-      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.plan_free }}</span>
-      {% endif %}
-    </div>
-  </div>
-  {% if quota.max_sessions is not none %}
-    {% if quota.max_sessions > 0 %}
-    <div class="flex items-center gap-4">
-      <div class="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
-        <div class="h-full bg-[#6E56CF] rounded-full transition-all"
-             style="width: {{ [quota.active_count / quota.max_sessions * 100, 100] | min }}%"></div>
-      </div>
-      <span class="text-sm text-gray-500 whitespace-nowrap">{{ t.dash_quota_used.format(quota.active_count, quota.max_sessions) }}</span>
-    </div>
-    {% else %}
-    <p class="text-sm text-amber-500">{{ t.dash_quota_full }}</p>
-    {% endif %}
-  {% else %}
-  <p class="text-sm text-gray-500">{{ t.dash_quota_unlimited }}</p>
-  {% endif %}
-</div>
-{% endif %}
+<!-- Quota lives in the sidebar (base.html), injected globally by render.py -->
 
 <!-- Workspaces -->
 <div class="mb-8">

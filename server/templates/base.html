@@ -116,6 +116,35 @@
       </a>
     </nav>
 
+    <!-- Quota: plan + usage, global (injected by render.py on every page) -->
+    {% if quota %}
+    <div class="pt-3 pb-1">
+      <div class="flex items-center justify-between px-3 mb-1.5">
+        <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_quota_title }}</span>
+        {% if quota.plan == 'unlimited' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#E9F9EF] text-[#34A853]">{{ t.plan_unlimited }}</span>
+        {% else %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.plan_free }}</span>
+        {% endif %}
+      </div>
+      {% if quota.max_sessions is not none %}
+        {% if quota.max_sessions > 0 %}
+        <div class="flex items-center gap-2 px-3" title="{{ t.dash_quota_used.format(quota.active_count, quota.max_sessions) }}">
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-[#6E56CF] rounded-full transition-all"
+                 style="width: {{ [quota.active_count / quota.max_sessions * 100, 100] | min }}%"></div>
+          </div>
+          <span class="text-[11px] text-gray-400 tabular-nums whitespace-nowrap">{{ quota.active_count }}/{{ quota.max_sessions }}</span>
+        </div>
+        {% else %}
+        <p class="px-3 text-[11px] text-amber-500">{{ t.dash_quota_full }}</p>
+        {% endif %}
+      {% else %}
+      <p class="px-3 text-[11px] text-gray-400">{{ t.dash_quota_unlimited }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- User info + account menu (hover to open) -->
     <div class="pt-4 mt-2 border-t border-gray-100">
       <div class="user-menu relative">

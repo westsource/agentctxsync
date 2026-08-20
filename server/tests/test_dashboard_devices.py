@@ -64,11 +64,12 @@ DEVICE_ROW = {
 
 class DashboardDeviceScopeTest(unittest.TestCase):
     def _render(self, user):
-        # Three get_conn() blocks: quota, recent_sessions, devices.
-        quota_cursor = FakeCursor(fetchone_results=[(2,), (29,)])
+        # Three get_conn() blocks: stats, recent_sessions, devices.
+        # (Quota moved to the global sidebar injection in render.py.)
+        stats_cursor = FakeCursor(fetchone_results=[(2,), (29,)])
         recent_cursor = FakeCursor(fetchall_results=[])
         devices_cursor = FakeCursor(fetchall_results=[dict(DEVICE_ROW)])
-        conns = [FakeCtx(FakeConn(quota_cursor)),
+        conns = [FakeCtx(FakeConn(stats_cursor)),
                  FakeCtx(FakeConn(recent_cursor)),
                  FakeCtx(FakeConn(devices_cursor))]
 
@@ -83,7 +84,6 @@ class DashboardDeviceScopeTest(unittest.TestCase):
             mock.patch.object(workspace, "get_nav_workspaces", return_value=[]),
             mock.patch.object(workspace, "get_user_workspaces", return_value=[]),
             mock.patch.object(workspace, "get_conn", side_effect=conns),
-            mock.patch.object(workspace, "quota_ui_active", return_value=False),
             mock.patch.object(workspace, "render_page", side_effect=fake_render),
         ]
         for p in patchers:

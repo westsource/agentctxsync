@@ -9,6 +9,7 @@ import jinja2
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from db import get_conn, plan_limits
 from translations import get_translations
 # ============================================================
 
@@ -68,9 +69,44 @@ def render(template_name, context=None):
             ctx["error"] = q.get("error")
         if "success" not in ctx and q.get("success"):
             ctx["success"] = q.get("success")
+    # Global quota for the sidebar: every logged-in page sees plan/usage.
+    # Routers may still pass their own (setdefault keeps theirs).
+    ctx.setdefault("quota", _sidebar_quota())
     tmpl = jinja_env.get_template(template_name)
     html = tmpl.render(ctx)
     return HTMLResponse(content=html)
+
+
+def _sidebar_quota():
+    """Plan + usage for the sidebar, or None when it must stay hidden.
+
+    Returns None for guests and for deployments with no limited plan
+    reachable (no free users, no free-granting invites), so the sidebar
+    block is invisible there. Runs on every logged-in page render — a few
+    indexed queries per request, acceptable at this scale.
+    """
+    from auth import verify_jwt  # 函数内: 避免 render->auth 循环
+    from invites import quota_ui_active  # 函数内: 避免 render->invites 循环
+    request = _current_request_var.get()
+    if request is None:
+        return None
+    token = request.cookies.get("hsync_token")
+    payload = verify_jwt(token) if token else None
+    if not payload or not payload.get("sub"):
+        return None
+    with get_conn() as conn:
+        if not quota_ui_active(conn):
+            return None
+        c = conn.cursor()
+        c.execute("SELECT plan FROM users WHERE id = %s", (payload["sub"],))
+        prow = c.fetchone()
+        plan = (prow[0] if prow else None) or "free"
+        max_sessions, _ = plan_limits(plan, conn)
+        c.execute("""SELECT COUNT(*) FROM sessions s
+                     JOIN workspaces w ON s.workspace_id = w.id
+                     WHERE w.user_id = %s AND s.archived = 0""", (payload["sub"],))
+        active_count = c.fetchone()[0]
+    return {"plan": plan, "max_sessions": max_sessions, "active_count": active_count}
 
 
 async def render_page(template_name, context=None):

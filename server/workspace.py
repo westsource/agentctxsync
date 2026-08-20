@@ -14,8 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from agents import AGENTS
 from auth import generate_api_key, get_current_user, hash_password, verify_password
 from db import (_pg_val, get_conn, get_nav_workspaces,
-               get_user_workspaces, plan_limits, rel_sync_label)
-from invites import quota_ui_active
+               get_user_workspaces, rel_sync_label)
 from render import get_lang, get_translations, make_flash, render_page
 
 router = APIRouter()
@@ -35,21 +34,6 @@ async def web_dashboard(request: Request):
         total_sessions = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM messages WHERE workspace_id IN (SELECT id FROM workspaces WHERE user_id = %s)", (user["sub"],))
         total_messages = c.fetchone()[0]
-        # Quota usage shown to the user (mirrors the /push gate: active only).
-        # Hidden entirely when the deployment has no limited invite path
-        # (invites/registrations all unlimited) — admins and users stay
-        # unaware of the quota mechanism.
-        quota = None
-        if quota_ui_active(conn):
-            c.execute("SELECT plan FROM users WHERE id = %s", (user["sub"],))
-            prow = c.fetchone()
-            plan = (prow[0] if prow else None) or "free"
-            max_sessions, _ = plan_limits(plan, conn)
-            c.execute("""SELECT COUNT(*) FROM sessions s
-                         JOIN workspaces w ON s.workspace_id = w.id
-                         WHERE w.user_id = %s AND s.archived = 0""", (user["sub"],))
-            active_count = c.fetchone()[0]
-            quota = {"plan": plan, "max_sessions": max_sessions, "active_count": active_count}
     # 最近同步的会话（跨工作空间，按最后消息时间倒序取 6 条）
     recent_sessions = []
     with get_conn() as conn:
@@ -90,7 +74,7 @@ async def web_dashboard(request: Request):
         devices = [dict(r) for r in c.fetchall()]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "dashboard",
            "ws_list": ws_list, "total_sessions": total_sessions, "total_messages": total_messages,
-           "quota": quota, "recent_sessions": recent_sessions, "devices": devices}
+           "recent_sessions": recent_sessions, "devices": devices}
     return await render_page("dashboard.html", ctx)
 
 @router.get("/web/all-sessions", response_class=HTMLResponse)
@@ -693,6 +677,30 @@ async def web_message_unhide(ws_id: int, sid: str, mid: int, request: Request):
     t = get_translations(get_lang())
     make_flash(resp, t.get("msg_unhidden_ok", "Message restored"), "success")
     return resp
+
+@router.post("/web/workspace/{ws_id}/session/{sid}/messages/unhide-all")
+async def web_message_unhide_all(ws_id: int, sid: str, request: Request):
+    """Restore every deleted message in this session at once."""
+    try:
+        user = get_current_user(request)
+    except:
+        return RedirectResponse(url="/web/login")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (ws_id, user["sub"]))
+        if not c.fetchone():
+            return RedirectResponse(url="/web/", status_code=303)
+        c.execute("UPDATE messages SET hidden = 0, hidden_at = NULL "
+                  "WHERE id IN (SELECT id FROM messages "
+                  "WHERE workspace_id = %s AND session_id = %s AND hidden = 1)",
+                  (ws_id, sid))
+        restored = c.rowcount
+        conn.commit()
+    resp = RedirectResponse(url=f"/web/workspace/{ws_id}/session/{sid}", status_code=303)
+    t = get_translations(get_lang())
+    make_flash(resp, t.get("msg_unhide_all_ok", "Messages restored").format(restored), "success")
+    return resp
+
 
 @router.post("/web/workspace/{ws_id}/import")
 async def web_workspace_import(ws_id: int, request: Request):
