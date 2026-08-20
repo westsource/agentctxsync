@@ -30,6 +30,15 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
+# mcp SDK v2 (the 2026-07-28 spec rework, mcp>=2.0.0) removed the low-level
+# decorator API: ``Server.list_tools()`` / ``Server.call_tool()`` no longer
+# exist, handlers register via ``add_request_handler`` with ``(ctx, params)
+# -> result`` signatures. Detect the era once; the v1 path keeps the
+# historical decorators, the v2 path registers the same handlers with v2
+# signatures. Everything else (Server, stdio_server, mcp.types, run(),
+# create_initialization_options()) is shared by both.
+SDK_V2 = not hasattr(Server, "list_tools")
+
 from adapters import get_adapter, available_agents
 from adapters.base import AGENT_PREFIXES
 import updater
@@ -123,11 +132,30 @@ class _SyncServer(Server):
         super().__init__(name)
         self.active_session = None
         self._session_ready = asyncio.Event()
+        if SDK_V2:
+            # v2 hands us no run() hook that exposes the connection session,
+            # so capture the per-request ServerSession on the first inbound
+            # message (request or notification). Background sync
+            # notifications then use its standalone outbound channel -- the
+            # same shape v1's active_session had. The middleware list only
+            # exists on v2.
+            async def _capture_session(ctx, call_next):
+                self.active_session = ctx.session
+                self._session_ready.set()
+                return await call_next(ctx)
+            self.middleware.append(_capture_session)
 
     async def run(self, read_stream, write_stream, initialization_options,
                   raise_exceptions: bool = False, stateless: bool = False):
-        # Mirrors mcp.server.Server.run (mcp SDK 1.28.1) so we can capture
-        # the ServerSession for background notifications.
+        if SDK_V2:
+            # v2 SDK owns the connection loop (handshake + modern eras); the
+            # capture middleware above already stashed the session. Its
+            # run() takes no `stateless` kwarg.
+            await super().run(read_stream, write_stream, initialization_options,
+                              raise_exceptions=raise_exceptions)
+            return
+        # v1: mirrors mcp.server.Server.run (mcp SDK 1.28.1) so we can
+        # capture the ServerSession for background notifications.
         from contextlib import AsyncExitStack
         import anyio
         from mcp.server.session import ServerSession
@@ -414,8 +442,8 @@ TOOL_SPECS = [
     ("project_pull", "Pull remote projects into the local projects.db (applies remaps)."),
 ]
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
+def _build_tools() -> list[Tool]:
+    """MCP tool surface: canonical sync_* plus hermes_sync_* aliases."""
     tools = []
     for name, desc, *rest in TOOL_SPECS:
         props = rest[0] if rest else {}
@@ -426,8 +454,9 @@ async def list_tools() -> list[Tool]:
                           inputSchema={"type": "object", "properties": props}))
     return tools
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+
+async def _dispatch_tool(name: str, arguments: dict) -> str:
+    """Run one tool, returning the human-readable result text."""
     loop = asyncio.get_event_loop()
     base = name[len("hermes_"):] if name.startswith("hermes_") else name
     if base == "sync_status":
@@ -461,7 +490,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         text = json.dumps(result, indent=2, ensure_ascii=False)
     else:
         raise ValueError(f"Unknown tool: {name}")
-    return [TextContent(type="text", text=text)]
+    return text
+
+
+if SDK_V2:
+    # v2 handlers: (ctx, params) -> typed result, registered by method name
+    # (PaginatedRequestParams / CallToolRequestParams are v2-era wire types).
+    from mcp.types import (CallToolRequestParams, CallToolResult,
+                           ListToolsResult, PaginatedRequestParams)
+
+    async def list_tools(ctx, params: PaginatedRequestParams) -> ListToolsResult:
+        return ListToolsResult(tools=_build_tools())
+
+    async def call_tool(ctx, params: CallToolRequestParams) -> CallToolResult:
+        text = await _dispatch_tool(params.name, dict(params.arguments or {}))
+        return CallToolResult(content=[TextContent(type="text", text=text)])
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    server.add_request_handler("tools/call", CallToolRequestParams, call_tool)
+else:
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return _build_tools()
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        text = await _dispatch_tool(name, arguments)
+        return [TextContent(type="text", text=text)]
 
 async def periodic_sync():
     if not AUTO_SYNC:

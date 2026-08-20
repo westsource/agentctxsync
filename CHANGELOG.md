@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.20.2] - 2026-08-20
+
+### Fixed
+- **MCP 客户端兼容 mcp SDK v2**：`pip install mcp` 自 2026-07-28 规范重构（mcp 2.x）起不再提供低层 `Server.list_tools()`/`Server.call_tool()` 装饰器，Hermes 等客户端启动即报 `AttributeError: '_SyncServer' object has no attribute 'list_tools'`。客户端现按 SDK 时代自适应：v1 保持装饰器注册，v2 改用 `add_request_handler`（`(ctx, params) -> ListToolsResult/CallToolResult`），并通过中间件捕获会话维持后台同步日志通知；其余 API（`stdio_server`/`run()`/`create_initialization_options()`/`mcp.types`）两代共用。旧版客户端需重新下载客户端包（帮助页 zip）或手动替换 `mcp/server.py` 后重启 Agent
+
 ## [2026.08.20.1] - 2026-08-20
 
 ### Changed

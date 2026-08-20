@@ -5,6 +5,7 @@ message count, so a giant request cannot exceed the HTTP timeout during a
 full sync (a full resync pulls/pushes every session on the server).
 """
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -55,6 +56,43 @@ class ChunkSessionsTest(unittest.TestCase):
     def test_default_limits(self):
         chunks = server._chunk_sessions([mk(100)] * 25)
         self.assertEqual([len(c) for c in chunks], [20, 5])
+
+
+class ToolRegistrationTest(unittest.TestCase):
+    """The tool surface registers on both mcp SDK eras. Regression: SDK v2
+    (mcp>=2.0.0) removed Server.list_tools()/call_tool() decorators, which
+    crashed the client at import with AttributeError."""
+
+    EXPECTED = [name for spec in server.TOOL_SPECS
+                for name in (spec[0], "hermes_" + spec[0])]
+
+    def test_build_tools_surface(self):
+        tools = server._build_tools()
+        self.assertEqual([t.name for t in tools], self.EXPECTED)
+        self.assertEqual(len(tools), len(self.EXPECTED))
+        for t in tools:
+            self.assertIsNotNone(t.description)
+            # field name differs across SDK eras (inputSchema vs input_schema);
+            # the wire alias is stable
+            schema = t.model_dump(by_alias=True, mode="json")["inputSchema"]
+            self.assertEqual(schema["type"], "object")
+
+    def test_handlers_registered(self):
+        # The module import itself already exercises the era branch; assert
+        # the handlers actually landed on the server instance.
+        if server.SDK_V2:
+            handlers = server.server._request_handlers
+            self.assertIn("tools/list", handlers)
+            self.assertIn("tools/call", handlers)
+        else:
+            from mcp.types import CallToolRequest, ListToolsRequest
+            handlers = server.server.request_handlers
+            self.assertIn(ListToolsRequest, handlers)
+            self.assertIn(CallToolRequest, handlers)
+
+    def test_dispatch_unknown_tool_raises(self):
+        with self.assertRaises(ValueError):
+            asyncio.run(server._dispatch_tool("nope", {}))
 
 
 if __name__ == "__main__":
