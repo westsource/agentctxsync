@@ -303,8 +303,13 @@ def init_db():
             resolved_at DOUBLE PRECISION,
             resolved_by INTEGER
         )""")
+        # Default 'free' cap raised 200 -> 300. DO UPDATE with a guard on the
+        # old default so an operator's hand-set value is never overwritten;
+        # fresh databases just get 300 directly.
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
-            VALUES ('free', 200, NULL) ON CONFLICT (plan) DO NOTHING""")
+            VALUES ('free', 300, NULL)
+            ON CONFLICT (plan) DO UPDATE SET max_sessions = 300
+            WHERE quota_config.max_sessions = 200""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
             VALUES ('unlimited', NULL, NULL) ON CONFLICT (plan) DO NOTHING""")
         c.execute("SELECT COUNT(*) FROM users")

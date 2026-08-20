@@ -9,6 +9,8 @@ from datetime import datetime
 
 import psycopg2.extras
 
+import captcha
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -214,11 +216,25 @@ async def web_login_post(request: Request):
 async def web_register_page(request: Request, error: str = ""):
     # Pre-fill the invite code from a shared registration link (?code=...)
     code = request.query_params.get("code", "")
-    return await render_page("register.html", {"error": error, "code": code})
+    captcha_id, captcha_svg = captcha.new_challenge()
+    return await render_page("register.html", {"error": error, "code": code,
+                                               "captcha_id": captcha_id,
+                                               "captcha_svg": captcha_svg})
+
+
+@router.get("/web/captcha/new")
+async def web_captcha_new():
+    """Fresh challenge for the register form's refresh button."""
+    captcha_id, captcha_svg = captcha.new_challenge()
+    return {"id": captcha_id, "svg": captcha_svg}
+
 
 @router.post("/web/register", response_class=HTMLResponse)
 async def web_register_submit(request: Request):
     body = await request.form()
+    # Math CAPTCHA gate first: cheapest anti-bot check, no DB touch.
+    if not captcha.verify(body.get("captcha_id", ""), body.get("captcha", "")):
+        return RedirectResponse(url="/web/register?error=register_captcha_failed", status_code=303)
     username = body.get("username", "").strip()
     display_name = body.get("display_name", "").strip() or username
     password = body.get("password", "")
@@ -231,8 +247,8 @@ async def web_register_submit(request: Request):
     now = datetime.now().timestamp()
     # Optional invite: resolve the granted plan BEFORE creating the user; the
     # invite is consumed afterwards (a failed consume rolls the user back).
-    # Without an invite code the default plan applies.
-    grant_plan = invite_grant_plan(code) if code else "unlimited"
+    # Without an invite code the 'free' plan applies.
+    grant_plan = invite_grant_plan(code) if code else "free"
     with get_conn() as conn:
         c = conn.cursor()
         try:

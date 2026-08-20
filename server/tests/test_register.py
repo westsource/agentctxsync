@@ -59,7 +59,7 @@ class FakeRequest:
 
 
 class RegisterSubmitTest(unittest.TestCase):
-    def _submit(self, form, consume_result=None):
+    def _submit(self, form, consume_result=None, captcha_ok=True):
         cursor = FakeCursor([(7,)])
         conn = FakeConn(cursor)
         patchers = [
@@ -68,6 +68,7 @@ class RegisterSubmitTest(unittest.TestCase):
             mock.patch.object(auth, "generate_api_key", return_value="ws_test"),
             mock.patch.object(auth, "invite_grant_plan", return_value="unlimited"),
             mock.patch.object(auth, "consume_invite", return_value=consume_result),
+            mock.patch.object(auth.captcha, "verify", return_value=captcha_ok),
         ]
         for p in patchers:
             p.start()
@@ -81,18 +82,36 @@ class RegisterSubmitTest(unittest.TestCase):
             "password": "secret1",
             "confirm_password": "secret1",
             "invite_code": "",
+            "captcha_id": "cid-1",
+            "captcha": "42",
         })
         self.assertEqual(resp.status_code, 303)
         self.assertEqual(resp.headers["location"], "/web/login?success=register_success")
         insert_sql, insert_params = cursor.executed[0]
         self.assertIn("INSERT INTO users", insert_sql)
         self.assertEqual(insert_params[3], False)  # is_admin
-        self.assertEqual(insert_params[5], "unlimited")  # plan
+        self.assertEqual(insert_params[5], "free")  # plan: open registration grants 'free'
         # Default workspace auto-created for the new user.
         self.assertTrue(any("INSERT INTO workspaces" in sql for sql, _ in cursor.executed))
         # No invite path touched: neither plan lookup nor consumption.
         auth.invite_grant_plan.assert_not_called()
         auth.consume_invite.assert_not_called()
+        # Captcha was verified.
+        auth.captcha.verify.assert_called_once()
+
+    def test_wrong_captcha_rejected(self):
+        resp, cursor = self._submit({
+            "username": "dave",
+            "password": "secret1",
+            "confirm_password": "secret1",
+            "invite_code": "",
+            "captcha_id": "cid-9",
+            "captcha": "9999",
+        }, captcha_ok=False)
+        self.assertEqual(resp.status_code, 303)
+        self.assertEqual(resp.headers["location"], "/web/register?error=register_captcha_failed")
+        # Gate runs before any DB work: no queries at all.
+        self.assertEqual(cursor.executed, [])
 
     def test_register_with_invite_still_consumes_it(self):
         resp, cursor = self._submit({
@@ -100,6 +119,8 @@ class RegisterSubmitTest(unittest.TestCase):
             "password": "secret1",
             "confirm_password": "secret1",
             "invite_code": "HSYNC-ABC",
+            "captcha_id": "cid-2",
+            "captcha": "42",
         })
         self.assertEqual(resp.status_code, 303)
         self.assertEqual(resp.headers["location"], "/web/login?success=register_success")
@@ -112,6 +133,8 @@ class RegisterSubmitTest(unittest.TestCase):
             "password": "secret1",
             "confirm_password": "secret1",
             "invite_code": "HSYNC-BAD",
+            "captcha_id": "cid-3",
+            "captcha": "42",
         }, consume_result="register_invalid_code")
         self.assertEqual(resp.status_code, 303)
         self.assertEqual(resp.headers["location"], "/web/register?error=register_invalid_code")
@@ -123,6 +146,8 @@ class RegisterSubmitTest(unittest.TestCase):
             "password": "secret1",
             "confirm_password": "secret1",
             "invite_code": "",
+            "captcha_id": "cid-4",
+            "captcha": "42",
         })
         self.assertEqual(resp.status_code, 303)
         self.assertEqual(resp.headers["location"], "/web/register?error=register_invalid_input")
