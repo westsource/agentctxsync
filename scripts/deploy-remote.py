@@ -62,7 +62,7 @@ def main():
     for name in ("main.py", "config.py", "db.py", "render.py", "auth.py",
                  "invites.py", "workspace.py", "admin.py", "sync.py",
                  "projects.py", "client_update.py", "web_help.py",
-                 "agents.py", "translations.py", "requestlog.py"):
+                 "agents.py", "translations.py", "requestlog.py", "feedback.py"):
         sftp.put(os.path.join(srv, name), f"{REMOTE}/{name}")
         print(f"uploaded {name}")
     for name in os.listdir(os.path.join(srv, "templates")):
