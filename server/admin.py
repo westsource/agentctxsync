@@ -177,14 +177,18 @@ async def web_admin_access_devices(request: Request):
     nav_ws = get_nav_workspaces(user["sub"])
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""SELECT device_id,
-                            COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
-                            COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
-                            MAX(last_seen) AS last_seen
-                     FROM access_device
-                     WHERE stat_date = %s
-                     GROUP BY device_id
-                     ORDER BY domain_count + ip_count DESC""",
+        # Postgres resolves bare output-column names in ORDER BY, but NOT
+        # aliases used inside an ORDER BY expression -- so order over a
+        # subquery that already materialized the alias columns.
+        c.execute("""SELECT * FROM (
+                            SELECT device_id,
+                                   COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
+                                   COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
+                                   MAX(last_seen) AS last_seen
+                            FROM access_device
+                            WHERE stat_date = %s
+                            GROUP BY device_id
+                     ) t ORDER BY domain_count + ip_count DESC""",
                   (date.today(),))
         devices = [dict(r) for r in c.fetchall()]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_access",
