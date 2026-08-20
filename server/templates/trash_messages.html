@@ -14,7 +14,17 @@
       {{ t.msg_trash }}
       <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">{{ trash_messages|length }}</span>
     </h2>
-    <span class="text-xs text-gray-400 max-w-xs truncate">{{ session.title or session.id }}</span>
+    <div class="flex items-center gap-4 shrink-0 min-w-0">
+      {% if trash_messages %}
+      <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/messages/unhide-all"
+            class="inline" onsubmit="return confirm('{{ t.msg_unhide_all_confirm }}')">
+        <button type="submit" class="p-1 rounded-md text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="{{ t.msg_unhide_all }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5"/></svg>
+        </button>
+      </form>
+      {% endif %}
+      <span class="text-xs text-gray-400 max-w-xs truncate">{{ session.title or session.id }}</span>
+    </div>
   </div>
   {% if trash_messages %}
   <div class="divide-y divide-gray-100">
