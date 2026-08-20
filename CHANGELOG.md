@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.20.6] - 2026-08-20
+
+### Fixed
+- **Hermes 子 agent 会话折叠**：启用子 agent 时，主 agent 与子 agent 的对话此前被同步为多条独立会话。现在客户端（`mcp/adapters/hermes.py`）读取时按 `parent_session_id` 把子会话消息归并进主会话（按时间戳排序、重算消息数），子会话不再单独推送；子 agent 消息带 `meta.subagent` 标记，Web 会话查看器显示「子 agent」徽标。存量已同步的孤儿子会话用 `scripts/migrate-fold-subagents.py` 软隐藏（dry-run 默认，`--apply` 写入）。客户端版本 bump 至 `2026.08.20.6` 触发自动更新
+
 ## [2026.08.20.5] - 2026-08-20
 
 ### Added

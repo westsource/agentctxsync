@@ -176,17 +176,71 @@ class HermesAdapter(SQLiteAdapter):
 
         default sessions keep bare ids; named-profile sessions carry their
         ``<profile>:`` prefix so the server never confuses profiles.
+        Sub-agent children (``parent_session_id``) are folded into their
+        parent so the main agent and its sub-agents surface as one session.
         """
         if not self._aggregate:
-            # single-db mode: canonicalize each session (bare -> prefix)
-            return [self.canonicalize(s) for s in super().read_sessions(limit=limit)]
+            # single-db mode: canonicalize each session, then fold children
+            sessions = [self.canonicalize(s)
+                        for s in super().read_sessions(limit=limit)]
+            return self._fold_subagent_sessions(sessions)
         merged: list[dict] = []
         for name, db in self._profile_dbs():
             sub = self._sub_adapter(name, db)
-            # sub.read_sessions() already canonicalizes (prefixes) its rows
-            merged.extend(sub.read_sessions(limit=limit))
+            # sub.read_sessions() already canonicalizes its rows; parent and
+            # child always live in the same profile's state.db, so fold per
+            # profile (parent_session_id is a local id).
+            sessions = sub.read_sessions(limit=limit)
+            merged.extend(self._fold_subagent_sessions(sessions))
         merged.sort(key=lambda s: s.get("started_at") or 0, reverse=True)
         return merged
+
+    @staticmethod
+    def _fold_subagent_sessions(sessions: list[dict]) -> list[dict]:
+        """Fold sub-agent children into their parent conversation.
+
+        Hermes stores each sub-agent turn as its own session row linked via
+        ``parent_session_id`` (children usually carry no title). Folding =
+        re-attribute the child's messages to the parent (``session_id`` ->
+        parent id), tag them ``meta.subagent`` so the viewer can badge them,
+        sort the merged thread by timestamp, and drop the child from the
+        push output. The parent's ``message_count`` is recomputed from the
+        merged list. Sessions whose parent is not in this batch are kept
+        untouched so no data is ever lost.
+        """
+        by_id = {str(s["id"]): s for s in sessions}
+        roots: list[dict] = []
+        for s in sessions:
+            pid = str(s.get("parent_session_id") or "")
+            parent = by_id.get(pid)
+            if parent is None or parent is s:
+                roots.append(s)
+                continue
+            # Follow the chain to the ultimate root (sub-agent of sub-agent).
+            root = parent
+            seen = {str(s["id"])}
+            while True:
+                rpid = str(root.get("parent_session_id") or "")
+                nxt = by_id.get(rpid)
+                if nxt is None or nxt is root or str(nxt["id"]) in seen:
+                    break
+                seen.add(str(nxt["id"]))
+                root = nxt
+            pmsgs = root.setdefault("messages", [])
+            for m in s.get("messages", []):
+                m = dict(m)
+                m["session_id"] = root["id"]
+                meta = m.get("meta")
+                meta = dict(meta) if isinstance(meta, dict) else {}
+                meta["subagent"] = True
+                m["meta"] = meta
+                pmsgs.append(m)
+        for s in roots:
+            msgs = s.get("messages", [])
+            if len(msgs) > 1:
+                msgs.sort(key=lambda m: m.get("timestamp") or 0)
+            s["message_count"] = len(msgs)
+        return roots
 
     def write_sessions(self, sessions: list[dict]) -> dict:
         """Pull view: route each canonical session to the profile that owns

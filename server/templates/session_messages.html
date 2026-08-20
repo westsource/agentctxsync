@@ -126,6 +126,9 @@
       <div class="flex justify-end gap-3">
         <div class="max-w-[85%] min-w-0">
           <div class="relative bg-[#F2F0FA] rounded-2xl rounded-tr-md px-4 py-2.5 group">
+            {% if m.meta and m.meta.subagent %}
+            <div class="flex justify-end mb-1"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span></div>
+            {% endif %}
             <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-900 break-words">{{ m.content_md|safe }}</div>
             <div class="flex items-center justify-end gap-2 mt-1.5">
               <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
@@ -160,7 +163,12 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
         </div>
         <div class="max-w-[85%] min-w-0">
-          <span class="text-[13px] font-semibold text-gray-700 block mb-1.5">{{ session.agent_type or 'hermes' }}</span>
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-[13px] font-semibold text-gray-700">{{ session.agent_type or 'hermes' }}</span>
+            {% if m.meta and m.meta.subagent %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span>
+            {% endif %}
+          </div>
           <div class="relative bg-white border border-[#EFEEF7] rounded-2xl rounded-tl-md px-4 py-3 shadow-[0_3px_10px_-4px_rgba(33,26,72,0.04)] group">
             {% if m.reasoning_content %}
             <details class="mb-2">
@@ -200,6 +208,9 @@
                   class="w-full flex items-center gap-2 px-4 py-2.5 pr-20 text-xs font-medium text-gray-500 hover:text-gray-800">
             <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             <span class="text-gray-400">{{ t.msg_tool_label }}</span>
+            {% if m.meta and m.meta.subagent %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span>
+            {% endif %}
             <span class="font-mono text-gray-700">{{ m.tool_name or m.tool_call_id or t.common_none }}</span>
             <span class="text-gray-300">·</span>
             <span class="text-gray-400 font-normal" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>

@@ -381,5 +381,56 @@ class HermesMultiProfileTest(unittest.TestCase):
         self.assertIsNotNone(row)
 
 
+class FoldSubagentSessionsTest(unittest.TestCase):
+    """_fold_subagent_sessions: sub-agent children merge into their parent."""
+
+    def _session(self, sid, parent=None, msgs=(), started=1.0):
+        return {
+            "id": sid, "started_at": started, "title": None,
+            "parent_session_id": parent,
+            "messages": [{"session_id": sid, "role": r, "content": c, "timestamp": t}
+                         for r, c, t in msgs],
+        }
+
+    def test_child_folded_into_parent(self):
+        parent = self._session("p", msgs=[("user", "main", 1.0)])
+        child = self._session("c", parent="p",
+                              msgs=[("user", "task", 2.0), ("assistant", "done", 3.0)])
+        out = HermesAdapter._fold_subagent_sessions([parent, child])
+        self.assertEqual([s["id"] for s in out], ["p"])
+        self.assertEqual(len(out[0]["messages"]), 3)
+        # child messages re-attributed + tagged + merged in timestamp order
+        first, second, third = out[0]["messages"]
+        self.assertEqual(first["content"], "main")
+        self.assertEqual(second["content"], "task")
+        self.assertEqual(third["content"], "done")
+        self.assertTrue(all(m["session_id"] == "p" for m in out[0]["messages"]))
+        self.assertTrue(all((m.get("meta") or {}).get("subagent")
+                            for m in out[0]["messages"][1:]))
+        self.assertEqual(out[0]["message_count"], 3)
+
+    def test_orphan_child_kept(self):
+        child = self._session("c", parent="missing", msgs=[("user", "x", 1.0)])
+        out = HermesAdapter._fold_subagent_sessions([child])
+        self.assertEqual([s["id"] for s in out], ["c"])  # never lose data
+
+    def test_nested_child_folded_to_root(self):
+        root = self._session("root", msgs=[("user", "r", 1.0)])
+        mid = self._session("mid", parent="root", msgs=[("user", "m", 2.0)])
+        leaf = self._session("leaf", parent="mid", msgs=[("assistant", "l", 3.0)])
+        out = HermesAdapter._fold_subagent_sessions([root, mid, leaf])
+        self.assertEqual([s["id"] for s in out], ["root"])
+        self.assertEqual(len(out[0]["messages"]), 3)
+        self.assertTrue(all(m["session_id"] == "root" for m in out[0]["messages"]))
+        self.assertEqual(out[0]["message_count"], 3)
+
+    def test_unrelated_sessions_untouched(self):
+        a = self._session("a", msgs=[("user", "x", 1.0)])
+        b = self._session("b", msgs=[("user", "y", 1.0)])
+        out = HermesAdapter._fold_subagent_sessions([a, b])
+        self.assertEqual({s["id"] for s in out}, {"a", "b"})
+        self.assertEqual(out[0]["message_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

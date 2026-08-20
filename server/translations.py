@@ -329,6 +329,7 @@ TRANSLATIONS = {
         "msg_tool_label": "工具",
         "msg_expand": "展开",
         "msg_collapse": "收起",
+        "msg_subagent": "子 agent",
 
         # Messages (flash / query param keys)
         "pwd_mismatch": "两次输入的密码不一致",
@@ -745,6 +746,7 @@ TRANSLATIONS = {
         "msg_tool_label": "Tool",
         "msg_expand": "Expand",
         "msg_collapse": "Collapse",
+        "msg_subagent": "sub-agent",
 
         # Messages (flash / query param keys)
         "pwd_mismatch": "Passwords do not match",
