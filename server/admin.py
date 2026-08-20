@@ -151,9 +151,8 @@ async def web_admin_access(request: Request):
         if key in d:
             d[key] = r["count"]
             d["total"] += r["count"]
-    today_iso = date.today().isoformat()
-    today = days.get(today_iso) or {
-        "date": today_iso, "web_domain": 0, "api_domain": 0,
+    today = days.get(date.today()) or {
+        "date": date.today(), "web_domain": 0, "api_domain": 0,
         "web_ip": 0, "api_ip": 0, "total": 0}
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_access",
            "days": list(days.values()), "today": today,

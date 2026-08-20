@@ -69,9 +69,28 @@ async def web_dashboard(request: Request):
         for r in c.fetchall():
             r["sync_label"] = rel_sync_label(r.get("synced_at"))
             recent_sessions.append(r)
+    # 曾同步的设备：管理员显示全域所有设备，普通用户仅显示自己的设备。
+    is_admin = bool(user.get("is_admin"))
+    scope_clause = "" if is_admin else "WHERE w.user_id = %s"
+    params = () if is_admin else (user["sub"],)
+    devices = []
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute(f"""
+            SELECT ss.device_id, ss.workspace_id, ss.last_sync_at,
+                   ss.sessions_synced, ss.messages_synced,
+                   w.name AS workspace_name,
+                   COALESCE(u.display_name, u.username) AS user_display_name
+            FROM sync_state ss
+            JOIN workspaces w ON ss.workspace_id = w.id
+            JOIN users u ON w.user_id = u.id
+            {scope_clause}
+            ORDER BY ss.last_sync_at DESC
+        """, params)
+        devices = [dict(r) for r in c.fetchall()]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "dashboard",
            "ws_list": ws_list, "total_sessions": total_sessions, "total_messages": total_messages,
-           "quota": quota, "recent_sessions": recent_sessions}
+           "quota": quota, "recent_sessions": recent_sessions, "devices": devices}
     return await render_page("dashboard.html", ctx)
 
 @router.get("/web/all-sessions", response_class=HTMLResponse)
