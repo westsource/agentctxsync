@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.21.1] - 2026-08-21
+
+### Changed
+- **Web 字号统一为标准刻度**：工作空间详情页会话标题补 `text-sm`（此前无字号类继承 16px 基线）、项目卡标题由 `text-[15px]` 归一为 `text-sm font-semibold`；接入帮助页三大步骤区头由 `text-xl` 收敛为 `text-[17px]`（与全站卡片区头一致）、步骤数字圆点同归 17px、Agent 卡标题字重由 `font-bold` 对齐 `font-semibold`、FAQ 答案去除刻度外的 `text-[13px]` 归为 `text-sm`。两页仅保留标准刻度（24 / 17 / 14 / 12 / 11px），与全站其余页面一致
+
 ## [2026.08.20.6] - 2026-08-20
 
 ### Fixed
