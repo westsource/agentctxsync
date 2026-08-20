@@ -3,8 +3,10 @@
 Pins the observable contract of the admin access-statistics feature:
 the Host header decides the channel (hostname -> 'domain', IP literal ->
 'ip'), the path decides the kind ('/web/*' and '/' -> 'web', else 'api'),
-every counted request triggers one upsert into access_stats, and
-static/health traffic is excluded.
+every counted request triggers one upsert into access_stats, requests
+carrying a sync client's device_id (POST body or /status/<device> path)
+also bump the device's access_device row, and static/health traffic is
+excluded.
 """
 import asyncio
 import os
@@ -111,6 +113,89 @@ class RecordAccessTest(unittest.TestCase):
             requestlog._record_access("www.agentctxsync.com", "/web/login")  # must not raise
 
 
+class RecordDeviceTest(unittest.TestCase):
+    """Per-device access rows: sync clients with a device_id get a daily
+    (device, channel) counter so the admin drill-down can tell which
+    machines use the domain vs direct IP."""
+
+    def _record(self, host, path, device_id=""):
+        cur = FakeCursor()
+        with mock.patch.object(requestlog, "get_conn",
+                               return_value=FakeCtx(FakeConn(cur))):
+            requestlog._record_access(host, path, device_id)
+        return cur.executed
+
+    def test_domain_device_upsert(self):
+        executed = self._record("www.agentctxsync.com", "/push", "my-pc")
+        self.assertEqual(len(executed), 2)
+        sql, params = executed[1]
+        self.assertIn("INSERT INTO access_device", sql)
+        self.assertIn("ON CONFLICT", sql)
+        self.assertEqual(params[0], date.today())
+        self.assertEqual(params[1], "my-pc")
+        self.assertEqual(params[2], "domain")
+        self.assertIsInstance(params[3], float)  # last_seen epoch
+
+    def test_ip_device_upsert(self):
+        _, params = self._record("47.95.214.236:8765", "/pull", "box-2")[1]
+        self.assertEqual(params[1], "box-2")
+        self.assertEqual(params[2], "ip")
+
+    def test_no_device_no_extra_row(self):
+        executed = self._record("www.agentctxsync.com", "/web/login")
+        self.assertEqual(len(executed), 1)
+        self.assertIn("INSERT INTO access_stats", executed[0][0])
+
+    def test_status_path_device_extracted(self):
+        # /status/<device_id> carries the device in the path, not the body
+        rec = mock.Mock()
+        scope = {
+            "type": "http", "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": "/status/my-pc", "raw_path": b"/status/my-pc",
+            "query_string": b"", "root_path": "",
+            "headers": [(b"host", b"www.agentctxsync.com")],
+            "client": ("1.2.3.4", 1234), "server": ("127.0.0.1", 8765),
+        }
+        from fastapi import Request
+
+        async def call_next(_req):
+            return SimpleNamespace(status_code=200)
+
+        with mock.patch.object(requestlog, "_record_access", rec):
+            asyncio.run(requestlog.request_log_middleware(Request(scope), call_next))
+        rec.assert_called_once_with("www.agentctxsync.com", "/status/my-pc", "my-pc")
+
+    def test_sync_post_body_device_extracted(self):
+        # /push /pull carry device_id in the POST body
+        body = b'{"device_id": "my-pc", "sessions": []}'
+        calls = {"n": 0}
+
+        async def receive():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.disconnect"}
+
+        scope = {
+            "type": "http", "http_version": "1.1", "method": "POST",
+            "scheme": "http", "path": "/push", "raw_path": b"/push",
+            "query_string": b"", "root_path": "",
+            "headers": [(b"host", b"47.95.214.236:8765")],
+            "client": ("1.2.3.4", 1234), "server": ("127.0.0.1", 8765),
+            "receive": receive,
+        }
+        from fastapi import Request
+
+        async def call_next(_req):
+            return SimpleNamespace(status_code=200)
+
+        rec = mock.Mock()
+        with mock.patch.object(requestlog, "_record_access", rec):
+            asyncio.run(requestlog.request_log_middleware(
+                Request(scope, receive=receive), call_next))
+        rec.assert_called_once_with("47.95.214.236:8765", "/push", "my-pc")
+
+
 class MiddlewareCountingTest(unittest.TestCase):
     def _run(self, path, host="www.agentctxsync.com", method="GET"):
         scope = {
@@ -132,19 +217,19 @@ class MiddlewareCountingTest(unittest.TestCase):
 
     def test_web_request_counted_with_host(self):
         rec = self._run("/web/login", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/web/login")
+        rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "")
 
     def test_ip_host_passed_through(self):
         rec = self._run("/web/login", host="47.95.214.236:8765")
-        rec.assert_called_once_with("47.95.214.236:8765", "/web/login")
+        rec.assert_called_once_with("47.95.214.236:8765", "/web/login", "")
 
     def test_root_landing_counted_as_web(self):
         rec = self._run("/", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/")
+        rec.assert_called_once_with("www.agentctxsync.com", "/", "")
 
     def test_sync_post_counted_as_api(self):
         rec = self._run("/push", host="www.agentctxsync.com", method="POST")
-        rec.assert_called_once_with("www.agentctxsync.com", "/push")
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "")
 
     def test_static_health_favicon_skipped(self):
         for path in ("/static/app.js", "/static/favicon.svg", "/health", "/favicon.ico"):

@@ -3,6 +3,14 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.20.3] - 2026-08-20
+
+### Changed
+- **访问统计分组显示**：今日统计卡片由四个独立卡片改为按类型分组——「WEB 页面（域名 / IP 直连）」与「API 访问（域名 / IP 直连）」；按日明细表列序同步改为 Web·域名 / Web·IP / API·域名 / API·IP
+
+### Added
+- **API 设备访问明细**：新增 `access_device` 表按设备（device_id）记录每日域名/IP 通道请求次数（`/push` `/pull` `/status` 等同步请求自动归因）；管理页点击「API 访问」卡片进入 `/web/admin/access/devices`，可查看哪些机器走域名、哪些走 IP 直连及最后访问时间
+
 ## [2026.08.20.2] - 2026-08-20
 
 ### Fixed

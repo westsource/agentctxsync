@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ t.accs_devices_title }} - Agent Context Sync{% endblock %}
+{% block content %}
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <a href="/web/admin/access" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      {{ t.common_back }}
+    </a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ t.accs_devices_title }}</h1>
+    <p class="text-sm text-gray-400 mt-1">{{ t.accs_devices_subtitle }}（{{ day }}）</p>
+  </div>
+</div>
+
+<!-- Per-device table -->
+<div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-gray-100 bg-[#F9F8FD]">
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_device }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_domain }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_ip }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_last_seen }}</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for d in devices %}
+        <tr class="hover:bg-[#F6F5FA] transition-colors">
+          <td class="px-6 py-4 text-sm font-medium text-gray-900 font-mono">{{ d.device_id }}</td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip_count }}</span></td>
+          <td class="px-6 py-4 text-sm text-gray-500 tabular-nums">{{ d.last_seen | timestamp_fmt }}</td>
+        </tr>
+        {% endfor %}
+        {% if not devices %}
+        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_devices }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

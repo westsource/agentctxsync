@@ -163,6 +163,34 @@ async def web_admin_access(request: Request):
            "total_api_ip": sum(d["api_ip"] for d in days.values())}
     return await render_page("admin_access.html", ctx)
 
+
+@router.get("/web/admin/access/devices", response_class=HTMLResponse)
+async def web_admin_access_devices(request: Request):
+    """Per-device API access drill-down: which sync machines talk through
+    the domain vs direct IP today (access_device rows)."""
+    try:
+        user = get_current_user(request)
+        if not user.get("is_admin"):
+            return RedirectResponse(url="/web/")
+    except:
+        return RedirectResponse(url="/web/login")
+    nav_ws = get_nav_workspaces(user["sub"])
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""SELECT device_id,
+                            COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
+                            COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
+                            MAX(last_seen) AS last_seen
+                     FROM access_device
+                     WHERE stat_date = %s
+                     GROUP BY device_id
+                     ORDER BY domain_count + ip_count DESC""",
+                  (date.today(),))
+        devices = [dict(r) for r in c.fetchall()]
+    ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_access",
+           "devices": devices, "day": date.today().isoformat()}
+    return await render_page("admin_access_devices.html", ctx)
+
 @router.get("/web/admin/invites", response_class=HTMLResponse)
 async def web_admin_invites_old(request: Request):
     return RedirectResponse(url="/web/invites", status_code=303)
