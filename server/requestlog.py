@@ -68,8 +68,14 @@ def classify_kind(path):
     return "web" if path == "/" or path.startswith("/web/") else "api"
 
 
-def _record_access(host, path):
-    """Increment today's counter for the (channel, kind) of this request."""
+def _record_access(host, path, device_id=""):
+    """Increment today's counters for this request.
+
+    Always bumps the (channel, kind) bucket in access_stats; when the
+    request carries a sync client's device_id it also bumps that device's
+    (channel) row in access_device so the admin drill-down can answer which
+    machines sync through the domain vs direct IP.
+    """
     try:
         with get_conn() as conn:
             c = conn.cursor()
@@ -80,6 +86,16 @@ def _record_access(host, path):
                 "DO UPDATE SET count = access_stats.count + 1",
                 (date.today(), classify_channel(host), classify_kind(path)),
             )
+            if device_id:
+                c.execute(
+                    "INSERT INTO access_device "
+                    "(stat_date, device_id, channel, count, last_seen) "
+                    "VALUES (%s, %s, %s, 1, %s) "
+                    "ON CONFLICT (stat_date, device_id, channel) "
+                    "DO UPDATE SET count = access_device.count + 1, "
+                    "last_seen = EXCLUDED.last_seen",
+                    (date.today(), device_id, classify_channel(host), time.time()),
+                )
     except Exception:
         pass  # statistics must never break the request path
 
@@ -102,16 +118,16 @@ async def request_log_middleware(request: Request, call_next):
         try:
             host = request.headers.get("host", "")
             path = request.url.path
-            if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
-                _record_access(host, path)
             device_id = ""
             if body:
                 try:
                     device_id = str(json.loads(body).get("device_id", ""))
                 except Exception:
                     pass
-            if not device_id and request.url.path.startswith("/status/"):
-                device_id = unquote(request.url.path.rsplit("/", 1)[-1])
+            if not device_id and path.startswith("/status/"):
+                device_id = unquote(path.rsplit("/", 1)[-1])
+            if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
+                _record_access(host, path, device_id)
             fwd = request.headers.get("x-forwarded-for")
             ip = (fwd.split(",")[0].strip() if fwd
                   else (request.client.host if request.client else "?"))

@@ -278,6 +278,18 @@ def init_db():
                 ALTER TABLE access_stats ADD PRIMARY KEY (stat_date, channel, kind);
             END IF;
         END $$""")
+        # Per-device access: which sync client (device_id from /push /pull
+        # /status bodies/paths) talked through the domain vs direct IP,
+        # aggregated per day. Written by the requestlog middleware, read by
+        # the admin access-devices drill-down (/web/admin/access/devices).
+        c.execute("""CREATE TABLE IF NOT EXISTS access_device (
+            stat_date DATE NOT NULL,
+            device_id TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
+            PRIMARY KEY (stat_date, device_id, channel)
+        )""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
             VALUES ('free', 200, NULL) ON CONFLICT (plan) DO NOTHING""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)

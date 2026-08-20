@@ -165,10 +165,10 @@ TRANSLATIONS = {
         # Admin Access Stats
         "accs_title": "访问统计",
         "accs_subtitle": "按日统计请求数，按通道（域名 HTTPS / IP 直连）与类型（Web 页面 / 拉取推送 API）拆分",
-        "accs_today_domain_web": "今日域名 Web",
-        "accs_today_domain_api": "今日域名 API",
-        "accs_today_ip_web": "今日 IP Web",
-        "accs_today_ip_api": "今日 IP API",
+        "accs_web_group": "WEB 页面",
+        "accs_api_group": "API 访问",
+        "accs_times": "次",
+        "accs_view_devices": "查看设备明细",
         "accs_total_all": "累计总访问",
         "accs_domain": "域名",
         "accs_ip": "IP 直连",
@@ -177,6 +177,11 @@ TRANSLATIONS = {
         "accs_date": "日期",
         "accs_total": "总计",
         "accs_no_data": "暂无数据，访问后自动开始统计",
+        "accs_devices_title": "API 设备访问明细",
+        "accs_devices_subtitle": "今日各同步设备按通道（域名 / IP 直连）的请求次数",
+        "accs_device": "设备",
+        "accs_last_seen": "最后访问",
+        "accs_no_devices": "暂无设备数据，同步客户端发起请求后自动统计",
         
         # Login
         "login_title": "登录 Agent Context Sync",
@@ -550,10 +555,10 @@ TRANSLATIONS = {
         # Admin Access Stats
         "accs_title": "Access Statistics",
         "accs_subtitle": "Daily request counts split by channel (domain HTTPS / direct IP) and type (Web pages / sync push-pull API)",
-        "accs_today_domain_web": "Domain Web Today",
-        "accs_today_domain_api": "Domain API Today",
-        "accs_today_ip_web": "IP Web Today",
-        "accs_today_ip_api": "IP API Today",
+        "accs_web_group": "Web Pages",
+        "accs_api_group": "API Access",
+        "accs_times": "reqs",
+        "accs_view_devices": "Device details",
         "accs_total_all": "All-Time Total",
         "accs_domain": "Domain",
         "accs_ip": "Direct IP",
@@ -562,6 +567,11 @@ TRANSLATIONS = {
         "accs_date": "Date",
         "accs_total": "Total",
         "accs_no_data": "No data yet - counts start on first access",
+        "accs_devices_title": "API Device Details",
+        "accs_devices_subtitle": "Today's sync devices by channel (domain / direct IP)",
+        "accs_device": "Device",
+        "accs_last_seen": "Last Seen",
+        "accs_no_devices": "No device data yet - sync clients are tracked on their first request",
         
         # Login
         "login_title": "Login to Agent Context Sync",
