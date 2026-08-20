@@ -290,6 +290,19 @@ def init_db():
             last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
             PRIMARY KEY (stat_date, device_id, channel)
         )""")
+        # User feedback ("问题反馈"): logged-in users submit issues/suggestions.
+        # Admins list every row and can mark resolved; users see only their own.
+        c.execute("""CREATE TABLE IF NOT EXISTS feedback (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'other',
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at DOUBLE PRECISION,
+            resolved_at DOUBLE PRECISION,
+            resolved_by INTEGER
+        )""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)
             VALUES ('free', 200, NULL) ON CONFLICT (plan) DO NOTHING""")
         c.execute("""INSERT INTO quota_config (plan, max_sessions, allowed_agents)

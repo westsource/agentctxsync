@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ t.nav_feedback }} - Agent Context Sync{% endblock %}
+{% block content %}
+<div>
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        {{ t.common_back }}
+      </a>
+      <h1 class="text-2xl font-bold text-gray-900">{{ t.feedback_title }}</h1>
+      <p class="text-sm text-gray-400 mt-1">{{ t.feedback_subtitle }}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <!-- Submit form -->
+    <div class="lg:col-span-2">
+      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+        <h2 class="text-[15px] font-semibold text-gray-900 mb-4">{{ t.feedback_submit_title }}</h2>
+        <form method="POST" action="/web/feedback/submit" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.feedback_title_label }}</label>
+            <input type="text" name="title" required maxlength="200" placeholder="{{ t.feedback_title_placeholder }}"
+                   class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.feedback_category_label }}</label>
+            <select name="category"
+                    class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
+              {% for c in categories %}
+              <option value="{{ c }}">{{ t['feedback_category_' ~ c] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.feedback_content_label }}</label>
+            <textarea name="content" required rows="6" maxlength="5000" placeholder="{{ t.feedback_content_placeholder }}"
+                      class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm resize-y"></textarea>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-xl transition-colors shadow-md shadow-[#6E56CF]/25">
+              {{ t.feedback_submit_btn }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Feedback list -->
+    <div class="lg:col-span-3">
+      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 class="text-[15px] font-semibold text-gray-900">{{ t.feedback_all_list if user.is_admin else t.feedback_my_list }}</h2>
+          <span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ feedback|length }}</span>
+        </div>
+        <div class="divide-y divide-gray-50">
+          {% for f in feedback %}
+          <div class="px-6 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <p class="text-sm font-semibold text-gray-900">{{ f.title }}</p>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500">{{ t['feedback_category_' ~ f.category] }}</span>
+                  {% if f.status == 'resolved' %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#1E8E3E]">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 16 16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3.5 8.5l3 3 6-6"/></svg>
+                    {{ t.feedback_status_resolved }}
+                  </span>
+                  {% else %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.feedback_status_open }}</span>
+                  {% endif %}
+                </div>
+                <p class="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{{ f.content }}</p>
+                <p class="text-xs text-gray-400 mt-2">
+                  {% if user.is_admin %}{{ t.feedback_author }}: {{ f.author_name }} · {% endif %}
+                  {{ t.feedback_created_at }}: {{ f.created_at|timestamp_fmt if f.created_at else t.common_never }}
+                  {% if f.resolved_at %} · {{ t.feedback_resolved_at }}: {{ f.resolved_at|timestamp_fmt }}{% endif %}
+                </p>
+              </div>
+              {% if user.is_admin %}
+              <form method="POST" action="/web/feedback/{{ f.id }}/resolve" class="shrink-0">
+                <button type="submit"
+                        class="text-[13px] font-medium {% if f.status == 'open' %}text-[#34A853] hover:text-[#1E8E3E]{% else %}text-[#F2994A] hover:text-[#E08A3C]{% endif %} transition-colors">
+                  {{ t.feedback_resolve if f.status == 'open' else t.feedback_reopen }}
+                </button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+          {% else %}
+          <div class="py-16 text-center text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p>{{ t.feedback_empty }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
