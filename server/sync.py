@@ -76,6 +76,14 @@ def pull_sync(body, ws):
                 by_sid.setdefault(m["session_id"], []).append(dict(m))
             for s in sessions:
                 s["messages"] = by_sid.get(s["id"], [])
+                # message_count repair: some local stores (Hermes) leave the
+                # column at its 0 default for sessions written by sync rather
+                # than by the agent itself, and desktop UIs filter session
+                # lists on message_count >= 1 -- a stale 0 would hide a real
+                # conversation. Derive it from the rows actually returned so
+                # every client writes a healthy count locally.
+                if s["messages"]:
+                    s["message_count"] = len(s["messages"])
     now = datetime.now().timestamp()
     return {"sync_at": now, "session_count": len(sessions),
             "total_sessions": total_sessions,
@@ -196,6 +204,14 @@ def push_sync(body, ws):
                   (wid, sess_ids))
         next_ids = {sid: n for sid, n in c.fetchall()}
         for session in sessions_data:
+            # message_count repair (mirrors the /pull side): derive the count
+            # from the actual messages in this push so a client-side 0 (sync-
+            # written sessions whose column the local agent never maintained)
+            # never re-poisons the server row -- desktop UIs hide sessions
+            # with message_count < 1.
+            _msgs = session.get("messages") or []
+            if _msgs:
+                session["message_count"] = len(_msgs)
             sid = session["id"]
             session_agent = session.get("agent_type") or "hermes"
             c.execute("SELECT id FROM sessions WHERE id = %s AND workspace_id = %s", (sid, wid))
@@ -213,6 +229,12 @@ def push_sync(body, ws):
                 # hidden is a server-side soft-hide flag: a client re-pushing
                 # a session it still holds must not reset it to visible.
                 sd.pop("hidden", None)
+                # message_count guard: a message-less push (other devices'
+                # sync-written sessions whose local column is a stale 0)
+                # must not zero out an existing server-side count -- the
+                # desktop UIs hide sessions with message_count < 1.
+                if not session.get("messages") and session.get("message_count", 0) <= 0:
+                    sd.pop("message_count", None)
                 sd["last_synced_at"] = now
                 set_cl = ", ".join([f"{k} = %s" for k in sd.keys()])
                 c.execute(f"UPDATE sessions SET {set_cl} WHERE id = %s AND workspace_id = %s",
