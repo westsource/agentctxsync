@@ -26,8 +26,8 @@
   <!-- ========== ① 下载客户端 ========== -->
   <section class="mb-6">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-base font-bold">1</span>
-      <h2 class="text-xl font-semibold text-gray-900">{{ t.help_download_section }}</h2>
+      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">1</span>
+      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_download_section }}</h2>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step1_hint }}</p>
     <p class="text-sm text-amber-500 mb-4" x-show="!wsList.length">{{ t.dash_no_workspaces }} <a href="/web/" class="underline">{{ t.dash_create_workspace }}</a></p>
@@ -60,7 +60,7 @@
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
-            <h3 class="text-sm font-bold text-gray-900">{{ agent.label }}</h3>
+            <h3 class="text-sm font-semibold text-gray-900">{{ agent.label }}</h3>
             {% if agent.downloadable %}
             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-600">{{ t.help_flow_download }}</span>
             {% else %}
@@ -121,8 +121,8 @@
   <!-- ========== ② 配置 API Key + 注册命令 ========== -->
   <section class="mb-6">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-base font-bold">2</span>
-      <h2 class="text-xl font-semibold text-gray-900">{{ t.help_key_section }}</h2>
+      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">2</span>
+      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_key_section }}</h2>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step2_hint }}</p>
     <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
@@ -176,8 +176,8 @@
   <!-- ========== ③ 启动验证与常见问题 ========== -->
   <section class="mb-6">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-base font-bold">3</span>
-      <h2 class="text-xl font-semibold text-gray-900">{{ t.help_verify_section }}</h2>
+      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">3</span>
+      <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_verify_section }}</h2>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step3_hint }}</p>
     <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
@@ -200,7 +200,7 @@
             {{ t[tkey] }}
             <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </summary>
-          <p class="mt-2 text-[13px] text-gray-500">{{ t[dkey] }}</p>
+          <p class="mt-2 text-sm text-gray-500">{{ t[dkey] }}</p>
         </details>
         {% endfor %}
       </div>
