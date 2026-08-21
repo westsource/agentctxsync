@@ -20,6 +20,7 @@
       <thead>
         <tr class="border-b border-gray-100 bg-[#F9F8FD]">
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_device }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_version }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_domain }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_ip }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_last_seen }}</th>
@@ -29,13 +30,14 @@
         {% for d in devices %}
         <tr class="hover:bg-[#F6F5FA] transition-colors">
           <td class="px-6 py-4 text-sm font-medium text-gray-900 font-mono">{{ d.device_id }}</td>
+          <td class="px-6 py-4 text-sm text-gray-500 font-mono">{{ d.client_version or t.common_none }}</td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain_count }}</span></td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip_count }}</span></td>
           <td class="px-6 py-4 text-sm text-gray-500 tabular-nums">{{ d.last_seen | timestamp_fmt }}</td>
         </tr>
         {% endfor %}
         {% if not devices %}
-        <tr><td colspan="4" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_devices }}</td></tr>
+        <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_devices }}</td></tr>
         {% endif %}
       </tbody>
     </table>

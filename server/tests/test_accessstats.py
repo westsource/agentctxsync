@@ -118,11 +118,11 @@ class RecordDeviceTest(unittest.TestCase):
     (device, channel) counter so the admin drill-down can tell which
     machines use the domain vs direct IP."""
 
-    def _record(self, host, path, device_id=""):
+    def _record(self, host, path, device_id="", client_version=""):
         cur = FakeCursor()
         with mock.patch.object(requestlog, "get_conn",
                                return_value=FakeCtx(FakeConn(cur))):
-            requestlog._record_access(host, path, device_id)
+            requestlog._record_access(host, path, device_id, client_version)
         return cur.executed
 
     def test_domain_device_upsert(self):
@@ -135,6 +135,20 @@ class RecordDeviceTest(unittest.TestCase):
         self.assertEqual(params[1], "my-pc")
         self.assertEqual(params[2], "domain")
         self.assertIsInstance(params[3], float)  # last_seen epoch
+
+    def test_client_version_stored(self):
+        # sync requests report the MCP version; it lands in the device row
+        executed = self._record("www.agentctxsync.com", "/push", "my-pc",
+                                "2026.08.21.1")
+        sql, params = executed[1]
+        self.assertIn("client_version", sql)
+        self.assertIn("COALESCE(EXCLUDED.client_version", sql)
+        self.assertEqual(params[4], "2026.08.21.1")
+
+    def test_empty_client_version_stays_null(self):
+        # requests without a version must not wipe the recorded one
+        executed = self._record("www.agentctxsync.com", "/push", "my-pc")
+        self.assertIsNone(executed[1][1][4])
 
     def test_ip_device_upsert(self):
         _, params = self._record("47.95.214.236:8765", "/pull", "box-2")[1]
@@ -163,11 +177,11 @@ class RecordDeviceTest(unittest.TestCase):
 
         with mock.patch.object(requestlog, "_record_access", rec):
             asyncio.run(requestlog.request_log_middleware(Request(scope), call_next))
-        rec.assert_called_once_with("www.agentctxsync.com", "/status/my-pc", "my-pc")
+        rec.assert_called_once_with("www.agentctxsync.com", "/status/my-pc", "my-pc", "")
 
     def test_sync_post_body_device_extracted(self):
-        # /push /pull carry device_id in the POST body
-        body = b'{"device_id": "my-pc", "sessions": []}'
+        # /push /pull carry device_id + client_version in the POST body
+        body = b'{"device_id": "my-pc", "client_version": "2026.08.21.1", "sessions": []}'
         calls = {"n": 0}
 
         async def receive():
@@ -193,7 +207,7 @@ class RecordDeviceTest(unittest.TestCase):
         with mock.patch.object(requestlog, "_record_access", rec):
             asyncio.run(requestlog.request_log_middleware(
                 Request(scope, receive=receive), call_next))
-        rec.assert_called_once_with("47.95.214.236:8765", "/push", "my-pc")
+        rec.assert_called_once_with("47.95.214.236:8765", "/push", "my-pc", "2026.08.21.1")
 
 
 class MiddlewareCountingTest(unittest.TestCase):
@@ -217,19 +231,19 @@ class MiddlewareCountingTest(unittest.TestCase):
 
     def test_web_request_counted_with_host(self):
         rec = self._run("/web/login", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "", "")
 
     def test_ip_host_passed_through(self):
         rec = self._run("/web/login", host="47.95.214.236:8765")
-        rec.assert_called_once_with("47.95.214.236:8765", "/web/login", "")
+        rec.assert_called_once_with("47.95.214.236:8765", "/web/login", "", "")
 
     def test_root_landing_counted_as_web(self):
         rec = self._run("/", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/", "", "")
 
     def test_sync_post_counted_as_api(self):
         rec = self._run("/push", host="www.agentctxsync.com", method="POST")
-        rec.assert_called_once_with("www.agentctxsync.com", "/push", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "")
 
     def test_static_health_favicon_skipped(self):
         for path in ("/static/app.js", "/static/favicon.svg", "/health", "/favicon.ico"):

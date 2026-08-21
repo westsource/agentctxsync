@@ -7,6 +7,8 @@
 
 ### Changed
 - **Web 字号统一为标准刻度**：工作空间详情页会话标题补 `text-sm`（此前无字号类继承 16px 基线）、项目卡标题由 `text-[15px]` 归一为 `text-sm font-semibold`；接入帮助页三大步骤区头由 `text-xl` 收敛为 `text-[17px]`（与全站卡片区头一致）、步骤数字圆点同归 17px、Agent 卡标题字重由 `font-bold` 对齐 `font-semibold`、FAQ 答案去除刻度外的 `text-[13px]` 归为 `text-sm`。两页仅保留标准刻度（24 / 17 / 14 / 12 / 11px），与全站其余页面一致
+### Added
+- **设备访问明细显示客户端版本**：客户端（`mcp/server.py`）每次同步（push / pull / 项目同步）在请求体携带安装版本（持久化于 `.hermes-sync-version`，缺省回退内置常量）；服务端 `requestlog` 中间件将其写入 `access_device.client_version`（无版本请求保留旧值，COALESCE 语义），「API 设备访问明细」页（`/web/admin/access/devices`）新增「客户端版本」列显示最后同步时版本。老库通过 `init_db()` 幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 迁移。客户端版本 bump 至 `2026.08.21.1` 触发自动更新
 
 ## [2026.08.20.6] - 2026-08-20
 

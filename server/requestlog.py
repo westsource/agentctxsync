@@ -18,6 +18,12 @@ landing page), 'api' for sync push/pull and the rest. The admin page
 (/web/admin/access) shows the split. Static assets and health checks are
 excluded so the counts reflect real usage.
 
+Per-device rows: sync requests carrying a device_id also bump that
+device's daily (device, channel) counter in `access_device`, recording the
+client's reported MCP version (POST body field `client_version`) so the
+admin drill-down shows each device's version at last sync. Requests
+without a version keep the previously recorded one.
+
 The middleware reads the request body BEFORE passing it downstream;
 starlette caches the body so handlers calling request.json() still see it.
 """
@@ -68,13 +74,16 @@ def classify_kind(path):
     return "web" if path == "/" or path.startswith("/web/") else "api"
 
 
-def _record_access(host, path, device_id=""):
+def _record_access(host, path, device_id="", client_version=""):
     """Increment today's counters for this request.
 
     Always bumps the (channel, kind) bucket in access_stats; when the
     request carries a sync client's device_id it also bumps that device's
     (channel) row in access_device so the admin drill-down can answer which
-    machines sync through the domain vs direct IP.
+    machines sync through the domain vs direct IP. A non-empty
+    client_version reported by the client is stored on the device row
+    (latest wins); an empty one leaves the previously recorded version
+    untouched.
     """
     try:
         with get_conn() as conn:
@@ -89,12 +98,15 @@ def _record_access(host, path, device_id=""):
             if device_id:
                 c.execute(
                     "INSERT INTO access_device "
-                    "(stat_date, device_id, channel, count, last_seen) "
-                    "VALUES (%s, %s, %s, 1, %s) "
+                    "(stat_date, device_id, channel, count, last_seen, client_version) "
+                    "VALUES (%s, %s, %s, 1, %s, %s) "
                     "ON CONFLICT (stat_date, device_id, channel) "
                     "DO UPDATE SET count = access_device.count + 1, "
-                    "last_seen = EXCLUDED.last_seen",
-                    (date.today(), device_id, classify_channel(host), time.time()),
+                    "last_seen = EXCLUDED.last_seen, "
+                    "client_version = COALESCE(EXCLUDED.client_version, "
+                    "access_device.client_version)",
+                    (date.today(), device_id, classify_channel(host),
+                     time.time(), client_version or None),
                 )
     except Exception:
         pass  # statistics must never break the request path
@@ -119,15 +131,18 @@ async def request_log_middleware(request: Request, call_next):
             host = request.headers.get("host", "")
             path = request.url.path
             device_id = ""
+            client_version = ""
             if body:
                 try:
-                    device_id = str(json.loads(body).get("device_id", ""))
+                    data = json.loads(body)
+                    device_id = str(data.get("device_id", ""))
+                    client_version = str(data.get("client_version", ""))
                 except Exception:
                     pass
             if not device_id and path.startswith("/status/"):
                 device_id = unquote(path.rsplit("/", 1)[-1])
             if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
-                _record_access(host, path, device_id)
+                _record_access(host, path, device_id, client_version)
             fwd = request.headers.get("x-forwarded-for")
             ip = (fwd.split(",")[0].strip() if fwd
                   else (request.client.host if request.client else "?"))
