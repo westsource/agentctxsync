@@ -183,7 +183,9 @@ async def web_admin_access_devices(request: Request):
                             SELECT device_id,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
-                                   MAX(last_seen) AS last_seen
+                                   MAX(last_seen) AS last_seen,
+                                   (array_agg(client_version ORDER BY last_seen DESC)
+                                    FILTER (WHERE client_version IS NOT NULL))[1] AS client_version
                             FROM access_device
                             WHERE stat_date = %s
                             GROUP BY device_id

@@ -180,6 +180,7 @@ TRANSLATIONS = {
         "accs_devices_title": "API 设备访问明细",
         "accs_devices_subtitle": "今日各同步设备按通道（域名 / IP 直连）的请求次数",
         "accs_device": "设备",
+        "accs_version": "客户端版本",
         "accs_last_seen": "最后访问",
         "accs_no_devices": "暂无设备数据，同步客户端发起请求后自动统计",
         
@@ -604,6 +605,7 @@ TRANSLATIONS = {
         "accs_devices_title": "API Device Details",
         "accs_devices_subtitle": "Today's sync devices by channel (domain / direct IP)",
         "accs_device": "Device",
+        "accs_version": "Client Version",
         "accs_last_seen": "Last Seen",
         "accs_no_devices": "No device data yet - sync clients are tracked on their first request",
         

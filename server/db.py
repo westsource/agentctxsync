@@ -288,8 +288,12 @@ def init_db():
             channel TEXT NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
+            client_version TEXT,
             PRIMARY KEY (stat_date, device_id, channel)
         )""")
+        # MCP client version reported at last sync (requestlog upsert);
+        # added after initial release, so migrate existing tables.
+        c.execute("ALTER TABLE access_device ADD COLUMN IF NOT EXISTS client_version TEXT")
         # User feedback ("问题反馈"): logged-in users submit issues/suggestions.
         # Admins list every row and can mark resolved; users see only their own.
         c.execute("""CREATE TABLE IF NOT EXISTS feedback (

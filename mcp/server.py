@@ -69,6 +69,10 @@ if AGENT not in available_agents():
     AGENT = "hermes"
 adapter = get_adapter(AGENT)
 DEVICE_ID = f"local-{os.environ.get('COMPUTERNAME', 'unknown')}"
+# Version of this client installation (persisted by the updater, falling
+# back to the built-in constant). Sent with every sync request so the
+# server can show each device's MCP client version at last sync.
+CLIENT_VERSION = updater.local_version(VERSION_FILE)
 
 # Single-writer guard for the BACKGROUND sync loops (startup pull + periodic
 # sync). The Hermes desktop app runs two `serve` instances (Hermes.exe →
@@ -276,6 +280,7 @@ def pull_sessions(last_sync_at=None, limit=None):
             break
         result = api_call("POST", "/pull", {
             "device_id": DEVICE_ID,
+            "client_version": CLIENT_VERSION,
             "last_sync_at": last_sync_at, "limit": page_limit, "offset": fetched,
             # Full-pool pull: no agent filter. Every client in the workspace
             # pulls ALL sessions (every agent) and pushes only its own; the
@@ -365,7 +370,10 @@ def push_sessions():
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
     processed = 0
     for chunk in _chunk_sessions(sessions_data):
-        result = api_call("POST", "/push", {"device_id": DEVICE_ID, "sessions": chunk})
+        result = api_call("POST", "/push",
+                          {"device_id": DEVICE_ID,
+                           "client_version": CLIENT_VERSION,
+                           "sessions": chunk})
         if "error" in result:
             result = explain_quota_error(result)
             if processed == 0:
@@ -414,14 +422,18 @@ def push_projects():
     if not projects:
         return {"message": "No local projects to push"}
     result = api_call("POST", "/api/projects/push",
-                      {"device_id": DEVICE_ID, "projects": projects})
+                      {"device_id": DEVICE_ID,
+                       "client_version": CLIENT_VERSION,
+                       "projects": projects})
     return result
 
 def pull_projects():
     """Pull remote projects + remap records into local projects.db."""
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
-    result = api_call("POST", "/api/projects/pull", {"device_id": DEVICE_ID})
+    result = api_call("POST", "/api/projects/pull",
+                      {"device_id": DEVICE_ID,
+                       "client_version": CLIENT_VERSION})
     if "error" in result:
         return result
     stats = adapter.write_projects(result.get("projects", []),
