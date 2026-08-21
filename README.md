@@ -17,12 +17,12 @@ A complete solution for syncing sessions across devices and agents. Supports mul
 - **Multi-tenancy**: multi-user + multi-Workspace isolation, each Workspace has its own API Key; admins manage users, invite codes and workspace metadata but **cannot read any user's sessions or messages**
 - **Automatic sync**: incremental pull on startup with bootstrap push on first pairing, then periodic auto-sync; batched to avoid timeouts, lock-safe (single-writer), idempotent message dedup across devices
 - **Quota enforcement**: per-user session-storage limits and Agent allowlists via `free` / `unlimited` plans; enforced server-side on new session writes, DB-driven (no restart), with an audit trail
-- **Web admin UI**: bilingual (Simplified Chinese / English); overview, Workspace management, a unified **all-sessions** page, Markdown session viewer, trash, export/import, admin console
+- **Web admin UI**: bilingual (Simplified Chinese / English); overview, Workspace management, a unified **all-sessions** page, Markdown session viewer, trash, export/import, user feedback page, admin console (users / invites / access stats & device details — including each client's last-synced version)
 - **Project sync**: Hermes projects (sidebar project list) sync across devices along with sessions — merge by name + union of paths
 - **Data safety**: one-click export (Markdown / JSON.gz) and import; sessions/messages can be soft-deleted (recoverable from the trash), pinned, and searched by title/content
 - **Onboarding**: built-in setup help page with one-click download of the MCP client per Agent (install instructions + registration commands; the API Key stays a placeholder, so forwarding the package leaks nothing), plus guided onboarding for WorkBuddy and Reasonix (desktop JSON plugin registration with the required `env` block)
 - **Client auto-update**: the client periodically pulls new versions from the server, verifies every file, then replaces itself atomically; takes effect after the Agent is restarted
-- **Open registration**: invite codes are optional — registration is open by default; invite codes (optional expiry, revocable, shareable via `?code=` links) are available when you need controlled rollouts
+- **Open registration**: invite codes are optional — registration is open by default (the register form includes a self-hosted math CAPTCHA, no third-party dependency); invite codes (optional expiry, revocable, shareable via `?code=` links) are available when you need controlled rollouts
 
 ## Screenshots
 
@@ -75,7 +75,7 @@ After deployment:
 ### 2. Register a user and create a Workspace (Web UI)
 
 1. Open `http://<SERVER_IP>:8765/web/` and click Register
-2. Registration is open by default — the invite code is optional. To gate registration, an admin creates invite codes on the Invites page (format `HSYNC-XXXXXXXX`, optional expiry and notes, revocable at any time); you can also copy a share link with the `?code=` parameter and send it directly to users
+2. Registration is open by default (the register form has a self-hosted math CAPTCHA) — the invite code is optional. To gate registration, an admin creates invite codes on the Invites page (format `HSYNC-XXXXXXXX`, optional expiry and notes, revocable at any time); you can also copy a share link with the `?code=` parameter and send it directly to users
 3. A "Default Workspace" is created automatically after successful registration; you can also create more workspaces by clicking "+ Create" on the overview page
 4. Copy the API Key from the Workspace details page (format `ws_xxx`)
 
@@ -136,9 +136,9 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 ## Quota (Optional)
 
-- Users carry a `plan` (`free` / `unlimited`); registrations and invite codes grant `unlimited` by default, and admins can create invite codes granting `free`. The default `free` plan caps a user at 200 active sessions.
+- Users carry a `plan` (`free` / `unlimited`); registration without an invite code grants `free`, registration with an invite grants the invite's plan (default `unlimited`), and admins can create invite codes granting `free`. The default `free` plan caps a user at 300 active sessions.
 - Enforcement: `POST /push` gates **new** session writes only — an Agent allowlist plus the user-wide active session count. Updates to existing sessions and pulls are never blocked, so lowering a quota never breaks an already-synced pool. Rejections return 403 (`agent_not_allowed` / `quota_exceeded_sessions`) and are recorded in the audit log.
-- Policy lives in the DB (`users.plan` + `quota_config`): an operator changes it and the next push applies it — no API coupling, no restart. When a deployment has no limited-plan invite path, the quota UI stays hidden; enforcement still applies if an operator configures limits.
+- Policy lives in the DB (`users.plan` + `quota_config`): an operator changes it and the next push applies it — no API coupling, no restart. The quota UI (sidebar usage, invite grant-plan controls) shows whenever a limited plan is reachable — a free-granting invite or existing `free` users (default registration grants `free`, so it appears once anyone registers); enforcement still applies when the UI is hidden.
 - Ops SQL (adjusting limits, minimal-privilege read-only role) is in [docs/server-deployment.md](docs/server-deployment.md).
 
 ## Client Auto-Update
