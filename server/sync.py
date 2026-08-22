@@ -67,7 +67,7 @@ def pull_sync(body, ws):
     session set (all agents) plus every non-hidden message of those sessions,
     no matter which agent the requesting client runs. The body's ``agent``
     field is accepted for backward compatibility but deliberately ignored —
-    a hermes client must see the workbuddy sessions another device
+    a hermes client must see the workbuddy/codex sessions another device
     pushed, or cross-agent content would be invisible to the desktop apps.
     The client's agent only decides what it PUSHES (its own sessions), never
     what it receives.
@@ -252,14 +252,14 @@ def push_sync(body, ws):
         # sub-ms precision is caught by comparing the truncated key instead
         # of the exact triple (see _trunc_ms). Non-empty rows are excluded —
         # their duplicates are already caught by the content-level fallback,
-        # and same-ms distinct messages (tool bursts) must not collide.
+        # and same-ms distinct messages (codex tool bursts) must not collide.
         empty_ms_keys = set()
         for _sid, _role, _ts, _content in c.fetchall():
             msg_keys.add((_sid, _role, _ts))
             if _ts is not None and (_content is None or _content == ""):
                 empty_ms_keys.add((_sid, _role, _trunc_ms(_ts)))
         # Next auto-increment id per session for clients without local ids
-        # (reasonix/...): ONE GROUP BY query instead of MAX(id) per
+        # (codex/reasonix/...): ONE GROUP BY query instead of MAX(id) per
         # message; ids are allocated in memory and a concurrent push stealing
         # one is detected via INSERT ... RETURNING and retried.
         c.execute("SELECT session_id, COALESCE(MAX(id), 0) + 1 FROM messages "
@@ -372,7 +372,7 @@ def push_sync(body, ws):
                 # (a foreign session pulled by another agent and pushed back
                 # with a floating-point-shifted timestamp) must not create
                 # duplicate rows, while tool rows keep the triple-only dedup
-                # (tool outputs legitimately repeat identical text from
+                # (codex tool outputs legitimately repeat identical text from
                 # distinct calls).
                 dedup_text = content if isinstance(content, str) and content else None
                 if dedup_text is None:
