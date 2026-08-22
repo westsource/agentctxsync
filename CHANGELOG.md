@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.6] - 2026-08-22
+
+### Fixed
+- **`/pull` 增量拉取返回完整消息集（修复"幽灵会话"）**：增量分支此前按会话级 `last_synced_at/started_at` 返回会话、却按 `timestamp > 水位线` 过滤消息——某会话被对端设备周期重推（`last_synced_at` 刷新）而消息较旧时，客户端收到的会话不带任何消息，本地只写入 session 行（带服务端灌入的 message_count、零消息行），成为桌面可见但无内容的"幽灵会话"（实测：workbuddy 设备周期推送导致 hermes 客户端拉取 5 个 workbuddy 会话全部为空）。现在 `/pull` 对返回的每个会话**始终下发完整消息集**（与"每页返回 limit 个完整会话"的设计一致；客户端按 `(session_id, role, timestamp)` 幂等去重，重发旧行无副作用）。决策记录于 `server/sync.py::pull_sync` 注释与回归测试 `test_incremental_pull_serves_full_message_sets`。纯服务端改动，客户端无需更新（版本号保持 `2026.08.22.3`）
+
 ## [2026.08.22.5] - 2026-08-22
 
 ### Fixed

@@ -483,6 +483,20 @@ class PullTest(unittest.TestCase):
         sess_sql = [s for s, _ in cur.executed if "FROM sessions" in s and "ORDER BY" in s][0]
         self.assertIn("last_synced_at >", sess_sql)
 
+    def test_incremental_pull_serves_full_message_sets(self):
+        # a session returned by the incremental cutoff (recent
+        # last_synced_at, e.g. a peer device re-pushed it) must come with
+        # its FULL message set -- the message query has no timestamp filter,
+        # or the client would upsert a ghost session (stale message_count,
+        # zero messages). Decision record 2026.08.22.6.
+        sessions = [{"id": "a", "title": "A", "started_at": 10.0}]
+        msgs = {"a": [{"role": "user", "content": "old-msg", "timestamp": 1.0}]}
+        resp, cur = self._pull({"device_id": "d", "last_sync_at": 5.0}, sessions, msgs)
+        msg_sql = [s for s, _ in cur.executed if "FROM messages" in s][0]
+        self.assertNotIn("timestamp >", msg_sql)
+        self.assertEqual(len(resp["sessions"][0]["messages"]), 1)
+        self.assertEqual(resp["sessions"][0]["messages"][0]["timestamp"], 1.0)
+
     def test_pull_returns_agent_and_profile_columns(self):
         # the /pull payload carries agent_type/profile_name so clients can
         # route and tag sessions under the column-based id scheme

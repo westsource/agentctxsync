@@ -97,15 +97,20 @@ def pull_sync(body, ws):
         # One query for ALL page messages instead of an N+1 loop per session;
         # grouped in memory by session (ORDER BY session_id keeps each
         # session's own messages timestamp-ordered, matching the old per-
-        # session ORDER BY timestamp).
+        # session ORDER BY timestamp). FULL message sets are served for every
+        # returned session -- the client dedupes on (session_id, role,
+        # timestamp), so re-serving old rows is idempotent.
+        #
+        # Decision record (2026.08.22.6): the message query must NOT filter
+        # by ``timestamp > last_sync_at``. A session whose last_synced_at is
+        # recent (a peer device re-pushed it, e.g. workbuddy's periodic push
+        # bumping its own sessions) but whose messages are old would
+        # otherwise come back message-less; the client would upsert a ghost
+        # session row carrying a stale message_count and zero messages.
         if sessions:
             sids = [s["id"] for s in sessions]
-            if last_sync_at == 0:
-                c.execute("SELECT * FROM messages WHERE workspace_id = %s AND session_id = ANY(%s) AND COALESCE(hidden,0) = 0 ORDER BY session_id, timestamp",
-                          (wid, sids))
-            else:
-                c.execute("SELECT * FROM messages WHERE workspace_id = %s AND session_id = ANY(%s) AND COALESCE(hidden,0) = 0 AND timestamp > %s ORDER BY session_id, timestamp",
-                          (wid, sids, last_sync_at))
+            c.execute("SELECT * FROM messages WHERE workspace_id = %s AND session_id = ANY(%s) AND COALESCE(hidden,0) = 0 ORDER BY session_id, timestamp",
+                      (wid, sids))
             by_sid = {}
             for m in c.fetchall():
                 by_sid.setdefault(m["session_id"], []).append(dict(m))
