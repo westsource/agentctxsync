@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.4] - 2026-08-22
+
+### Fixed
+- **`/pull` 全池拉取（full-pool）不再按 agent 过滤**：此前客户端在拉取请求体携带 `agent` 字段，服务端会据此只下发该 agent 的会话（如 hermes 客户端永远看不到 workbuddy/codex 设备推上来的会话，与文档声明的「全量池——不过滤 agent」背离）。现在服务端忽略请求体的 `agent` 字段，`/pull` 无论传入什么 agent 都返回工作空间全部可见会话及其消息；客户端只按自身 agent 决定**推送**什么，不再决定**接收**什么。`/api/projects/pull` 本就全量返回（无 agent 过滤），补回归测试锁定（`test_agent_param_ignored_full_pool`、`ProjectsPullTest`）。该决策已记录到 `docs/ARCHITECTURE.md`「全池拉取契约」及服务端 `pull_sync`/客户端 pull 方法注释，标注勿改回。纯服务端改动（客户端仅注释），客户端无需更新（版本号保持 `2026.08.22.3`）
+
 ## [2026.08.22.3] - 2026-08-22
 
 ### Changed

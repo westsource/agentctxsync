@@ -38,26 +38,38 @@ async def pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
 
 
 def pull_sync(body, ws):
-    """Synchronous pull core, run off the event loop (see the /pull route)."""
+    """Synchronous pull core, run off the event loop (see the /pull route).
+
+    Full-pool pull: every device receives the workspace's ENTIRE visible
+    session set (all agents) plus every non-hidden message of those sessions,
+    no matter which agent the requesting client runs. The body's ``agent``
+    field is accepted for backward compatibility but deliberately ignored —
+    a hermes client must see the workbuddy/codex sessions another device
+    pushed, or cross-agent content would be invisible to the desktop apps.
+    The client's agent only decides what it PUSHES (its own sessions), never
+    what it receives.
+
+    Decision record (2026.08.22.4): the ``agent`` field MUST stay ignored.
+    Restoring agent-based filtering on pull is a regression — see
+    docs/ARCHITECTURE.md "全池拉取契约（Full-Pool Pull）" for the rationale
+    and the tests that pin the contract (test_agent_param_ignored_full_pool).
+    """
     device_id = body.get("device_id", "unknown")
     last_sync_at = body.get("last_sync_at", 0)
     limit = body.get("limit", 50)
     offset = body.get("offset", 0)
-    agent = body.get("agent")  # optional filter: only sessions of one agent
     wid = ws["workspace_id"]
-    agent_clause = " AND agent_type = %s" if agent else ""
-    agent_params = (agent,) if agent else ()
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s{agent_clause} AND COALESCE(hidden,0) = 0",
-                  (wid,) + agent_params)
+        c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0",
+                  (wid,))
         total_sessions = c.fetchone()["cnt"]
         if last_sync_at == 0:
-            c.execute(f"SELECT * FROM sessions WHERE workspace_id = %s{agent_clause} AND COALESCE(hidden,0) = 0 ORDER BY started_at DESC LIMIT %s OFFSET %s",
-                      (wid,) + agent_params + (limit, offset))
+            c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 ORDER BY started_at DESC LIMIT %s OFFSET %s",
+                      (wid, limit, offset))
         else:
-            c.execute(f"SELECT * FROM sessions WHERE workspace_id = %s{agent_clause} AND COALESCE(hidden,0) = 0 AND (last_synced_at > %s OR started_at > %s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
-                      (wid,) + agent_params + (last_sync_at, last_sync_at, limit, offset))
+            c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 AND (last_synced_at > %s OR started_at > %s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
+                      (wid, last_sync_at, last_sync_at, limit, offset))
         sessions = [dict(r) for r in c.fetchall()]
         # One query for ALL page messages instead of an N+1 loop per session;
         # grouped in memory by session (ORDER BY session_id keeps each
