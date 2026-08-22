@@ -32,6 +32,7 @@ import json
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,15 @@ from .base import JSONLAdapter, validate_file_id
 # last "-" is free-form so foreign ids (hermes bare ids) round-trip.
 ROLLOUT_RE = re.compile(
     r"^rollout-(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-(?P<id>.+)\.jsonl(?:\.zst)?$")
+
+# UUID-shaped session ids (codex's own format AND workbuddy's) pass through
+# the codex desktop backfill; timestamp-style ids (hermes) do not. Foreign
+# non-UUID ids get a mapped UUID local id (see _local_id_for).
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+#: canonical id -> local UUID, persisted so re-pulls reuse the same local id
+_IDMAP = ".hermes-sync-idmap.json"
 
 
 def _parse_ts(text: str) -> float | None:
@@ -98,6 +108,50 @@ class CodexAdapter(JSONLAdapter):
     def discover(self) -> Path | None:
         home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
         return home if home.is_dir() else None
+
+    # ------------------------------------------------------------------
+    # idmap (canonical id -> local UUID) for foreign sessions
+    # ------------------------------------------------------------------
+    def _idmap(self) -> dict[str, str]:
+        if not self.codex_home:
+            return {}
+        p = self.codex_home / _IDMAP
+        if not p.exists():
+            return {}
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {}
+
+    def _save_idmap(self, m: dict):
+        p = self.codex_home / _IDMAP
+        p.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def _local_id_for(self, canonical_id: str) -> str:
+        """Map a canonical session id to a local codex rollout id.
+
+        Codex Desktop's session backfill only indexes rollouts whose id is
+        a UUID -- timestamp-style ids (hermes ``20260608_103351_a671c4``)
+        are silently skipped and never appear in the UI. Foreign ids that
+        are not UUID-shaped therefore get a fresh UUID local id, persisted
+        in the idmap so later pulls reuse it (dedupe stays stable). UUID-
+        shaped foreign ids (workbuddy) pass through unchanged, exactly like
+        codex's own ids.
+        """
+        if _UUID_RE.match(canonical_id):
+            return canonical_id
+        # Filename-unsafe ids (':' on Windows -> NTFS ADS, etc.) are left
+        # for the write path's validate_file_id skip -- mapping them would
+        # silently import a legacy/untrusted id that must not land on disk.
+        if not validate_file_id(canonical_id):
+            return canonical_id
+        m = self._idmap()
+        if canonical_id in m:
+            return m[canonical_id]
+        fresh = str(uuid.uuid4())
+        m[canonical_id] = fresh
+        self._save_idmap(m)
+        return fresh
 
     # ------------------------------------------------------------------
     # session index (titles)
@@ -170,6 +224,22 @@ class CodexAdapter(JSONLAdapter):
     # ------------------------------------------------------------------
     # reading
     # ------------------------------------------------------------------
+    def read_sessions(self, limit: int | None = None) -> list[dict]:
+        """Push view: local sessions with CANONICAL ids.
+
+        Foreign sessions were written under a mapped UUID local id (see
+        _local_id_for); map them back so the pool sees the canonical id and
+        round-trips dedupe on the server.
+        """
+        rev = {v: k for k, v in self._idmap().items()}
+        sessions = super().read_sessions(limit=limit)
+        for s in sessions:
+            cid = rev.get(str(s["id"]), str(s["id"]))
+            s["id"] = cid
+            for m in s.get("messages", []):
+                m["session_id"] = cid
+        return sessions
+
     def _read_session_file(self, path: Path, local_id: str) -> dict | None:
         if path.name.endswith(".zst"):
             return None  # would need the zstandard package to decompress
@@ -347,9 +417,14 @@ class CodexAdapter(JSONLAdapter):
         imported = updated = new_messages = duplicates = 0
         for session in sessions:
             s = self.localize(session, strict=False)
-            local_id = str(s["id"])
+            # Foreign ids that aren't UUID-shaped get a mapped UUID local id
+            # so the codex desktop backfill indexes them (see _local_id_for).
+            canonical_id = str(session.get("id") or s["id"])
+            local_id = self._local_id_for(canonical_id)
             if session.get("agent_type") != "codex":
-                self._remember_foreign(local_id, session.get("agent_type"))
+                # registry is keyed by CANONICAL id: read_sessions() maps
+                # the local UUID back, so push tags the owner correctly.
+                self._remember_foreign(canonical_id, session.get("agent_type"))
             if not validate_file_id(local_id):
                 continue  # untrusted remote id: skip
             msgs = s.pop("messages", [])
