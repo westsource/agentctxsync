@@ -3,6 +3,15 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.8] - 2026-08-22
+
+### Changed
+- **帮助页未公开发布 Agent 只显示「适配中」**：选中 deepseek-harness / opencode / openclaw 时，安装卡片只显示「适配中」徽标，② 工作空间 API Key、③ 启动验证与常见问题两卡隐藏（hermes / workbuddy / reasonix 完整流程不变）
+- **渲染页 `Cache-Control: no-store`**：动态 HTML 不再被浏览器/代理启发式缓存，页面文案变更即时可见
+- **显示名统一**：会话列表/筛选胶囊、landing 与翻译文案中的 `Codex` → `DeepSeek Harness`、`opencode` → `OpenCode`
+- **文档修订**：README / CONTRIBUTING / ADDING_AGENT / ARCHITECTURE / SECURITY_AUDIT / server-deployment 中 agent 指代统一为 DeepSeek Harness（存储路径 `~/.codex`、legacy `codex:` 前缀、CHANGELOG 历史记录保留）
+- 纯服务端/文档改动，客户端无需更新（版本号保持 `2026.08.22.7`）
+
 ## [2026.08.22.7] - 2026-08-22
 
 ### Changed
