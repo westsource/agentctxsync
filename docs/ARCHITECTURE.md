@@ -11,7 +11,7 @@
 |                             本地设备 (电脑 A/B/...)                          |
 |                                                                             |
 |  +-----------------------------------------------------------------------+  |
-|  |                        Agent App (Hermes/Codex/...)                   |  |
+|  |                        Agent App (Hermes/DeepSeek Harness/...)                   |  |
 |  |  +--------------+    stdio     +----------------------------------+    |  |
 |  |  |  Agent Core  | <----------> |  MCP Server (server.py)          |    |  |
 |  |  +--------------+              |  hermes-session-sync             |    |  |
@@ -19,7 +19,7 @@
 |  |  +------------------------+    |  Tools: sync_status/pull/push/   |    |  |
 |  |  |  本地存储 (per agent)  |    |  full, project_push/pull         |    |  |
 |  |  |  state.db / jsonl /    |<-->|  (+ hermes_sync_* 兼容别名)        |    |  |
-|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
+|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/deepseek-harness/opencode |    |  |
 |  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
 |  |                                |                                  |    |  |
 |  |  +------------------------+    |  Background Tasks:               |    |  |
@@ -241,11 +241,11 @@ User (admin / user)
 - **内容级兜底去重**：hermes 在中断回合后会做「消息交替修复」——用 `time.time()` 重生成时间戳，
   同内容出现新时间戳，三元组键失效。兜底规则：同会话内 `(role, content)` 已存在即视为重复。
   作用域：hermes/reasonix 全角色（它们的重建会重写 tool 行）；其他 agent 仅 user/assistant
-  （codex 的 tool 输出合法重复，只能走三元组）。`meta` 为裸字符串（内容在外来存储往返中丢失、
+  （tool 输出合法重复，只能走三元组）。`meta` 为裸字符串（内容在外来存储往返中丢失、
   仅残留在 meta）时也参与内容比较。同一规则镜像在客户端 `mcp/adapters/base.py::write_sessions`
   （pull 写本地），保证拉推往返不产生重复行。
-- **时间戳唯一性修补**：codex 同一毫秒戳会写入大量事件，两消息同三元组会在拉推往返中静默塌缩，
-  适配器把碰撞时间戳确定性 +1ms 上调至空闲（`mcp/adapters/codex.py::_unique_ts`，同文件恒等映射）；
+- **时间戳唯一性修补**：harness 同一毫秒戳会写入大量事件，两消息同三元组会在拉推往返中静默塌缩，
+  适配器把碰撞时间戳确定性 +1ms 上调至空闲（`mcp/adapters/deepseek_harness.py::_unique_ts`，同文件恒等映射）；
   reasonix 转写文件无可靠时间戳，用单调递增合成值（`base + i/10`）保持去重键唯一。
 - **message_count 修复**：服务端在 pull/push 时按实际消息数重算 `message_count`
   （sync 写入的会话本地该列常为 0，而桌面 UI 过滤 `message_count < 1` 的会话）。
@@ -267,7 +267,7 @@ User (admin / user)
 - **外来会话 owner 注册表**：`.hermes-sync-foreign.json`（hermes）/ `*-foreign-ids.json`
   （其余 agent）记录 `{id: owner agent}`；pull 写入外来会话时登记，push 时按 owner 打
   `agent_type`，服务端保持归属。旧纯 id 列表格式读取时自动升级为 dict。
-- **路径穿越防护**：自由 id 类存储（codex / reasonix / opencode / openclaw / workbuddy）写入前
+- **路径穿越防护**：自由 id 类存储（deepseek-harness / reasonix / opencode / openclaw / workbuddy）写入前
   经 `validate_local_id` / `validate_file_id`（拒绝含 `/`、`\`、`.`、`..` 的 id），详见
   SECURITY_AUDIT.md。
 
