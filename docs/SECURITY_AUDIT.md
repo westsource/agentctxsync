@@ -200,7 +200,7 @@
 
 1. **SQL 注入**：全部查询使用参数化绑定；`web_workspace_detail` 的排序列/方向、agent 过滤为白名单；profile 过滤经 `re.fullmatch(r"[A-Za-z0-9_.-]+")` 校验后才拼入 LIKE 字面量。动态列名来自 `information_schema` 白名单。客户端 SQLite 适配器同（列名经 `PRAGMA` 枚举）。
 2. **模板 XSS 基线**：Jinja2 全局 `autoescape`；`md_to_html` 先转义后渲染挡住了 HTML 标签注入（H2 是 scheme 层面的漏网，修复后此防线完整）。
-3. **客户端路径穿越**：`validate_local_id` 在 codex/reasonix/opencode/openclaw/workbuddy 的 `write_sessions` 中均被调用（拒绝含 `/`、`\`、`.`、`..` 的 id）；hermes 走 SQLite 参数化。SECURITY.md 此条声明属实。
+3. **客户端路径穿越**：`validate_local_id` 在 deepseek-harness/reasonix/opencode/openclaw/workbuddy 的 `write_sessions` 中均被调用（拒绝含 `/`、`\`、`.`、`..` 的 id）；hermes 走 SQLite 参数化。SECURITY.md 此条声明属实。
 4. **权限边界**：工作空间读写均以属主/API key 为界（`WHERE workspace_id = %s AND user_id = %s`）；管理员只对工作空间元数据有写权，**读不到**其他用户的会话/消息内容；admin 页面不暴露他人 api_key。
 5. **凭证卫生**：`MASTER_API_KEY` 与 workspace key 分离；`.gitignore` 排除 `.env`、`.workbuddy/`（含 cookies.txt）、`.reasonix/`；仓库内无硬编码密钥。
 6. **密码存储**：PBKDF2-SHA256 + 随机盐 + `hmac.compare_digest` 比对（参数强度见 M5）。

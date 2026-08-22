@@ -105,7 +105,7 @@ YOUR_SERVER_IP
 │   └── icon_preview.html  # 图标预览页
 ├── mcp/                   # MCP 客户端分发包（/api/client/download 按此打包）
 │   ├── server.py / updater.py / run.bat / run.sh
-│   └── adapters/          # 各 Agent 本地存储适配器 (base/codex/hermes/opencode/reasonix/openclaw/workbuddy)
+│   └── adapters/          # 各 Agent 本地存储适配器 (base/deepseek_harness/hermes/opencode/reasonix/openclaw/workbuddy)
 ├── backups/               # 数据库备份目录（每日 3:00 自动，保留 7 天）
 ├── backup.sh              # 备份脚本
 ├── data/                  # 数据目录
