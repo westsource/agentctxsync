@@ -3,13 +3,15 @@
    Palette (matches the "接入帮助" download pills):
      hermes   -> purple   #6E56CF
      workbuddy-> teal     #0D9488
+     codex    -> orange   #F2994A
      opencode -> slate    #64748B
      reasonix -> blue     #4285F4
      openclaw -> red      #EB5757
    Unknown/None -> hermes purple.
 #}
 {% macro agent_color(a) -%}
-{%- if a == 'opencode' -%}bg-[#F1F5F9] text-[#64748B]
+{%- if a == 'codex' -%}bg-[#FFF7E6] text-[#F2994A]
+{%- elif a == 'opencode' -%}bg-[#F1F5F9] text-[#64748B]
 {%- elif a == 'reasonix' -%}bg-[#E8F1FE] text-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
 {%- elif a == 'workbuddy' -%}bg-[#F0FDFA] text-[#0D9488]
@@ -17,7 +19,8 @@
 {%- endif -%}
 {%- endmacro %}
 {% macro agent_color_solid(a) -%}
-{%- if a == 'opencode' -%}bg-[#64748B]
+{%- if a == 'codex' -%}bg-[#F2994A]
+{%- elif a == 'opencode' -%}bg-[#64748B]
 {%- elif a == 'reasonix' -%}bg-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#EB5757]
 {%- elif a == 'workbuddy' -%}bg-[#0D9488]

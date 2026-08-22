@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from adapters.hermes import HermesAdapter  # noqa: E402
+from adapters.codex import CodexAdapter  # noqa: E402
 from adapters.opencode import OpencodeAdapter  # noqa: E402
 from adapters.reasonix import ReasonixAdapter  # noqa: E402
 
@@ -46,6 +47,22 @@ class CrossAgentTest(unittest.TestCase):
 
     def _hermes_sessions(self):
         return HermesAdapter(db_path=self.hermes_db).read_sessions()
+
+    def test_hermes_to_codex(self):
+        # hermes ids are bare; codex must accept them as local file stems
+        codex_home = Path(self.tmp.name) / ".codex"
+        (codex_home / "sessions").mkdir(parents=True)
+        a = CodexAdapter(codex_home=codex_home)
+        stats = a.write_sessions(self._hermes_sessions())
+        self.assertEqual(stats["imported"], 1)
+        back = {s["id"]: s for s in a.read_sessions()}
+        self.assertIn("hermes-uuid-1", back)  # bare id preserved
+        self.assertEqual(back["hermes-uuid-1"]["messages"][0]["content"],
+                         "from hermes")
+        # idempotent re-push
+        again = a.write_sessions(self._hermes_sessions())
+        self.assertEqual(again["duplicates"], 2)
+        self.assertEqual(again["new_messages"], 0)
 
     def test_hermes_to_opencode_idmapped(self):
         storage = Path(self.tmp.name) / "storage"

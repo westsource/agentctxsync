@@ -11,7 +11,7 @@
 |                             本地设备 (电脑 A/B/...)                          |
 |                                                                             |
 |  +-----------------------------------------------------------------------+  |
-|  |                        Agent App (Hermes/WorkBuddy/...)                   |  |
+|  |                        Agent App (Hermes/Codex/...)                   |  |
 |  |  +--------------+    stdio     +----------------------------------+    |  |
 |  |  |  Agent Core  | <----------> |  MCP Server (server.py)          |    |  |
 |  |  +--------------+              |  hermes-session-sync             |    |  |
@@ -19,7 +19,7 @@
 |  |  +------------------------+    |  Tools: sync_status/pull/push/   |    |  |
 |  |  |  本地存储 (per agent)  |    |  full, project_push/pull         |    |  |
 |  |  |  state.db / jsonl /    |<-->|  (+ hermes_sync_* 兼容别名)        |    |  |
-|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/opencode |    |  |
+|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/codex/opencode |    |  |
 |  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
 |  |                                |                                  |    |  |
 |  |  +------------------------+    |  Background Tasks:               |    |  |
@@ -132,6 +132,7 @@
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
+| `adapters/codex.py` | Codex rollout jsonl（`codex:` 前缀、毫秒戳冲突 +1ms 修补、`session_index.jsonl` 标题回填） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode storage/ 多文件（`ses_/msg_/prt_` id；外来会话首次写入分配新 `ses_` id 并持久化 canonical→local idmap，后续 pull 复用同一本地 id 保持去重稳定） |
@@ -240,9 +241,11 @@ User (admin / user)
 - **内容级兜底去重**：hermes 在中断回合后会做「消息交替修复」——用 `time.time()` 重生成时间戳，
   同内容出现新时间戳，三元组键失效。兜底规则：同会话内 `(role, content)` 已存在即视为重复。
   作用域：hermes/reasonix 全角色（它们的重建会重写 tool 行）；其他 agent 仅 user/assistant
-  （tool 输出合法重复，只能走三元组）。`meta` 为裸字符串（内容在外来存储往返中丢失、
+  （codex 的 tool 输出合法重复，只能走三元组）。`meta` 为裸字符串（内容在外来存储往返中丢失、
   仅残留在 meta）时也参与内容比较。同一规则镜像在客户端 `mcp/adapters/base.py::write_sessions`
   （pull 写本地），保证拉推往返不产生重复行。
+- **时间戳唯一性修补**：codex 同一毫秒戳会写入大量事件，两消息同三元组会在拉推往返中静默塌缩，
+  适配器把碰撞时间戳确定性 +1ms 上调至空闲（`mcp/adapters/codex.py::_unique_ts`，同文件恒等映射）；
   reasonix 转写文件无可靠时间戳，用单调递增合成值（`base + i/10`）保持去重键唯一。
 - **message_count 修复**：服务端在 pull/push 时按实际消息数重算 `message_count`
   （sync 写入的会话本地该列常为 0，而桌面 UI 过滤 `message_count < 1` 的会话）。
@@ -264,7 +267,7 @@ User (admin / user)
 - **外来会话 owner 注册表**：`.hermes-sync-foreign.json`（hermes）/ `*-foreign-ids.json`
   （其余 agent）记录 `{id: owner agent}`；pull 写入外来会话时登记，push 时按 owner 打
   `agent_type`，服务端保持归属。旧纯 id 列表格式读取时自动升级为 dict。
-- **路径穿越防护**：自由 id 类存储（reasonix / opencode / openclaw / workbuddy）写入前
+- **路径穿越防护**：自由 id 类存储（codex / reasonix / opencode / openclaw / workbuddy）写入前
   经 `validate_local_id` / `validate_file_id`（拒绝含 `/`、`\`、`.`、`..` 的 id），详见
   SECURITY_AUDIT.md。
 
@@ -369,10 +372,10 @@ POST /api/projects/pull   # 拉取项目 + folders + remap（全量池，不含�
 任何把 `agent` 用于过滤拉取结果的做法都是回归，不得恢复。
 
 **决策依据**：跨 Agent 同步是核心能力——同一工作空间下不同设备可能运行不同 Agent
-（hermes / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
+（hermes / codex / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
 B 设备（workbuddy）推上来的会话，否则跨 Agent 内容对桌面端不可见，与 README 声明的
 「every client pulls the full pool (all agents)」相悖。此前服务端按 `agent` 过滤 `/pull`
-（客户端又总是携带 `agent=hermes`），导致 hermes 客户端永远拉不到 workbuddy 会话，
+（客户端又总是携带 `agent=hermes`），导致 hermes 客户端永远拉不到 workbuddy/codex 会话，
 是代码与文档背离的 bug，2026.08.22.4 修正。
 
 **角色分工**：客户端自身 agent 只决定**推送**什么（push 侧按本地存储 + 外来会话

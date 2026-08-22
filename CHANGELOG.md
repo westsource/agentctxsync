@@ -5,8 +5,8 @@
 
 ## [2026.08.22.7] - 2026-08-22
 
-### Removed
-- **移除 codex 支持**：codex 桌面版无法渲染外部写入的 rollout 会话文件（多次按原生格式修复——UUID id 映射、`session_meta` 必填字段、轮次框架、角色对应内容类型——数据侧全部验证正确、CLI 可正常读取，但桌面 UI 仍显示空白且偶发导致 app-server 崩溃），判定为 codex 应用对外部写入会话的限制/缺陷。故从项目移除 codex 适配器（`mcp/adapters/codex.py`）与相关测试、Agent 注册表条目、帮助页/接入文档/模板颜色、README 与架构文档中的 codex 说明。**保留**：服务端已同步的 codex 会话数据（仍在池中，hermes/workbuddy/Web 可查看）、legacy `codex:` 前缀 id 的入站归一化（存量数据兼容）、hermes 消息表中的 codex_* 列（属 hermes 本地 schema）。客户端版本 bump 至 `2026.08.22.7` 触发自动更新
+### Fixed
+- **Codex 适配器外来会话 idmap（桌面版可见性）**：Codex Desktop 的会话索引（`state_5.sqlite` 的 `threads` 表，由一次性 backfill 填充）只接受 UUID 形式的会话 id——hermes 的时间戳式 id（如 `20260608_103351_a671c4`）会被静默跳过，导致从服务器拉取的外来会话在 codex 桌面版中不显示（实测 125 个 hermes 会话全部被跳过，workbuddy 的 UUID id 正常导入）。现在 codex 适配器为「文件名安全但非 UUID」的外来会话分配 UUID 本地 id（`~/.codex/.hermes-sync-idmap.json` 持久化 canonical→local 映射，重拉复用同一 UUID 保持去重稳定），读取时逆向映射回 canonical id 推送；owner 注册表改按 canonical 键。冒号等文件名不安全 id 仍按原逻辑跳过（NTFS ADS 防护）。回归测试 3 个（映射/直通/复用）。客户端版本 bump 至 `2026.08.22.7` 触发自动更新
 
 ## [2026.08.22.6] - 2026-08-22
 
