@@ -1,27 +1,28 @@
 """
-OpenAI Codex CLI adapter.
+DeepSeek Harness adapter (codex rollout-format store).
 
-Local store: <CODEX_HOME or ~/.codex>/sessions/
+Local store: <CODEX_HOME or ~/.codex>/sessions/  (the harness writes the
+same rollout jsonl layout as the codex CLI it descends from)
   - one session per file:  rollout-<ts>-<uuid>.jsonl
       (ts format %Y-%m-%dT%H-%M-%S; archived copies may be .jsonl.zst)
   - session id = the UUID in the file name
-  - CLI 0.142+ (Codex Desktop) partitions files by year/month/day:
+  - recent versions partition files by year/month/day:
       sessions/2026/06/29/rollout-2026-06-29T22-05-24-<uuid>.jsonl
-    older CLI versions kept them flat under sessions/; both layouts are
+    older versions kept them flat under sessions/; both layouts are
     scanned recursively (new writes go into the year/month/day partition
-    matching the file timestamp, mirroring what codex itself does)
+    matching the file timestamp, mirroring what the harness itself does)
   - first line is a SessionMetaLine: legacy CLI writes {"meta": {...},
-    "git": {}}; 0.142+ writes {"type": "session_meta", "payload": {...}}
+    "git": {}}; newer versions write {"type": "session_meta",
+    "payload": {...}}
   - conversation lines are tagged RolloutItems, mostly
-    {"type": "response_item", "payload": {...}} (OpenAI Responses API
-    items; 0.142+ also carries the timestamp at top level); non-conversation
-    lines (event_msg / turn_context / compacted) are handled explicitly:
+    {"type": "response_item", "payload": {...}}; non-conversation lines
+    (event_msg / turn_context / compacted) are handled explicitly:
     lifecycle events are skipped, compaction summaries are kept as
     assistant messages
   - titles live in ~/.codex/session_index.jsonl (append-only,
-    {"id": <thread_id>, "thread_name": ..., "updated_at": ...}); codex
-    backfills its SQLite index from the jsonl files, so new sessions become
-    visible after codex re-scans.
+    {"id": <thread_id>, "thread_name": ..., "updated_at": ...}); the
+    harness backfills its SQLite index from the jsonl files, so new
+    sessions become visible after it re-scans.
 
 Write constraints: files are append-only; never rewrite existing lines.
 Compressed .zst files are skipped on read (decompression would need the
@@ -43,8 +44,8 @@ from .base import JSONLAdapter, validate_file_id
 ROLLOUT_RE = re.compile(
     r"^rollout-(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-(?P<id>.+)\.jsonl(?:\.zst)?$")
 
-# UUID-shaped session ids (codex's own format AND workbuddy's) pass through
-# the codex desktop backfill; timestamp-style ids (hermes) do not. Foreign
+# UUID-shaped session ids (the harness's own format AND workbuddy's) pass through
+# the harness desktop backfill; timestamp-style ids (hermes) do not. Foreign
 # non-UUID ids get a mapped UUID local id (see _local_id_for).
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -87,10 +88,10 @@ def _item_role_content(payload: dict) -> tuple[str | None, str | None]:
     return role, content
 
 
-class CodexAdapter(JSONLAdapter):
-    """Codex rollout jsonl adapter (canonical ids prefixed ``codex:``)."""
+class DeepseekHarnessAdapter(JSONLAdapter):
+    """DeepSeek Harness rollout jsonl adapter (canonical ids bare)."""
 
-    agent_type = "codex"
+    agent_type = "deepseek-harness"
 
     def __init__(self, codex_home: Path | str | None = None):
         self.codex_home = Path(codex_home) if codex_home else self.discover()
@@ -130,13 +131,13 @@ class CodexAdapter(JSONLAdapter):
     def _local_id_for(self, canonical_id: str) -> str:
         """Map a canonical session id to a local codex rollout id.
 
-        Codex Desktop's session backfill only indexes rollouts whose id is
+        The harness desktop's session backfill only indexes rollouts whose id is
         a UUID -- timestamp-style ids (hermes ``20260608_103351_a671c4``)
         are silently skipped and never appear in the UI. Foreign ids that
         are not UUID-shaped therefore get a fresh UUID local id, persisted
         in the idmap so later pulls reuse it (dedupe stays stable). UUID-
         shaped foreign ids (workbuddy) pass through unchanged, exactly like
-        codex's own ids.
+        the harness's own ids.
         """
         if _UUID_RE.match(canonical_id):
             return canonical_id
@@ -189,7 +190,7 @@ class CodexAdapter(JSONLAdapter):
     def _unique_ts(used: set, role: str, ts: float) -> float:
         """Make the (role, timestamp) dedup triple unique per session.
 
-        Codex stamps bursts of items with the same millisecond timestamp
+        The harness stamps bursts of items with the same millisecond timestamp
         (observed: hundreds of distinct tool items sharing one ms), and the
         pool dedups messages by (session_id, role, timestamp) — two distinct
         messages with the same triple would silently collapse on pull/push
@@ -372,7 +373,7 @@ class CodexAdapter(JSONLAdapter):
             if payload.get("call_id"):
                 msg["tool_call_id"] = payload["call_id"]
             if payload.get("id"):
-                msg["meta"] = {"codex:item_id": payload["id"]}
+                msg["meta"] = {"deepseek-harness:item_id": payload["id"]}
             session["messages"].append(msg)
         if not session["started_at"]:
             m = ROLLOUT_RE.match(path.name)
@@ -394,7 +395,7 @@ class CodexAdapter(JSONLAdapter):
     def _existing_path(self, local_id: str) -> Path | None:
         """Locate the session file for ``local_id``.
 
-        Codex names files ``rollout-<ts>-<uuid>.jsonl``, so an existing
+        The harness names files ``rollout-<ts>-<uuid>.jsonl``, so an existing
         session must be found by its id, not by a freshly-generated ts.
         """
         if not self.codex_home:
@@ -418,10 +419,10 @@ class CodexAdapter(JSONLAdapter):
         for session in sessions:
             s = self.localize(session, strict=False)
             # Foreign ids that aren't UUID-shaped get a mapped UUID local id
-            # so the codex desktop backfill indexes them (see _local_id_for).
+            # so the harness desktop backfill indexes them (see _local_id_for).
             canonical_id = str(session.get("id") or s["id"])
             local_id = self._local_id_for(canonical_id)
-            if session.get("agent_type") != "codex":
+            if session.get("agent_type") != "deepseek-harness":
                 # registry is keyed by CANONICAL id: read_sessions() maps
                 # the local UUID back, so push tags the owner correctly.
                 self._remember_foreign(canonical_id, session.get("agent_type"))
@@ -509,11 +510,11 @@ class CodexAdapter(JSONLAdapter):
 
 
 # registry alias (mcp/adapters/__init__.py looks up ``module.Adapter``)
-Adapter = CodexAdapter
+Adapter = DeepseekHarnessAdapter
 
 
 if __name__ == "__main__":
-    a = CodexAdapter()
+    a = DeepseekHarnessAdapter()
     print("discover:", a.discover())
     print("status:", a.status())
     print("sessions:", len(a.read_sessions(limit=5)))

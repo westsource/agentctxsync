@@ -12,7 +12,7 @@
 
 ## 主要特性
 
-- **跨 Agent 同步**：Hermes / OpenAI Codex / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池。每个客户端拉取**整个会话池**（全部 Agent）并推送本地持有的全部会话，A 的会话可被 B 拉取并写入其本地存储；会话跨设备续写时只推送新增消息
+- **跨 Agent 同步**：Hermes / DeepSeek Harness / opencode / Reasonix / OpenClaw / WorkBuddy 共享同一会话池。每个客户端拉取**整个会话池**（全部 Agent）并推送本地持有的全部会话，A 的会话可被 B 拉取并写入其本地存储；会话跨设备续写时只推送新增消息
 - **子 agent 会话折叠**：Hermes 子 agent（委托任务）对话在同步时归并进主会话——主 agent 与子 agent 呈现为同一个会话，子 agent 消息在会话查看器中带「子 agent」徽标
 - **多租户**：多用户 + 多 Workspace 隔离，每个 Workspace 独立 API Key；管理员可管理用户、邀请码与空间元数据，但**无法查看任何用户的空间内容、会话或消息**
 - **自动同步**：启动时增量拉取（首次配对自动引导推送），之后周期性自动同步；分批避免超时、单写者锁安全、消息跨设备幂等去重
@@ -41,7 +41,7 @@
 | Agent | 本地存储 | canonical id | 写入约束 |
 |-------|----------|-------------------|----------|
 | Hermes | `%LOCALAPPDATA%\hermes`（POSIX：`~/.hermes`）下扫描全部档案：`state.db`（default）+ `profiles/<name>/state.db`（命名档案）(SQLite) | 裸 id（hermes 档案存于 `profile_name` 列，归属存于 `agent_type`） | SQLite 事务 |
-| OpenAI Codex | `~/.codex/sessions/rollout-*.jsonl` | 裸 id | append-only；标题需追加 `session_index.jsonl`；codex 靠 backfill 感知新会话 |
+| DeepSeek Harness | `~/.codex/sessions/rollout-*.jsonl` | 裸 id | append-only；标题需追加 `session_index.jsonl`；harness 靠 backfill 感知新会话 |
 | OpenCode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | 裸 id | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | 裸 id（文件名） | append-only；运行中（有锁文件）的会话跳过 |
 | OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | 裸 id | schema 自动探测（实验性） |
@@ -88,8 +88,8 @@ bash ../scripts/deploy-server.sh
 **方式 B（手动）**：
 
 ```bash
-# 选择 agent（hermes | codex | OpenCode | reasonix | openclaw | workbuddy），默认 hermes
-export HERMES_SYNC_AGENT=codex
+# 选择 agent（hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy），默认 hermes
+export HERMES_SYNC_AGENT=deepseek-harness
 
 # 设置 workspace API key（格式 ws_xxx）
 export HERMES_SYNC_API_KEY=ws_yourkeyhere
@@ -126,7 +126,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `HERMES_SYNC_AGENT` | `hermes` | 本地存储适配器：`hermes`/`codex`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
+| `HERMES_SYNC_AGENT` | `hermes` | 本地存储适配器：`hermes`/`deepseek-harness`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
 | `HERMES_SYNC_SERVER` | `http://<SERVER_IP>:8765` | 远程服务器地址（按实际部署配置） |
 | `HERMES_SYNC_API_KEY` | - | **Workspace API Key**（必须，格式 `ws_xxx`） |
 | `HERMES_SYNC_INTERVAL` | `300` | 自动同步间隔（秒） |

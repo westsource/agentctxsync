@@ -422,7 +422,7 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["imported"], 3)
         rows = {r["id"]: r for r in insert_rows(cur, "sessions")}
         self.assertIn("019fc071-fab4-7661-9a0b-2afaa65cbb31", rows)
-        self.assertEqual(rows["019fc071-fab4-7661-9a0b-2afaa65cbb31"]["agent_type"], "codex")
+        self.assertEqual(rows["019fc071-fab4-7661-9a0b-2afaa65cbb31"]["agent_type"], "deepseek-harness")
         self.assertEqual(rows["20260808_205157_c272fe"]["agent_type"], "hermes")
         self.assertEqual(rows["20260808_205157_c272fe"]["profile_name"], "magic")
         self.assertEqual(rows["20260808_180012_0c275f"]["agent_type"], "hermes")

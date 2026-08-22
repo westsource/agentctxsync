@@ -144,12 +144,12 @@ async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
 
 
 # Legacy canonical-id prefixes (id-scheme upgrade inbound compat): old
-# clients push ids like "codex:<uuid>", "magic:<bare>", "workbuddy:<uuid>".
+# clients push ids like "codex:<uuid>" (legacy deepseek-harness alias),
 # Storage now uses bare ids with agent_type/profile_name columns; map the
 # prefix into the fields. Bare ids return (None, None, id) and are left
 # untouched (new clients already carry attribution in the payload).
 _AGENT_ID_PREFIXES = {
-    "codex:": "codex", "opencode:": "opencode", "reasonix:": "reasonix",
+    "codex:": "deepseek-harness", "opencode:": "opencode", "reasonix:": "reasonix",
     "openclaw:": "openclaw", "workbuddy:": "workbuddy",
 }
 

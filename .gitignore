@@ -33,3 +33,6 @@ AGENTS.md
 # OS
 Thumbs.db
 .DS_Store
+
+# generated promo/verification artifacts
+output/

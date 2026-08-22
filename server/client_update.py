@@ -126,7 +126,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
             f"# Agent Context Sync MCP Client ({agent['label']})\n\n"
             f"Workspace: **{ws_name}**  \u00b7  Sync server: `{server_url}`\n\n"
             "This client connects your agent to the sync server above so sessions "
-            "sync across devices and across agents (Hermes / Codex / opencode / "
+            "sync across devices and across agents (Hermes / DeepSeek Harness / opencode / "
             "Reasonix / OpenClaw / WorkBuddy share the same workspace pool).\n\n"
             "## Files\n"
             "- `mcp/server.py` - the MCP server (stdio)\n"
@@ -156,7 +156,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
     return (
         f"# Hermes 会话同步 MCP 客户端（{agent['label']}）\n\n"
         f"工作空间：**{ws_name}**  \u00b7  同步服务器：`{server_url}`\n\n"
-        "将该 Agent 接入同步服务器，实现跨设备、跨 Agent（Hermes / Codex / "
+        "将该 Agent 接入同步服务器，实现跨设备、跨 Agent（Hermes / DeepSeek Harness / "
         "opencode / Reasonix / OpenClaw / WorkBuddy 共享同一工作空间会话池）的会话同步。\n\n"
         "## 文件说明\n"
         "- `mcp/server.py` — MCP 服务端程序（stdio 模式）\n"

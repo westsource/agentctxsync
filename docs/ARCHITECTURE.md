@@ -132,7 +132,7 @@
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
-| `adapters/codex.py` | Codex rollout jsonl（`codex:` 前缀、毫秒戳冲突 +1ms 修补、`session_index.jsonl` 标题回填） |
+| `adapters/deepseek_harness.py` | DeepSeek Harness（codex rollout 格式；非 UUID 外来 id 映射本地 UUID、毫秒戳冲突 +1ms 修补、`session_index.jsonl` 标题回填） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode storage/ 多文件（`ses_/msg_/prt_` id；外来会话首次写入分配新 `ses_` id 并持久化 canonical→local idmap，后续 pull 复用同一本地 id 保持去重稳定） |
@@ -372,10 +372,10 @@ POST /api/projects/pull   # 拉取项目 + folders + remap（全量池，不含�
 任何把 `agent` 用于过滤拉取结果的做法都是回归，不得恢复。
 
 **决策依据**：跨 Agent 同步是核心能力——同一工作空间下不同设备可能运行不同 Agent
-（hermes / codex / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
+（hermes / deepseek-harness / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
 B 设备（workbuddy）推上来的会话，否则跨 Agent 内容对桌面端不可见，与 README 声明的
 「every client pulls the full pool (all agents)」相悖。此前服务端按 `agent` 过滤 `/pull`
-（客户端又总是携带 `agent=hermes`），导致 hermes 客户端永远拉不到 workbuddy/codex 会话，
+（客户端又总是携带 `agent=hermes`），导致 hermes 客户端永远拉不到 workbuddy 会话，
 是代码与文档背离的 bug，2026.08.22.4 修正。
 
 **角色分工**：客户端自身 agent 只决定**推送**什么（push 侧按本地存储 + 外来会话
