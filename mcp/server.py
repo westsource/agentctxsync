@@ -284,9 +284,12 @@ def pull_sessions(last_sync_at=None, limit=None):
             "client_version": CLIENT_VERSION,
             "agent": AGENT,
             "last_sync_at": last_sync_at, "limit": page_limit, "offset": fetched,
-            # Full-pool pull: no agent filter. Every client in the workspace
-            # pulls ALL sessions (every agent) and pushes only its own; the
-            # server merges by canonical id.
+            # Full-pool pull: no agent filter (decision record 2026.08.22.4,
+            # see docs/ARCHITECTURE.md "全池拉取契约"). Every client in the
+            # workspace pulls ALL sessions (every agent) and pushes only its
+            # own; the server deliberately ignores the `agent` field on pull
+            # and merges by canonical id. Do NOT rely on it to filter — it is
+            # sent for device/version reporting only.
         })
         if "error" in result:
             if fetched == 0:
@@ -447,6 +450,9 @@ def pull_projects():
     """Pull remote projects + remap records into local projects.db."""
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
+    # Full-pool pull (decision record 2026.08.22.4): the server returns the
+    # workspace's ENTIRE visible project set regardless of `agent` — the
+    # field is for device/version reporting only, never a filter.
     result = api_call("POST", "/api/projects/pull",
                       {"device_id": DEVICE_ID,
                        "client_version": CLIENT_VERSION,

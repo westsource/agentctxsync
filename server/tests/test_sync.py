@@ -18,6 +18,7 @@ os.environ.setdefault("HERMES_SYNC_PG_DSN", "postgresql://x:x@localhost:5432/x")
 os.environ.setdefault("HERMES_SYNC_MASTER_KEY", "test-master-key")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import projects  # noqa: E402
 import sync  # noqa: E402
 
 
@@ -452,12 +453,41 @@ class PullTest(unittest.TestCase):
         self.assertEqual(by_id["3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"]["agent_type"],
                          "workbuddy")
 
-    def test_agent_filter_applied_to_session_query(self):
-        sessions = [{"id": "a", "title": "A"}]
-        resp, cur = self._pull({"device_id": "d", "agent": "codex"}, sessions, {})
+    def test_agent_param_ignored_full_pool(self):
+        # Full-pool pull: the workspace's whole visible session set is served
+        # regardless of the requesting client's agent. The body's ``agent``
+        # field must not filter the query — a hermes client has to see the
+        # workbuddy/codex sessions another device pushed (cross-agent sync).
+        sessions = [{"id": "a", "title": "A", "agent_type": "hermes"},
+                    {"id": "b", "title": "B", "agent_type": "workbuddy"}]
+        resp, cur = self._pull({"device_id": "d", "agent": "codex", "last_sync_at": 5.0},
+                               sessions, {})
         sess_sql = [s for s, _ in cur.executed if "FROM sessions" in s and "ORDER BY" in s][0]
-        self.assertIn("agent_type = %s", sess_sql)
-        self.assertIn("codex", [p for s, p in cur.executed if "FROM sessions" in s and "ORDER BY" in s][0])
+        self.assertNotIn("agent_type", sess_sql)
+        self.assertEqual(resp["total_sessions"], 2)
+        self.assertEqual({s["id"] for s in resp["sessions"]}, {"a", "b"})
+
+
+class ProjectsPullTest(unittest.TestCase):
+    def test_projects_pull_full_pool_ignores_agent(self):
+        # /api/projects/pull serves every visible project (all agents) no
+        # matter what the requesting client passes — the query must never
+        # gain an agent_type filter.
+        cur = (ScriptedCursor()
+               .add(r"FROM projects", [
+                   {"id": "p1", "slug": "hermes-p", "agent_type": "hermes"},
+                   {"id": "p2", "slug": "wb-p", "agent_type": "workbuddy"}])
+               .add(r"FROM project_folders", [])
+               .add(r"FROM project_remap", []))
+        conn = FakeConn(cur)
+        with mock.patch.object(projects, "get_conn", return_value=FakeCtx(conn)):
+            resp = run(projects.api_projects_pull(
+                JsonRequest({"device_id": "d", "agent": "codex"}),
+                {"workspace_id": 1, "user_id": None}))
+        proj_sql = [s for s, _ in cur.executed if "FROM projects" in s][0]
+        self.assertNotIn("agent_type", proj_sql)
+        self.assertEqual({p["id"] for p in resp["projects"]}, {"p1", "p2"})
+        self.assertEqual(resp["remaps"], [])
 
 
 if __name__ == "__main__":
