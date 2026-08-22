@@ -82,6 +82,19 @@ create a workspace) against a local PostgreSQL before opening a PR.
 - Body explains **what** changed and **why** (not how).
 - Never commit secrets: `.env*`, real passwords, API keys. The repo is public.
 
+## Push rules
+
+- **`output/` must never be committed or pushed to any remote.** It holds
+  local promo articles, screenshots and generation scripts (gitignored).
+  Before pushing, check `git status` for `output/` files; do not rely on
+  `git add -A` to skip them.
+- **Production deployment information (server addresses, credentials, API
+  keys, DSNs, systemd/nginx specifics) must never enter this repository**
+  (see the local `AGENTS.md` for the full list). Use RFC 5737 test
+  addresses and placeholders in code/docs.
+- Before any push: `git status` + `git diff --stat` — review exactly what
+  is staged.
+
 ## Pull requests
 
 1. Fork and branch (`main`).
