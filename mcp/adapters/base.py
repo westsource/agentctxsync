@@ -158,6 +158,40 @@ def validate_file_id(local_id: str) -> bool:
     return True
 
 
+def _path_key(p):
+    """Canonical comparison key for a local path: separators normalized to
+    '/' and, on Windows, case-folded. `E:\\a\\b` and `E:/a/b` share a key."""
+    if not isinstance(p, str):
+        return None
+    k = p.replace("\\", "/")
+    return k.lower() if os.name == "nt" else k
+
+
+def build_path_map(local_paths):
+    """{canonical key -> local actual string} for existing local paths.
+    Keys collapse separator (and on Windows case) differences, so a pull
+    path that equals an existing local path modulo separator maps back to
+    the local spelling."""
+    out = {}
+    for p in local_paths:
+        if not isinstance(p, str) or not p:
+            continue
+        k = _path_key(p)
+        if k is not None and k not in out:
+            out[k] = p
+    return out
+
+
+def align_path_to_local(pull_path, local_paths):
+    """Rewrite a pull-side path to match an existing local path it equals
+    (modulo separator, and on Windows case). Returns the existing local
+    path when one matches, else ``pull_path`` untouched."""
+    if not isinstance(pull_path, str) or not pull_path:
+        return pull_path
+    target = build_path_map(local_paths).get(_path_key(pull_path))
+    return target if target is not None else pull_path
+
+
 def split_agent_prefix(canonical: str):
     """Server-side helper: map a canonical id to (agent_type, local_id).
 

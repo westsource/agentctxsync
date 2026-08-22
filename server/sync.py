@@ -6,7 +6,7 @@ import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth import get_workspace_by_api_key
-from db import _pg_val, get_conn, plan_limits, quota_check
+from db import _pg_val, get_conn, normalize_path_sep, plan_limits, quota_check
 
 router = APIRouter()
 def log_audit(conn, event, user_id, workspace_id, device_id, code, detail):
@@ -76,6 +76,11 @@ def pull_sync(body, ws):
                 by_sid.setdefault(m["session_id"], []).append(dict(m))
             for s in sessions:
                 s["messages"] = by_sid.get(s["id"], [])
+                # Server canonical path: always serve '/'; local separators
+                # are the client's concern on pull-write.
+                for _pk in ("cwd", "git_repo_root"):
+                    if s.get(_pk):
+                        s[_pk] = normalize_path_sep(s[_pk])
                 # message_count repair: some local stores (Hermes) leave the
                 # column at its 0 default for sessions written by sync rather
                 # than by the agent itself, and desktop UIs filter session
@@ -143,6 +148,13 @@ def push_sync(body, ws):
                 msid = m.get("session_id")
                 if isinstance(msid, str) and ":" in msid:
                     m["session_id"] = _split_inbound_id(msid)[2]
+    # Server canonical path: normalize Windows backslashes to '/' before
+    # storing, so sessions/projects carry a uniform separator regardless of
+    # which device/agent reported them.
+    for session in sessions_data:
+        for _pk in ("cwd", "git_repo_root"):
+            if session.get(_pk):
+                session[_pk] = normalize_path_sep(session[_pk])
     imp_s, imp_m, upd_s, dup_m = 0, 0, 0, 0
     with get_conn() as conn:
         c = conn.cursor()

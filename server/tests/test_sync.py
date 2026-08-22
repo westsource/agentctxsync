@@ -95,7 +95,8 @@ class JsonRequest:
 
 
 SESS_COLS = ("id", "workspace_id", "title", "agent_type", "meta", "hidden",
-             "pinned", "profile_name", "last_synced_at", "archived")
+             "pinned", "profile_name", "last_synced_at", "archived",
+             "cwd", "git_repo_root")
 MSG_COLS = ("id", "session_id", "workspace_id", "role", "content", "timestamp",
             "agent_type", "meta", "hidden")
 
@@ -237,6 +238,18 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["new_messages"], 0)
         self.assertEqual(resp["duplicates"], 1)
         self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_push_normalizes_path_separators_to_forward_slash(self):
+        # Windows local paths (backslashes) must be stored as '/' on the
+        # server so all devices share a canonical separator.
+        sessions = [{"id": "s1", "title": "t", "cwd": r"E:\OpenCode\agentctxsync",
+                     "git_repo_root": r"E:\repo\ssl", "messages": []}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["imported"], 1)
+        sess_rows = insert_rows(cur, "sessions")
+        self.assertEqual(sess_rows[0]["cwd"], "E:/OpenCode/agentctxsync")
+        self.assertEqual(sess_rows[0]["git_repo_root"], "E:/repo/ssl")
+
 
     def test_content_fallback_dedupes_reasonix_normalized_file(self):
         # reasonix rewrites local transcripts (fresh timestamps + system

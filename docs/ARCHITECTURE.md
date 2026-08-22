@@ -181,6 +181,20 @@ User (admin / user)
 复合主键: `(workspace_id, project_id, path)`；列: `label`、`is_primary`、`added_at`；
 跨设备增量合并（新路径插入、已有路径更新，不删除）
 
+### 路径分隔符约定（Path Separator Convention）
+- **服务端统一存储与返回为 `/`（canonical）**。会话与项目的本地文件系统路径
+  （`sessions.cwd`、`sessions.git_repo_root`、`projects.primary_path`、
+  `project_folders.path`）在入库时统一把反斜线 `\` 归一化为 `/`；`/pull` 与
+  `/api/projects/pull` 返回时同样返回 `/`。历史上已存的反斜线路径由独立脚本
+  `scripts/migrate-path-sep.py` 一次性迁移（默认 dry-run，`--apply` 写库）。
+- **客户端 pull 写本地按本机已有分隔符对齐合并**：MCP 客户端在 pull 将会话/项目
+  写入本机存储前，先读取本地已有会话/项目（`cwd`、`primary_path`、`folders[].path`），
+  对 pull 数据中「仅分隔符不同、其余相同」的路径改用本地已存的那份写法后再写入——即
+  保持与本机已有数据一致并合并写入，避免因分隔符差异把同一路径/项目文件夹插成两条。
+- 由此形成对称设计：**服务端规范存储 `/`，客户端落地按本机已有风格**。workbuddy
+  的 cwd slug 生成已对分隔符归一化（天然不敏感）；会话按 id upsert（路径不参与主键），
+  项目文件夹以 `path` 为主键的一部分（分隔符敏感），是本约定需要对齐的最关键环节。
+
 ### project_remap
 复合主键: `(workspace_id, old_id)`；列: `new_id`（同名合并后 old_id → new_id 路由记录，供客户端收敛）
 

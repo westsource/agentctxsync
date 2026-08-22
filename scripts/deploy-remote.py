@@ -22,8 +22,8 @@ REMOTE = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/agentctxsync")
 # agentctxsync alongside the directory migration).
 SERVICE = os.environ.get("DEPLOY_SERVICE", "agentctxsync")
 # PostgreSQL container/user used for the post-deploy schema probe. Defaults
-# are the generic deployment names; override for a specific environment
-# (e.g. DEPLOY_DB_CONTAINER=hindsight-db DEPLOY_DB_USER=hindsight_user).
+# are the generic deployment names; override for a specific environment via
+# DEPLOY_DB_CONTAINER / DEPLOY_DB_USER (e.g. your own docker container name).
 DB_CONTAINER = os.environ.get("DEPLOY_DB_CONTAINER", "agentctxsync-db")
 DB_USER = os.environ.get("DEPLOY_DB_USER", "agentctxsync")
 # SSH key used when DEPLOY_SSH_PASSWORD is unset (passwordless login).
