@@ -71,6 +71,7 @@
           <p class="text-xs text-gray-400 mt-0.5 truncate">{{ agent.desc }}</p>
         </div>
       </div>
+      {% if agent.downloadable %}
       <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
       <div class="flex flex-wrap items-center gap-2 mb-3">
         {% if agent.downloadable %}
@@ -115,6 +116,11 @@
           {% endif %}
         </div>
       </details>
+      {% else %}
+      <div class="py-8 text-center">
+        <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-amber-50 text-amber-500">{{ t.help_badge_adapting }}</span>
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </section>
