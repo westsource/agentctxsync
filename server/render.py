@@ -74,7 +74,11 @@ def render(template_name, context=None):
     ctx.setdefault("quota", _sidebar_quota())
     tmpl = jinja_env.get_template(template_name)
     html = tmpl.render(ctx)
-    return HTMLResponse(content=html)
+    # Dynamic HTML must not be heuristically cached by browsers/proxies: a
+    # stale landing/help page (e.g. an agent rename) would keep showing old
+    # text until a hard refresh. Static assets are served separately.
+    return HTMLResponse(content=html,
+                        headers={"Cache-Control": "no-store"})
 
 
 def _sidebar_quota():
