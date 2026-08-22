@@ -126,7 +126,7 @@
   </section>
 
   <!-- ========== ② 配置 API Key + 注册命令 ========== -->
-  <section class="mb-6">
+  <section class="mb-6" x-show="agents[agent] && agents[agent].downloadable">
     <div class="flex items-center gap-2.5 mb-1">
       <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">2</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_key_section }}</h2>
@@ -181,7 +181,7 @@
   </section>
 
   <!-- ========== ③ 启动验证与常见问题 ========== -->
-  <section class="mb-6">
+  <section class="mb-6" x-show="agents[agent] && agents[agent].downloadable">
     <div class="flex items-center gap-2.5 mb-1">
       <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">3</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_verify_section }}</h2>
