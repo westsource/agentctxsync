@@ -85,6 +85,71 @@ class CodexAdapterTest(unittest.TestCase):
         idx = (self.home / "session_index.jsonl").read_text(encoding="utf-8")
         self.assertIn("Pushed", idx)
 
+    def test_foreign_non_uuid_id_gets_mapped_uuid(self):
+        import json
+        import tempfile
+        import uuid as uuid_mod
+        from adapters.codex import ROLLOUT_RE, _IDMAP
+        with tempfile.TemporaryDirectory() as td:
+            a = CodexAdapter(codex_home=Path(td))
+            cid = "20260608_103351_a671c4"
+            a.write_sessions([{
+                "id": cid, "agent_type": "hermes", "started_at": 1787300000.0,
+                "title": "从hermes来",
+                "messages": [{"session_id": cid, "role": "user",
+                              "content": "hi", "timestamp": 1787300001.0}]}])
+            files = list((Path(td) / "sessions").rglob("rollout-*.jsonl"))
+            self.assertEqual(len(files), 1)
+            local = ROLLOUT_RE.match(files[0].name).group("id")
+            uuid_mod.UUID(local)  # must be a valid UUID (codex backfill gate)
+            self.assertNotEqual(local, cid)
+            # idmap persisted: canonical -> local
+            idmap = json.loads((Path(td) / _IDMAP).read_text(encoding="utf-8"))
+            self.assertEqual(idmap[cid], local)
+            # read back: canonical id round-trips, owner registry keyed by it
+            back = {s["id"]: s for s in a.read_sessions()}
+            self.assertIn(cid, back)
+            self.assertEqual(back[cid]["messages"][0]["session_id"], cid)
+            self.assertTrue(a._is_foreign(cid))
+            self.assertEqual(a._foreign_agent(cid), "hermes")
+            # title index keyed by the UUID local id (codex looks it up by id)
+            idx = (Path(td) / "session_index.jsonl").read_text(encoding="utf-8")
+            self.assertIn(local, idx)
+
+    def test_foreign_uuid_id_passes_through(self):
+        import tempfile
+        from adapters.codex import ROLLOUT_RE
+        with tempfile.TemporaryDirectory() as td:
+            a = CodexAdapter(codex_home=Path(td))
+            cid = "03b3a73d-629e-4ba5-baa2-badd4a50248a"
+            a.write_sessions([{
+                "id": cid, "agent_type": "workbuddy", "started_at": 1787300000.0,
+                "title": "wb",
+                "messages": [{"session_id": cid, "role": "user",
+                              "content": "hi", "timestamp": 1787300001.0}]}])
+            files = list((Path(td) / "sessions").rglob("rollout-*.jsonl"))
+            self.assertEqual(ROLLOUT_RE.match(files[0].name).group("id"), cid)
+            self.assertEqual(a._idmap(), {})
+
+    def test_idmap_reuse_across_pulls(self):
+        import tempfile
+        from adapters.codex import ROLLOUT_RE
+        with tempfile.TemporaryDirectory() as td:
+            a = CodexAdapter(codex_home=Path(td))
+            cid = "20260608_103351_a671c4"
+            sess = {"id": cid, "agent_type": "hermes", "started_at": 1787300000.0,
+                    "title": "t",
+                    "messages": [{"session_id": cid, "role": "user",
+                                  "content": "hi", "timestamp": 1787300001.0}]}
+            a.write_sessions([sess])
+            first = ROLLOUT_RE.match(
+                list((Path(td) / "sessions").rglob("rollout-*.jsonl"))[0].name
+            ).group("id")
+            a.write_sessions([sess])  # same canonical -> same UUID, no dup file
+            files = list((Path(td) / "sessions").rglob("rollout-*.jsonl"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(ROLLOUT_RE.match(files[0].name).group("id"), first)
+
 
 def make_new_format_fixture(home: Path):
     """Codex Desktop 0.142+ layout: year/month/day partition + new line

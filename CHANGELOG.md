@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.7] - 2026-08-22
+
+### Fixed
+- **Codex 适配器外来会话 idmap（桌面版可见性）**：Codex Desktop 的会话索引（`state_5.sqlite` 的 `threads` 表，由一次性 backfill 填充）只接受 UUID 形式的会话 id——hermes 的时间戳式 id（如 `20260608_103351_a671c4`）会被静默跳过，导致从服务器拉取的外来会话在 codex 桌面版中不显示（实测 125 个 hermes 会话全部被跳过，workbuddy 的 UUID id 正常导入）。现在 codex 适配器为「文件名安全但非 UUID」的外来会话分配 UUID 本地 id（`~/.codex/.hermes-sync-idmap.json` 持久化 canonical→local 映射，重拉复用同一 UUID 保持去重稳定），读取时逆向映射回 canonical id 推送；owner 注册表改按 canonical 键。冒号等文件名不安全 id 仍按原逻辑跳过（NTFS ADS 防护）。回归测试 3 个（映射/直通/复用）。客户端版本 bump 至 `2026.08.22.7` 触发自动更新
+
 ## [2026.08.22.6] - 2026-08-22
 
 ### Fixed
