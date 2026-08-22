@@ -132,7 +132,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_INTERVAL` | `300` | 自动同步间隔（秒） |
 | `HERMES_SYNC_AUTO_SYNC` | `1` | 后台自动同步开关（`0` 关闭；手动工具调用仍可用） |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | 客户端自动更新开关（`0` 关闭） |
-| `HERMES_SYNC_UPDATE_INTERVAL` | `86400` | 更新检查间隔（秒，默认 24 小时） |
+| `HERMES_SYNC_UPDATE_INTERVAL` | `3600` | 更新检查间隔（秒，默认 1 小时） |
 
 ## 配额（可选）
 
@@ -143,7 +143,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 ## 客户端自动更新
 
-MCP 客户端内置自动更新：启动后约 15 秒检查一次、之后每 24 小时检查一次，通过
+MCP 客户端内置自动更新：启动后约 1 分钟检查一次、之后每 1 小时检查一次，通过
 服务端 `/api/client/manifest`（版本对比）与 `/api/client/download`（带 SHA256
 清单的 zip）拉取新版本，逐文件校验后**就地原子替换**并保留上一版本备份
 （`.bak-<版本>/`），**重启 Agent 后生效**（MCP server 无法自重启，也不打断
@@ -250,7 +250,7 @@ Hermes 桌面的项目（侧边栏项目列表）存储在**每档案独立的 `
 **无缝迁移（推荐，旧服务器保持在线直到全部客户端更新完）**：
 1. 在新服务器部署新版服务端（含新地址默认值），bump `CLIENT_VERSION`
 2. 保持旧服务器在线（客户端更新仍需从旧地址拉取）
-3. 等待各客户端完成自动更新（启动后 15 秒 / 每 24 小时检查）
+3. 等待各客户端完成自动更新（启动后 1 分钟 / 每 1 小时检查）
 4. 各客户端重启 Agent 后自动连上新服务器
 5. 确认无客户端仍连旧服务器后，再下线旧服务器
 

@@ -19,28 +19,100 @@
     <table class="w-full">
       <thead>
         <tr class="border-b border-gray-100 bg-[#F9F8FD]">
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_device }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_version }}</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_device }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_clients }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_domain }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_ip }}</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_versions }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_last_seen }}</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for d in devices %}
-        <tr class="hover:bg-[#F6F5FA] transition-colors">
-          <td class="px-6 py-4 text-sm font-medium text-gray-900 font-mono">{{ d.device_id }}</td>
-          <td class="px-6 py-4 text-sm text-gray-500 font-mono">{{ d.client_version or t.common_none }}</td>
+        <tr class="hover:bg-[#F6F5FA] transition-colors cursor-pointer" data-device-row="{{ loop.index }}">
+          <td class="px-4 py-4">
+            <span class="inline-flex items-center gap-2">
+              <button type="button" class="access-toggle text-gray-400 hover:text-[#6E56CF] transition-colors" data-target="{{ loop.index }}" title="{{ t.accs_expand }}">
+                <svg class="chevron w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              </button>
+              <span class="text-sm font-medium text-gray-900 font-mono">{{ d.device_id }}</span>
+            </span>
+          </td>
+          <td class="px-6 py-4">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F1EDFB] text-[#6E56CF]">{{ d.clients|length }} {{ t.accs_clients_unit }}</span>
+          </td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain_count }}</span></td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip_count }}</span></td>
+          <td class="px-6 py-4">
+            <div class="flex flex-wrap gap-1">
+              {% for cl in d.clients %}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#F6F5FA] text-gray-600 font-mono">{{ cl.agent }}<span class="text-gray-400">→</span>{{ cl.client_version or t.common_none }}</span>
+              {% endfor %}
+            </div>
+          </td>
           <td class="px-6 py-4 text-sm text-gray-500 tabular-nums">{{ d.last_seen | timestamp_fmt }}</td>
+        </tr>
+        <!-- Expandable per-agent detail row -->
+        <tr class="hidden bg-[#F8F7FC]" data-device-detail="{{ loop.index }}">
+          <td colspan="6" class="px-4 py-0">
+            <div class="py-3 pl-10 pr-6">
+              <table class="w-full">
+                <tbody class="divide-y divide-gray-100">
+                  {% for cl in d.clients %}
+                  <tr class="text-sm">
+                    <td class="py-2 pr-4 w-24 font-medium text-gray-500">{{ t.accs_agent }}:
+                      <span class="font-mono font-semibold text-gray-900">{{ cl.agent }}</span>
+                    </td>
+                    <td class="py-2 pr-4 w-40 text-gray-500">{{ t.accs_versions }}:
+                      <span class="font-mono text-gray-900">{{ cl.client_version or t.common_none }}</span>
+                    </td>
+                    <td class="py-2 pr-4 text-gray-500">{{ t.accs_domain }}:
+                      <span class="font-mono text-gray-900 tabular-nums">{{ cl.domain_count }}</span>
+                    </td>
+                    <td class="py-2 pr-4 text-gray-500">{{ t.accs_ip }}:
+                      <span class="font-mono text-gray-900 tabular-nums">{{ cl.ip_count }}</span>
+                    </td>
+                    <td class="py-2 text-gray-500">{{ t.accs_last_seen }}:
+                      <span class="font-mono text-gray-900 tabular-nums">{{ cl.last_seen | timestamp_fmt }}</span>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </td>
         </tr>
         {% endfor %}
         {% if not devices %}
-        <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_devices }}</td></tr>
+        <tr><td colspan="6" class="px-6 py-8 text-center text-gray-400 text-sm">{{ t.accs_no_devices }}</td></tr>
         {% endif %}
       </tbody>
     </table>
   </div>
 </div>
+
+<script>
+// Expand/collapse the per-agent detail row under each device.
+function toggleAccessDetail(idx, chevron) {
+  var detail = document.querySelector('[data-device-detail="' + idx + '"]');
+  if (!detail) return;
+  detail.classList.toggle('hidden');
+  var chev = chevron || document.querySelector('[data-target="' + idx + '"] .chevron');
+  if (chev) chev.style.transform = detail.classList.contains('hidden') ? '' : 'rotate(90deg)';
+}
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.access-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleAccessDetail(btn.getAttribute('data-target'), btn);
+    });
+  });
+  document.querySelectorAll('[data-device-row]').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var chevron = row.querySelector('.access-toggle');
+      toggleAccessDetail(row.getAttribute('data-device-row'), chevron || undefined);
+    });
+  });
+});
+</script>
 {% endblock %}

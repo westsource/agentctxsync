@@ -19,10 +19,13 @@ landing page), 'api' for sync push/pull and the rest. The admin page
 excluded so the counts reflect real usage.
 
 Per-device rows: sync requests carrying a device_id also bump that
-device's daily (device, channel) counter in `access_device`, recording the
-client's reported MCP version (POST body field `client_version`) so the
-admin drill-down shows each device's version at last sync. Requests
-without a version keep the previously recorded one.
+device's daily counter in `access_device`, bucketed by (device, agent,
+channel), recording the client's reported MCP version (POST body field
+`client_version`) so the admin drill-down shows each agent's version at
+last sync. A device running several agents (Hermes / codex / reasonix ...)
+keeps each agent's own version because every agent runs its own client
+instance. Requests without a version keep the previously recorded one;
+legacy clients that do not report an agent are grouped under 'unknown'.
 
 The middleware reads the request body BEFORE passing it downstream;
 starlette caches the body so handlers calling request.json() still see it.
@@ -74,7 +77,7 @@ def classify_kind(path):
     return "web" if path == "/" or path.startswith("/web/") else "api"
 
 
-def _record_access(host, path, device_id="", client_version=""):
+def _record_access(host, path, device_id="", client_version="", agent=""):
     """Increment today's counters for this request.
 
     Always bumps the (channel, kind) bucket in access_stats; when the
@@ -83,7 +86,10 @@ def _record_access(host, path, device_id="", client_version=""):
     machines sync through the domain vs direct IP. A non-empty
     client_version reported by the client is stored on the device row
     (latest wins); an empty one leaves the previously recorded version
-    untouched.
+    untouched. The client's agent (HERMES_SYNC_AGENT) is stored per
+    (device, agent, channel) so a device running several agents (Hermes /
+    codex / reasonix ...) keeps each agent's own version; a legacy client
+    that does not report an agent rows are grouped under 'unknown'.
     """
     try:
         with get_conn() as conn:
@@ -98,15 +104,15 @@ def _record_access(host, path, device_id="", client_version=""):
             if device_id:
                 c.execute(
                     "INSERT INTO access_device "
-                    "(stat_date, device_id, channel, count, last_seen, client_version) "
-                    "VALUES (%s, %s, %s, 1, %s, %s) "
-                    "ON CONFLICT (stat_date, device_id, channel) "
+                    "(stat_date, device_id, agent, channel, count, last_seen, client_version) "
+                    "VALUES (%s, %s, %s, %s, 1, %s, %s) "
+                    "ON CONFLICT (stat_date, device_id, agent, channel) "
                     "DO UPDATE SET count = access_device.count + 1, "
                     "last_seen = EXCLUDED.last_seen, "
                     "client_version = COALESCE(EXCLUDED.client_version, "
                     "access_device.client_version)",
-                    (date.today(), device_id, classify_channel(host),
-                     time.time(), client_version or None),
+                    (date.today(), device_id, agent or "unknown",
+                     classify_channel(host), time.time(), client_version or None),
                 )
     except Exception:
         pass  # statistics must never break the request path
@@ -132,17 +138,19 @@ async def request_log_middleware(request: Request, call_next):
             path = request.url.path
             device_id = ""
             client_version = ""
+            agent = ""
             if body:
                 try:
                     data = json.loads(body)
                     device_id = str(data.get("device_id", ""))
                     client_version = str(data.get("client_version", ""))
+                    agent = str(data.get("agent", ""))
                 except Exception:
                     pass
             if not device_id and path.startswith("/status/"):
                 device_id = unquote(path.rsplit("/", 1)[-1])
             if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
-                _record_access(host, path, device_id, client_version)
+                _record_access(host, path, device_id, client_version, agent)
             fwd = request.headers.get("x-forwarded-for")
             ip = (fwd.split(",")[0].strip() if fwd
                   else (request.client.host if request.client else "?"))

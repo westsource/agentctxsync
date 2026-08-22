@@ -178,9 +178,13 @@ async def web_admin_access_devices(request: Request):
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         # Postgres resolves bare output-column names in ORDER BY, but NOT
         # aliases used inside an ORDER BY expression -- so order over a
-        # subquery that already materialized the alias columns.
+        # subquery that already materialized the alias columns. Aggregate
+        # per (device, agent) first, then group agents under their device so
+        # each device shows one summary row whose expandable sub-rows list
+        # the per-agent version and channel counts.
         c.execute("""SELECT * FROM (
                             SELECT device_id,
+                                   agent,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
                                    MAX(last_seen) AS last_seen,
@@ -188,10 +192,29 @@ async def web_admin_access_devices(request: Request):
                                     FILTER (WHERE client_version IS NOT NULL))[1] AS client_version
                             FROM access_device
                             WHERE stat_date = %s
-                            GROUP BY device_id
-                     ) t ORDER BY domain_count + ip_count DESC""",
+                            GROUP BY device_id, agent
+                     ) t ORDER BY (domain_count + ip_count) DESC""",
                   (date.today(),))
-        devices = [dict(r) for r in c.fetchall()]
+        rows = [dict(r) for r in c.fetchall()]
+        devices = {}
+        for r in rows:
+            d = devices.setdefault(r["device_id"], {
+                "device_id": r["device_id"],
+                "domain_count": 0, "ip_count": 0, "last_seen": 0.0,
+                "clients": []})
+            d["domain_count"] += r["domain_count"]
+            d["ip_count"] += r["ip_count"]
+            d["last_seen"] = max(d["last_seen"], r["last_seen"])
+            d["clients"].append({
+                "agent": r["agent"],
+                "domain_count": r["domain_count"],
+                "ip_count": r["ip_count"],
+                "last_seen": r["last_seen"],
+                "client_version": r["client_version"]})
+        # Stable ordering by total activity, then device id.
+        devices = sorted(devices.values(),
+                         key=lambda d: (-(d["domain_count"] + d["ip_count"]),
+                                        d["device_id"]))
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_access",
            "devices": devices, "day": date.today().isoformat()}
     return await render_page("admin_access_devices.html", ctx)

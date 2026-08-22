@@ -132,7 +132,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 | `HERMES_SYNC_INTERVAL` | `300` | Auto-sync interval (seconds) |
 | `HERMES_SYNC_AUTO_SYNC` | `1` | Background auto-sync switch (`0` disables; manual tool calls still work) |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | Client auto-update switch (`0` disables) |
-| `HERMES_SYNC_UPDATE_INTERVAL` | `86400` | Update check interval (seconds, default 24 hours) |
+| `HERMES_SYNC_UPDATE_INTERVAL` | `3600` | Update check interval (seconds, default 1 hour) |
 
 ## Quota (Optional)
 
@@ -143,7 +143,7 @@ python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
 
 ## Client Auto-Update
 
-MCP clients have built-in auto-update: a check runs about 15 seconds after startup and then every 24 hours. New versions are pulled from the server via `/api/client/manifest` (version comparison) and `/api/client/download` (a zip with a SHA256 manifest), verified file by file, then **atomically replaced in place**, with a backup of the previous version kept (`.bak-<version>/`). The update **takes effect after the Agent is restarted** (the MCP server cannot restart itself and does not interrupt ongoing sessions).
+MCP clients have built-in auto-update: a check runs about 1 minute after startup and then every 1 hour. New versions are pulled from the server via `/api/client/manifest` (version comparison) and `/api/client/download` (a zip with a SHA256 manifest), verified file by file, then **atomically replaced in place**, with a backup of the previous version kept (`.bak-<version>/`). The update **takes effect after the Agent is restarted** (the MCP server cannot restart itself and does not interrupt ongoing sessions).
 
 - Disable: `HERMES_SYNC_AUTO_UPDATE=0`; adjust the interval: `HERMES_SYNC_UPDATE_INTERVAL`
 - **Server default in shipped packages**: every downloaded client package has its `HERMES_SYNC_SERVER` code default set to the server that served the download (per-request address), or to `HERMES_SYNC_PUBLIC_URL` when that server-side variable is configured. To migrate existing clients to a new address: set `HERMES_SYNC_PUBLIC_URL` to the new address on the server and bump `CLIENT_VERSION` — clients pull the new package from the old address (keep it reachable until they all update) and switch after the agent restarts.
@@ -222,7 +222,7 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 **Seamless migration (recommended — keep the old server online until all clients have updated)**:
 1. Deploy the new server (with the new default address) and bump `CLIENT_VERSION`
 2. Keep the old server online (clients still need to pull updates from the old address)
-3. Wait for each client to finish auto-updating (checked 15 seconds after startup / every 24 hours)
+3. Wait for each client to finish auto-updating (checked 15 seconds after startup / every 1 hour)
 4. Clients connect to the new server automatically after the Agent is restarted
 5. Once no client is still connected to the old server, take the old server offline
 

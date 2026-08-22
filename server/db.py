@@ -285,15 +285,36 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS access_device (
             stat_date DATE NOT NULL,
             device_id TEXT NOT NULL,
+            agent TEXT NOT NULL DEFAULT 'unknown',
             channel TEXT NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
             client_version TEXT,
-            PRIMARY KEY (stat_date, device_id, channel)
+            PRIMARY KEY (stat_date, device_id, agent, channel)
         )""")
+        # Agent column tracks which HERMES_SYNC_AGENT a device row belongs
+        # to (a device can run several agents, each with its own MCP version);
+        # added after initial release, so migrate existing tables. Legacy
+        # rows get agent='unknown'. Rebuilds the primary key to include
+        # agent, mirroring the access_stats.kind migration below.
+        c.execute("ALTER TABLE access_device ADD COLUMN IF NOT EXISTS agent TEXT "
+                  "DEFAULT 'unknown'")
         # MCP client version reported at last sync (requestlog upsert);
-        # added after initial release, so migrate existing tables.
+        # added before the agent column, kept idempotent for old deployments.
         c.execute("ALTER TABLE access_device ADD COLUMN IF NOT EXISTS client_version TEXT")
+        c.execute("""DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_index i
+                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = 'access_device'::regclass AND i.indisprimary AND a.attname = 'agent'
+            ) THEN
+                UPDATE access_device SET agent = 'unknown' WHERE agent IS NULL;
+                ALTER TABLE access_device ALTER COLUMN agent SET NOT NULL;
+                ALTER TABLE access_device DROP CONSTRAINT access_device_pkey;
+                ALTER TABLE access_device ADD PRIMARY KEY (stat_date, device_id, agent, channel);
+            END IF;
+        END $$""")
         # User feedback ("问题反馈"): logged-in users submit issues/suggestions.
         # Admins list every row and can mark resolved; users see only their own.
         c.execute("""CREATE TABLE IF NOT EXISTS feedback (
