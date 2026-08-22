@@ -26,6 +26,10 @@ server/.env.*
 # Local Reasonix sandbox config (may contain local-only paths)
 reasonix.toml
 
+# Local workspace guidance (AGENTS.md) — held locally, never committed:
+# it contains machine-local deployment rules for the 236 server.
+AGENTS.md
+
 # OS
 Thumbs.db
 .DS_Store
