@@ -54,11 +54,11 @@ SYNC_INTERVAL = int(os.environ.get("HERMES_SYNC_INTERVAL", "300"))
 # session.resume) entirely lock-free.
 AUTO_SYNC = os.environ.get("HERMES_SYNC_AUTO_SYNC", "1") != "0"
 # Client auto-update: check once shortly after startup, then every
-# HERMES_SYNC_UPDATE_INTERVAL seconds (default 24h). Files are replaced in
+# HERMES_SYNC_UPDATE_INTERVAL seconds (default 1h). Files are replaced in
 # the background and take effect on the next agent restart. Set
 # HERMES_SYNC_AUTO_UPDATE=0 to disable.
 AUTO_UPDATE = os.environ.get("HERMES_SYNC_AUTO_UPDATE", "1") != "0"
-UPDATE_INTERVAL = int(os.environ.get("HERMES_SYNC_UPDATE_INTERVAL", "86400"))
+UPDATE_INTERVAL = int(os.environ.get("HERMES_SYNC_UPDATE_INTERVAL", "3600"))
 MCP_DIR = Path(__file__).resolve().parent
 VERSION_FILE = MCP_DIR / updater.VERSION_FILE_NAME
 AGENT = os.environ.get("HERMES_SYNC_AGENT", "hermes")
@@ -281,6 +281,7 @@ def pull_sessions(last_sync_at=None, limit=None):
         result = api_call("POST", "/pull", {
             "device_id": DEVICE_ID,
             "client_version": CLIENT_VERSION,
+            "agent": AGENT,
             "last_sync_at": last_sync_at, "limit": page_limit, "offset": fetched,
             # Full-pool pull: no agent filter. Every client in the workspace
             # pulls ALL sessions (every agent) and pushes only its own; the
@@ -373,6 +374,7 @@ def push_sessions():
         result = api_call("POST", "/push",
                           {"device_id": DEVICE_ID,
                            "client_version": CLIENT_VERSION,
+                           "agent": AGENT,
                            "sessions": chunk})
         if "error" in result:
             result = explain_quota_error(result)
@@ -424,6 +426,7 @@ def push_projects():
     result = api_call("POST", "/api/projects/push",
                       {"device_id": DEVICE_ID,
                        "client_version": CLIENT_VERSION,
+                       "agent": AGENT,
                        "projects": projects})
     return result
 
@@ -433,7 +436,8 @@ def pull_projects():
         return {"error": f"Local store not found for agent {AGENT}"}
     result = api_call("POST", "/api/projects/pull",
                       {"device_id": DEVICE_ID,
-                       "client_version": CLIENT_VERSION})
+                       "client_version": CLIENT_VERSION,
+                       "agent": AGENT})
     if "error" in result:
         return result
     stats = adapter.write_projects(result.get("projects", []),
@@ -633,12 +637,13 @@ def _run_update_check():
         _release_lock(UPDATE_LOCK_FILE)
 
 async def background_update_check():
-    """Check for a client update once shortly after startup, then every
-    UPDATE_INTERVAL seconds. Replaced files activate on agent restart."""
+    """Lazy update check: once 1 minute after startup, then every
+    UPDATE_INTERVAL seconds (default 1 hour). Replaced files activate on
+    agent restart."""
     if not AUTO_UPDATE:
         log("Client auto-update disabled (HERMES_SYNC_AUTO_UPDATE=0)")
         return
-    await asyncio.sleep(15)  # after the host agent's startup burst
+    await asyncio.sleep(60)  # clear of the host agent's startup burst
     applied = await asyncio.get_event_loop().run_in_executor(
         None, _run_update_check)
     if applied:

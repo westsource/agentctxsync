@@ -56,7 +56,8 @@ async def web_help(request: Request):
         entry["install"] = steps
         agents_ctx[key] = entry
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "help_hermes",
-           "ws_list": ws_list, "server_url": server_url, "agents": agents_ctx}
+           "ws_list": ws_list, "server_url": server_url, "agents": agents_ctx,
+           "client_version": CLIENT_VERSION}
     return await render_page("help_hermes.html", ctx)
 
 @router.get("/web/download/mcp-client")

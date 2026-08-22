@@ -28,6 +28,7 @@
     <div class="flex items-center gap-2.5 mb-1">
       <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">1</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_download_section }}</h2>
+      <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 font-mono border border-gray-100">{{ t.help_client_version }}: {{ client_version }}</span>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step1_hint }}</p>
     <p class="text-sm text-amber-500 mb-4" x-show="!wsList.length">{{ t.dash_no_workspaces }} <a href="/web/" class="underline">{{ t.dash_create_workspace }}</a></p>

@@ -3,6 +3,16 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.2] - 2026-08-22
+
+### Changed
+- **MCP 更新检查改为惰性方式**：客户端首次更新检查延迟由「启动后 15 秒」改为「启动后 1 分钟」（充分避开 host agent 启动读取/更新峰值），之后仍每 `HERMES_SYNC_UPDATE_INTERVAL`（默认 1 小时）检查一次。空闲 agent 启动后不再过早主动打版本接口。客户端版本 bump 至 `2026.08.22.2` 触发自动更新
+
+## [2026.08.22.1] - 2026-08-22
+
+### Added
+- **设备访问明细按 agent 区分客户端版本**：一台设备可安装多个 agent（`HERMES_SYNC_AGENT` 各自独立，每个 agent 是独立 MCP 实例、版本可能不同）。现在客户端（`mcp/server.py`）每次同步（push / pull / 项目同步）在请求体额外携带 `agent`，服务端 `access_device` 改为按 `(device_id, agent, channel)` 粒度聚合并记录该 agent 的客户端版本。「API 设备访问明细」页（`/web/admin/access/devices`）每设备一行，点击展开显示各 agent 的 Agent / 客户端版本 / 域名 / IP / 最后访问明细；多 agent 时版本列显示「agent → 版本」徽标。兼容旧客户端：未上报 agent 的请求归入 `unknown` 组，不影响既有统计。老库通过 `init_db()` 幂等 `ALTER TABLE` + 重建主键迁移。客户端版本 bump 至 `2026.08.22.1` 触发自动更新
+
 ## [2026.08.21.1] - 2026-08-21
 
 ### Changed
