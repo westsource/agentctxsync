@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.5] - 2026-08-22
+
+### Fixed
+- **`/push` 空内容消息毫秒级去重（防重复复发）**：hermes 会话重建后重推的消息时间戳存在亚毫秒精度漂移（同一消息 `1780323802.979` 与 `1780323802.9798274` 各存一份），精确三元组与内容兜底都无法命中——尤其 content 为空（hermes 工具调用型消息）时内容兜底直接跳过，重复行持续累积。现在服务端 push 对**空 content 行**额外按毫秒截断时间戳（`trunc(x::numeric, 3)`）判重：与库内已有行同毫秒即视为重复，且同一批次内后到的重建副本也会被批内追踪去重。非空行不受影响（内容兜底已覆盖，且避免误伤 codex 同毫秒不同消息）。回归测试：`test_empty_content_ms_precision_duplicate_deduped`、`test_empty_content_ms_duplicate_within_same_push`、`test_nonempty_same_ms_distinct_messages_not_deduped`。纯服务端改动，客户端无需更新（版本号保持 `2026.08.22.3`）
+
 ## [2026.08.22.4] - 2026-08-22
 
 ### Fixed

@@ -1,6 +1,7 @@
 """Sync domain: pull/push/status (API-Key protocol endpoints)."""
 import asyncio
 from datetime import datetime
+from decimal import Decimal, ROUND_DOWN
 
 import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,6 +17,28 @@ def log_audit(conn, event, user_id, workspace_id, device_id, code, detail):
         "INSERT INTO audit_log (ts, event, user_id, workspace_id, device_id, code, detail) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (datetime.now().timestamp(), event, user_id, workspace_id, device_id, code, detail))
+
+
+def _trunc_ms(ts: float | None) -> float | None:
+    """Millisecond-truncated timestamp (matches PG ``trunc(x::numeric, 3)``).
+
+    Hermes rebuilds a session after an interrupted turn and re-serializes
+    message timestamps with sub-ms precision drift -- the same message
+    appears once as ``1780323802.979`` and again as ``1780323802.9798274``.
+    The exact (role, timestamp) triple then misses the copy, and when the
+    message's content is empty (hermes tool-call rows) the content-level
+    fallback misses it too, so the rebuilt row inserts as a duplicate.
+    Truncating both sides to the same millisecond makes the copies collide
+    again. Decimal(str()) keeps the comparison stable across the float
+    values PG stores and the client sends.
+    """
+    if ts is None:
+        return None
+    try:
+        return float(Decimal(str(ts)).quantize(Decimal("0.001"),
+                                               rounding=ROUND_DOWN))
+    except (ValueError, TypeError):
+        return float(ts)
 
 
 @router.get("/health")
@@ -215,10 +238,21 @@ def push_sync(body, ws):
         # sessions: ONE query instead of one per message (a 10k-message push
         # used to issue several SELECTs per message before dedup could start).
         sess_ids = [s["id"] for s in sessions_data]
-        c.execute("SELECT session_id, role, timestamp FROM messages "
+        c.execute("SELECT session_id, role, timestamp, content FROM messages "
                   "WHERE workspace_id = %s AND session_id = ANY(%s)",
                   (wid, sess_ids))
-        msg_keys = set(c.fetchall())
+        msg_keys = set()
+        # Ms-truncated keys of stored EMPTY-content rows (hermes tool-call
+        # messages carry no text): a rebuilt copy whose timestamp drifted at
+        # sub-ms precision is caught by comparing the truncated key instead
+        # of the exact triple (see _trunc_ms). Non-empty rows are excluded —
+        # their duplicates are already caught by the content-level fallback,
+        # and same-ms distinct messages (codex tool bursts) must not collide.
+        empty_ms_keys = set()
+        for _sid, _role, _ts, _content in c.fetchall():
+            msg_keys.add((_sid, _role, _ts))
+            if _ts is not None and (_content is None or _content == ""):
+                empty_ms_keys.add((_sid, _role, _trunc_ms(_ts)))
         # Next auto-increment id per session for clients without local ids
         # (codex/reasonix/...): ONE GROUP BY query instead of MAX(id) per
         # message; ids are allocated in memory and a concurrent push stealing
@@ -227,6 +261,12 @@ def push_sync(body, ws):
                   "WHERE workspace_id = %s AND session_id = ANY(%s) GROUP BY session_id",
                   (wid, sess_ids))
         next_ids = {sid: n for sid, n in c.fetchall()}
+        # Empty-content ms-keys accepted earlier IN THIS PUSH: a client's
+        # local store can hold both the original and the rebuilt copy (the
+        # re-pull after a server-side dedup still has them), so one push may
+        # carry both at once. Without this, the second copy would slip past
+        # the snapshot check and re-create the duplicate server-side.
+        seen_empty_ms: set = set()
         for session in sessions_data:
             # message_count repair (mirrors the /pull side): derive the count
             # from the actual messages in this push so a client-side 0 (sync-
@@ -297,6 +337,20 @@ def push_sync(body, ws):
                     if c.fetchone():
                         dup_m += 1
                         continue
+                content = msg.get("content")
+                # Ms-level fallback for empty-content rows (hermes tool-call
+                # messages carry no text, so the content-level dedup below is
+                # skipped for them): compare the ms-truncated timestamp
+                # against previously stored empty rows -- including copies
+                # accepted earlier in this same push -- so a rebuilt row
+                # whose timestamp drifted at sub-ms precision (see _trunc_ms)
+                # never lands as a duplicate.
+                if role is not None and ts is not None \
+                        and (content is None or content == ""):
+                    _ekey = (msid, role, _trunc_ms(ts))
+                    if _ekey in empty_ms_keys or _ekey in seen_empty_ms:
+                        dup_m += 1
+                        continue
                 # Content-level fallback: an agent that rebuilt a session
                 # (e.g. hermes "message-alternation repair" after an
                 # interrupted turn) re-generates timestamps with time.time(),
@@ -315,7 +369,6 @@ def push_sync(body, ws):
                 # duplicate rows, while tool rows keep the triple-only dedup
                 # (codex tool outputs legitimately repeat identical text from
                 # distinct calls).
-                content = msg.get("content")
                 dedup_text = content if isinstance(content, str) and content else None
                 if dedup_text is None:
                     # Damaged rows: some clients push messages whose content
@@ -355,6 +408,11 @@ def push_sync(body, ws):
                     md["id"] = next_ids.get(msid, 1)
                     next_ids[msid] = md["id"] + 1
                 new_msgs.append(md)
+                # Remember the accepted empty row so a rebuilt copy of it
+                # arriving later in this same push is deduped too.
+                if role is not None and ts is not None \
+                        and (content is None or content == ""):
+                    seen_empty_ms.add((msid, role, _trunc_ms(ts)))
             if new_msgs:
                 # One multi-row statement per session (a single round trip
                 # instead of one INSERT per message). ON CONFLICT DO NOTHING

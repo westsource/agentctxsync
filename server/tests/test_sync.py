@@ -157,8 +157,8 @@ class PushTest(unittest.TestCase):
                .add(r"information_schema\.columns.*messages",
                     [(c,) for c in MSG_COLS])
                # batched dedup-key prefetch (one query for the whole push)
-               .add(r"SELECT session_id, role, timestamp FROM messages",
-                    list(msg_keys))
+               .add(r"SELECT session_id, role, timestamp, content FROM messages",
+                    [(sid, role, ts, None) for sid, role, ts in msg_keys])
                # batched next-id prefetch per session (GROUP BY)
                .add(r"GROUP BY session_id",
                     [(s["id"], next_id) for s in sessions])
@@ -239,6 +239,50 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["new_messages"], 0)
         self.assertEqual(resp["duplicates"], 1)
         self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_empty_content_ms_precision_duplicate_deduped(self):
+        # hermes tool-call messages carry empty content; a rebuilt copy
+        # re-serializes the timestamp at sub-ms precision (.979 vs
+        # .9798274), so the exact triple AND the content fallback both miss
+        # it. The ms-truncated key must collide with the stored row.
+        sessions = [{"id": "s1", "title": "t",
+                     "messages": [{"role": "assistant", "content": "",
+                                   "timestamp": 1.0008274}]}]
+        resp, cur = self._push(sessions, msg_keys={("s1", "assistant", 1.0)})
+        self.assertEqual(resp["new_messages"], 0)
+        self.assertEqual(resp["duplicates"], 1)
+        self.assertFalse(any(s.startswith("INSERT INTO messages") for s, _ in cur.executed))
+
+    def test_empty_content_ms_duplicate_within_same_push(self):
+        # one push can carry both the original and the rebuilt copy (the
+        # client's local store still holds both); the second must be
+        # deduped against the first, not inserted.
+        sessions = [{"id": "s1", "title": "t",
+                     "messages": [
+                         {"role": "assistant", "content": "", "timestamp": 1.0},
+                         {"role": "assistant", "content": "", "timestamp": 1.0008274}]}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["new_messages"], 1)
+        self.assertEqual(resp["duplicates"], 1)
+        batch = [s for s, _ in cur.executed
+                 if s.startswith("INSERT INTO messages")
+                 and "RETURNING session_id, id" in s
+                 and "VALUES (%s" not in s]
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(len(cur.batch_rows), 1)
+
+    def test_nonempty_same_ms_distinct_messages_not_deduped(self):
+        # the ms fallback is scoped to EMPTY content only: two distinct
+        # non-empty messages sharing a millisecond (codex tool bursts) must
+        # both insert -- identical content is handled by the content
+        # fallback, different content at the same ms is legit.
+        sessions = [{"id": "s1", "title": "t",
+                     "messages": [
+                         {"role": "tool", "content": "out-a", "timestamp": 1.0001},
+                         {"role": "tool", "content": "out-b", "timestamp": 1.0002}]}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["new_messages"], 2)
+        self.assertEqual(resp["duplicates"], 0)
 
     def test_push_normalizes_path_separators_to_forward_slash(self):
         # Windows local paths (backslashes) must be stored as '/' on the
