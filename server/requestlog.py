@@ -4,7 +4,7 @@ Every request is logged with the client's real IP, the Host header it used
 (domain vs IP:port), protocol, path and -- for sync endpoints -- the device
 id. This distinguishes clients syncing through the public domain (nginx:
 Host=www.agentctxsync.com, https) from direct IP:port access
-(Host=47.95.214.236:8765, http).
+(Host=203.0.113.7:8765, http).
 
 Log lines carry a REQ prefix, e.g.:
   REQ src=203.0.113.7 host=www.agentctxsync.com proto=https method=POST

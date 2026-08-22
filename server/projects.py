@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 
 from auth import get_workspace_by_api_key
-from db import get_conn
+from db import get_conn, normalize_path_sep
 
 router = APIRouter()
 @router.post("/api/projects/push")
@@ -22,6 +22,13 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
         for p in projects:
             pid = p["id"]
             slug = p.get("slug") or p["name"]
+            # canonical path: normalize Windows backslashes to '/' before
+            # storing primary_path and folder paths.
+            if p.get("primary_path"):
+                p["primary_path"] = normalize_path_sep(p["primary_path"])
+            for f in p.get("folders", []) or []:
+                if f.get("path"):
+                    f["path"] = normalize_path_sep(f["path"])
             # profile: explicit payload field (new scheme) or the legacy
             # id prefix (<profile>:<p_xxx>; foreign-agent prefixes keep the
             # default profile and are stripped from the stored id)
@@ -113,6 +120,12 @@ async def api_projects_pull(request: Request, ws: dict = Depends(get_workspace_b
             c.execute("""SELECT path, label, is_primary, added_at FROM project_folders
                          WHERE workspace_id = %s AND project_id = %s""", (wid, p["id"]))
             p["folders"] = [dict(r) for r in c.fetchall()]
+            # canonical path: serve '/' (Windows backslashes migrated away).
+            if p.get("primary_path"):
+                p["primary_path"] = normalize_path_sep(p["primary_path"])
+            for f in p.get("folders", []) or []:
+                if f.get("path"):
+                    f["path"] = normalize_path_sep(f["path"])
             projects.append(p)
         c.execute("""SELECT old_id, new_id FROM project_remap
                      WHERE workspace_id = %s""", (wid,))

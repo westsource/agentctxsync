@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from adapters.workbuddy import WorkBuddyAdapter  # noqa: E402
 
-SERVER_A = "http://47.95.214.236:8765"
+SERVER_A = "http://203.0.113.7:8765"
 SERVER_B = "http://localhost:8765"
 
 

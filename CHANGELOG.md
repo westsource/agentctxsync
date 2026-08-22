@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.22.3] - 2026-08-22
+
+### Changed
+- **路径分隔符统一为 `/`**：服务端规范存储与返回均为正斜线 `/`（`sessions.cwd`、`sessions.git_repo_root`、`projects.primary_path`、`project_folders.path`），Windows 反斜线在 push 入库时归一化、pull 返回时归一化；历史数据由 `scripts/migrate-path-sep.py` 一次性迁移（dry-run 默认，`--apply` 写库）。客户端 pull 写本地时按本机已有会话/项目路径的分隔符对齐写入，与本地一致并合并，避免因分隔符差异把同一路径/项目文件夹插成两条。架构约定见 `docs/ARCHITECTURE.md`。客户端版本 bump 至 `2026.08.22.3` 触发自动更新
+
 ## [2026.08.22.2] - 2026-08-22
 
 ### Changed

@@ -16,6 +16,14 @@ def _pg_val(v):
     复合字段不会以 "can't adapt type 'dict'" 500。"""
     return json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
 
+
+def normalize_path_sep(value):
+    """Server-side canonical path: replace backslashes with '/'. Windows
+    clients report native (`E:\\a\\b`) paths; the server stores and returns
+    the cross-platform `/` form for sessions cwd/git_repo_root and project
+    paths. Non-str values pass through untouched."""
+    return value.replace("\\", "/") if isinstance(value, str) else value
+
 # ============================================================
 # Configuration
 # ============================================================

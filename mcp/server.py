@@ -40,7 +40,7 @@ from mcp.types import Tool, TextContent
 SDK_V2 = not hasattr(Server, "list_tools")
 
 from adapters import get_adapter, available_agents
-from adapters.base import AGENT_PREFIXES
+from adapters.base import AGENT_PREFIXES, align_path_to_local, build_path_map
 import updater
 
 
@@ -274,6 +274,7 @@ def pull_sessions(last_sync_at=None, limit=None):
     PAGE = 15
     fetched = 0
     prev_page_ids = None
+    local_cwd_map = None  # lazily built from local sessions for path alignment
     while True:
         page_limit = PAGE if limit is None else max(min(PAGE, limit - fetched), 0)
         if page_limit <= 0:
@@ -310,6 +311,18 @@ def pull_sessions(last_sync_at=None, limit=None):
         # where a write contends with concurrent readers). Each attempt
         # fails fast (busy_timeout=5s); short gaps between attempts catch
         # brief idle windows instead of deferring to the next sync cycle.
+        # Before writing, align pull-side path fields (cwd/git_repo_root) to
+        # the local separator spelling where a local path already exists with
+        # only a different separator — keeps local storage consistent and
+        # merges instead of splitting the same path.
+        if local_cwd_map is None:
+            _local = adapter.read_sessions()
+            local_cwd_map = build_path_map(
+                s.get("cwd") for s in _local if isinstance(s.get("cwd"), str))
+        for s in sessions:
+            for _pk in ("cwd", "git_repo_root"):
+                if isinstance(s.get(_pk), str) and s[_pk]:
+                    s[_pk] = align_path_to_local(s[_pk], local_cwd_map)
         stats = None
         for gap in (0, 2, 5, 10):
             if gap:
@@ -440,6 +453,26 @@ def pull_projects():
                        "agent": AGENT})
     if "error" in result:
         return result
+    # Align pull-side project paths (primary_path, folders[]) to the local
+    # separator spelling where a local project already has the same path
+    # modulo separators, so a folder path that already exists locally is
+    # updated/merged instead of inserted as a duplicate spelling.
+    local_paths = set()
+    try:
+        for _lp in adapter.read_projects() or []:
+            if isinstance(_lp.get("primary_path"), str) and _lp["primary_path"]:
+                local_paths.add(_lp["primary_path"])
+            for _f in _lp.get("folders", []) or []:
+                if isinstance(_f.get("path"), str) and _f["path"]:
+                    local_paths.add(_f["path"])
+    except (AttributeError, NotImplementedError):
+        local_paths = set()
+    for p in result.get("projects", []) or []:
+        if isinstance(p.get("primary_path"), str) and p["primary_path"]:
+            p["primary_path"] = align_path_to_local(p["primary_path"], local_paths)
+        for f in p.get("folders", []) or []:
+            if isinstance(f.get("path"), str) and f["path"]:
+                f["path"] = align_path_to_local(f["path"], local_paths)
     stats = adapter.write_projects(result.get("projects", []),
                                    result.get("remaps", []))
     return {"imported": stats.get("imported", 0),

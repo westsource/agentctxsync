@@ -67,7 +67,7 @@ class ClassifyChannelTest(unittest.TestCase):
             self.assertEqual(requestlog.classify_channel(h), "domain", h)
 
     def test_ip_literals_are_ip(self):
-        for h in ("47.95.214.236:8765", "47.95.214.236", "127.0.0.1:8765",
+        for h in ("203.0.113.7:8765", "203.0.113.7", "127.0.0.1:8765",
                   "localhost:8765", "[::1]:8765", "2001:db8::1"):
             self.assertEqual(requestlog.classify_channel(h), "ip", h)
 
@@ -104,7 +104,7 @@ class RecordAccessTest(unittest.TestCase):
         self.assertEqual(params[2], "web")
 
     def test_upsert_ip_api(self):
-        _, params = self._record("47.95.214.236:8765", "/push")
+        _, params = self._record("203.0.113.7:8765", "/push")
         self.assertEqual(params[1], "ip")
         self.assertEqual(params[2], "api")
 
@@ -161,7 +161,7 @@ class RecordDeviceTest(unittest.TestCase):
         self.assertIsNone(executed[1][1][5])
 
     def test_ip_device_upsert(self):
-        for host, expected_channel in (("47.95.214.236:8765", "ip"),):
+        for host, expected_channel in (("203.0.113.7:8765", "ip"),):
             _, params = self._record(host, "/pull", "box-2")[1]
             self.assertEqual(params[1], "box-2")
             self.assertEqual(params[2], "unknown")
@@ -207,7 +207,7 @@ class RecordDeviceTest(unittest.TestCase):
             "type": "http", "http_version": "1.1", "method": "POST",
             "scheme": "http", "path": "/push", "raw_path": b"/push",
             "query_string": b"", "root_path": "",
-            "headers": [(b"host", b"47.95.214.236:8765")],
+            "headers": [(b"host", b"203.0.113.7:8765")],
             "client": ("1.2.3.4", 1234), "server": ("127.0.0.1", 8765),
             "receive": receive,
         }
@@ -220,7 +220,7 @@ class RecordDeviceTest(unittest.TestCase):
         with mock.patch.object(requestlog, "_record_access", rec):
             asyncio.run(requestlog.request_log_middleware(
                 Request(scope, receive=receive), call_next))
-        rec.assert_called_once_with("47.95.214.236:8765", "/push", "my-pc",
+        rec.assert_called_once_with("203.0.113.7:8765", "/push", "my-pc",
                                     "2026.08.21.1", "hermes")
 
 
@@ -248,8 +248,8 @@ class MiddlewareCountingTest(unittest.TestCase):
         rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "", "", "")
 
     def test_ip_host_passed_through(self):
-        rec = self._run("/web/login", host="47.95.214.236:8765")
-        rec.assert_called_once_with("47.95.214.236:8765", "/web/login", "", "", "")
+        rec = self._run("/web/login", host="203.0.113.7:8765")
+        rec.assert_called_once_with("203.0.113.7:8765", "/web/login", "", "", "")
 
     def test_root_landing_counted_as_web(self):
         rec = self._run("/", host="www.agentctxsync.com")
