@@ -137,11 +137,11 @@ AGENTS = {
             ],
         },
     },
-    "codex": {
-        "label": "OpenAI Codex",
+    "deepseek-harness": {
+        "label": "DeepSeek Harness",
         "desc": {
-            "zh": "OpenAI Codex CLI（codex），会话为 ~/.codex/sessions/*.jsonl。",
-            "en": "OpenAI Codex CLI (codex); sessions live in ~/.codex/sessions/*.jsonl.",
+            "zh": "DeepSeek Harness（codex rollout 格式），会话为 ~/.codex/sessions/*.jsonl。",
+            "en": "DeepSeek Harness (codex rollout format); sessions live in ~/.codex/sessions/*.jsonl.",
         },
         "store": {
             "zh": "本地存储：~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
@@ -153,17 +153,17 @@ AGENTS = {
                 "[mcp_servers.hermes-sync]\n"
                 'command = "<PYTHON>"\n'
                 'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "codex", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+                'env = { HERMES_SYNC_AGENT = "deepseek-harness", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
             ),
             "en": (
                 "# Edit ~/.codex/config.toml (or use codex mcp add if your version supports it)\n"
                 "[mcp_servers.hermes-sync]\n"
                 'command = "<PYTHON>"\n'
                 'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "codex", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
+                'env = { HERMES_SYNC_AGENT = "deepseek-harness", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
             ),
         },
-        "verify": "codex --version && 在 codex 会话中调用 hermes_sync_status",
+        "verify": "codex --version && 在 harness 会话中调用 hermes_sync_status",
         "env_agent": True,
         "uninstall": {
             "zh": (
@@ -178,17 +178,17 @@ AGENTS = {
         "install": {
             "zh": [
                 {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
-                {"text": "确认已安装 Codex CLI（<code>codex --version</code>）。"},
+                {"text": "确认已安装 DeepSeek Harness（<code>codex --version</code>，若基于 codex CLI）。"},
                 {"text": "编辑 <code>~/.codex/config.toml</code>，添加 <code>[mcp_servers.hermes-sync]</code> 配置（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
-                {"text": "重启 codex（新会话生效）。"},
+                {"text": "重启 harness（新会话生效）。"},
             ],
             "en": [
                 {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
-                {"text": "Make sure the Codex CLI is installed (<code>codex --version</code>)."},
+                {"text": "Make sure DeepSeek Harness is installed (<code>codex --version</code> if it is built on the codex CLI)."},
                 {"text": "Edit <code>~/.codex/config.toml</code> and add <code>[mcp_servers.hermes-sync]</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
                 {"code": "<REGISTER>"},
-                {"text": "Restart codex (new sessions pick it up)."},
+                {"text": "Restart the harness (new sessions pick it up)."},
             ],
         },
     },

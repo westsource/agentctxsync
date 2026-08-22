@@ -27,7 +27,7 @@ from .base import (  # noqa: F401  (re-exported for convenience)
 #: agent key -> adapter module name (lazy-loaded on first use)
 _ADAPTER_MODULES = {
     "hermes": "hermes",
-    "codex": "codex",
+    "deepseek-harness": "deepseek_harness",
     "opencode": "opencode",
     "reasonix": "reasonix",
     "openclaw": "openclaw",

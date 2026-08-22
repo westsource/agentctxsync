@@ -5,8 +5,8 @@
 
 ## [2026.08.22.7] - 2026-08-22
 
-### Fixed
-- **Codex 适配器外来会话 idmap（桌面版可见性）**：Codex Desktop 的会话索引（`state_5.sqlite` 的 `threads` 表，由一次性 backfill 填充）只接受 UUID 形式的会话 id——hermes 的时间戳式 id（如 `20260608_103351_a671c4`）会被静默跳过，导致从服务器拉取的外来会话在 codex 桌面版中不显示（实测 125 个 hermes 会话全部被跳过，workbuddy 的 UUID id 正常导入）。现在 codex 适配器为「文件名安全但非 UUID」的外来会话分配 UUID 本地 id（`~/.codex/.hermes-sync-idmap.json` 持久化 canonical→local 映射，重拉复用同一 UUID 保持去重稳定），读取时逆向映射回 canonical id 推送；owner 注册表改按 canonical 键。冒号等文件名不安全 id 仍按原逻辑跳过（NTFS ADS 防护）。回归测试 3 个（映射/直通/复用）。客户端版本 bump 至 `2026.08.22.7` 触发自动更新
+### Changed
+- **codex 适配器更名为 deepseek-harness**：实际运行的 Agent 是 DeepSeek Harness（codex CLI 配 DeepSeek 模型，rollout 存储格式）。适配器（`mcp/adapters/deepseek_harness.py`）、Agent 注册表、帮助页/模板颜色/README/架构文档中的标识全部由 `codex` 更名为 `deepseek-harness`（`HERMES_SYNC_AGENT=deepseek-harness`）；legacy `codex:` 前缀 id 入站时归一化为新 agent 类型；服务端存量 `agent_type='codex'` 数据迁移为 `deepseek-harness`。存储路径不变（`~/.codex` rollout 格式）。已知限制：harness 桌面版无法渲染外部写入的 rollout 会话（数据同步与 CLI 读取正常，桌面 UI 显示空白/偶发崩溃——harness 应用侧限制）。客户端版本 bump 至 `2026.08.22.7` 触发自动更新
 
 ## [2026.08.22.6] - 2026-08-22
 

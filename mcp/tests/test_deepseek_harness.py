@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.codex import CodexAdapter  # noqa: E402
+from adapters.deepseek_harness import DeepseekHarnessAdapter  # noqa: E402
 
 
 def make_fixture(home: Path):
@@ -37,7 +37,7 @@ def make_fixture(home: Path):
         encoding="utf-8")
 
 
-class CodexAdapterTest(unittest.TestCase):
+class DeepseekHarnessAdapterTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
@@ -47,7 +47,7 @@ class CodexAdapterTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_read(self):
-        a = CodexAdapter(codex_home=self.home)
+        a = DeepseekHarnessAdapter(codex_home=self.home)
         sessions = a.read_sessions()
         self.assertEqual(len(sessions), 1)
         s = sessions[0]
@@ -62,7 +62,7 @@ class CodexAdapterTest(unittest.TestCase):
         self.assertGreater(s["started_at"], 0)
 
     def test_write_new_and_dedupe(self):
-        a = CodexAdapter(codex_home=self.home)
+        a = DeepseekHarnessAdapter(codex_home=self.home)
         foreign = [{
             "id": "22222222-2222-2222-2222-222222222222",
             "started_at": 1767300000.0, "title": "Pushed",
@@ -89,9 +89,9 @@ class CodexAdapterTest(unittest.TestCase):
         import json
         import tempfile
         import uuid as uuid_mod
-        from adapters.codex import ROLLOUT_RE, _IDMAP
+        from adapters.deepseek_harness import ROLLOUT_RE, _IDMAP
         with tempfile.TemporaryDirectory() as td:
-            a = CodexAdapter(codex_home=Path(td))
+            a = DeepseekHarnessAdapter(codex_home=Path(td))
             cid = "20260608_103351_a671c4"
             a.write_sessions([{
                 "id": cid, "agent_type": "hermes", "started_at": 1787300000.0,
@@ -118,9 +118,9 @@ class CodexAdapterTest(unittest.TestCase):
 
     def test_foreign_uuid_id_passes_through(self):
         import tempfile
-        from adapters.codex import ROLLOUT_RE
+        from adapters.deepseek_harness import ROLLOUT_RE
         with tempfile.TemporaryDirectory() as td:
-            a = CodexAdapter(codex_home=Path(td))
+            a = DeepseekHarnessAdapter(codex_home=Path(td))
             cid = "03b3a73d-629e-4ba5-baa2-badd4a50248a"
             a.write_sessions([{
                 "id": cid, "agent_type": "workbuddy", "started_at": 1787300000.0,
@@ -133,9 +133,9 @@ class CodexAdapterTest(unittest.TestCase):
 
     def test_idmap_reuse_across_pulls(self):
         import tempfile
-        from adapters.codex import ROLLOUT_RE
+        from adapters.deepseek_harness import ROLLOUT_RE
         with tempfile.TemporaryDirectory() as td:
-            a = CodexAdapter(codex_home=Path(td))
+            a = DeepseekHarnessAdapter(codex_home=Path(td))
             cid = "20260608_103351_a671c4"
             sess = {"id": cid, "agent_type": "hermes", "started_at": 1787300000.0,
                     "title": "t",
@@ -210,7 +210,7 @@ class CodexNewFormatTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_read_new_format_nested_layout(self):
-        a = CodexAdapter(codex_home=self.home)
+        a = DeepseekHarnessAdapter(codex_home=self.home)
         sessions = a.read_sessions()
         self.assertEqual(len(sessions), 1)
         s = sessions[0]
@@ -235,7 +235,7 @@ class CodexNewFormatTest(unittest.TestCase):
         self.assertTrue(all(m["content"] for m in msgs))
 
     def test_write_new_goes_into_partition(self):
-        a = CodexAdapter(codex_home=self.home)
+        a = DeepseekHarnessAdapter(codex_home=self.home)
         foreign = [{
             "id": "44444444-4444-4444-4444-444444444444",
             "started_at": 1767300000.0, "title": "Partitioned",
@@ -265,7 +265,7 @@ class CodexNewFormatTest(unittest.TestCase):
         # Windows (open() succeeds, content lands in a hidden stream the
         # adapter can never read back). The filename store must skip it
         # instead of half-writing it.
-        a = CodexAdapter(codex_home=self.home)
+        a = DeepseekHarnessAdapter(codex_home=self.home)
         foreign = [{
             "id": "workbuddy:1b8fc026-d2b4-4dfb-bdef-2ea8e73013e4",
             "started_at": 1767300000.0, "title": "WB",
