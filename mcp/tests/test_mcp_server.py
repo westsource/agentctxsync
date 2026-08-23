@@ -95,5 +95,47 @@ class ToolRegistrationTest(unittest.TestCase):
             asyncio.run(server._dispatch_tool("nope", {}))
 
 
+class FieldMergeTest(unittest.TestCase):
+    """Field-level optimistic concurrency on the client (see ARCHITECTURE.md):
+    push only dirty / first-contact user-edit fields, and anchor the accepted
+    base so they stop reading dirty. Mirrors the server-side merge rules."""
+
+    def test_push_omits_non_dirty_fields_keeps_derived(self):
+        meta = {"s1": {"cwd": {"base": 4, "val": "D:/old"},
+                       "title": {"base": 1, "val": "t"}}}
+        s = {"id": "s1", "title": "t", "cwd": "D:/old", "model": "m",
+             "messages": []}
+        out = server._annotate_push_session(s, meta)
+        self.assertEqual(out["model"], "m")        # derived kept
+        self.assertNotIn("cwd", out)               # not dirty -> omitted
+        self.assertNotIn("title", out)
+        self.assertEqual(out["field_meta"], {})
+
+    def test_push_dirty_field_sends_with_known_base(self):
+        meta = {"s1": {"cwd": {"base": 4, "val": "D:/old"}}}
+        s = {"id": "s1", "cwd": "D:/NEW", "messages": []}
+        out = server._annotate_push_session(s, meta)
+        self.assertEqual(out["cwd"], "D:/NEW")
+        self.assertEqual(out["field_meta"], {"cwd": 4})
+
+    def test_push_first_contact_uses_none_base(self):
+        # No sidecar entry -> base unknown -> field asserted with base None
+        # so the server stays authoritative for an existing session.
+        s = {"id": "s1", "cwd": "D:/x", "messages": []}
+        out = server._annotate_push_session(s, {})
+        self.assertEqual(out["cwd"], "D:/x")
+        self.assertEqual(out["field_meta"], {"cwd": None})
+
+    def test_anchor_records_only_accepted_fields(self):
+        meta = {}
+        chunk = [{"id": "s1", "cwd": "D:/NEW",
+                  "field_meta": {"cwd": 4, "title": None}}]
+        revs = {"s1": {"rev": 7, "field_rev": {"cwd": 7, "title": 2}}}
+        server._anchor_push_meta(meta, chunk, revs)
+        # cwd (known base, accepted) anchored; title (base None, refused) not
+        self.assertEqual(meta,
+                         {"s1": {"cwd": {"base": 7, "val": "D:/NEW"}}})
+
+
 if __name__ == "__main__":
     unittest.main()

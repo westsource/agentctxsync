@@ -3,6 +3,20 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.23.1] - 2026-08-23
+
+### Added
+- **字段级乐观并发（多端冲突安全同步）**：会话 user-edit 字段（`cwd`/`git_branch`/`git_repo_root`/`title`/`pinned`/`archived`/`display_name`）纳入字段级合并，确定收敛、跨设备不丢数据。详见 `docs/ARCHITECTURE.md`「字段级乐观并发 + 惰性 bootstrap」决策记录。
+
+### Changed
+- **服务端**：`sessions` 新增 `rev`（会话级逻辑版本，默认 0）+ `field_rev`（JSONB 每字段版本，默认 `{}`，基线 0，无需重建历史）。`/push` 按字段合并：`base=None`（未知基准）→ 服务器权威一次不写；已知 base 的脏字段 → 接受并递增；新会话播种 `rev=1`。`/pull` 返回每字段 `field_rev`（JSONB 规范化为 dict）。push 响应新增 `session_revs` 供客户端即时锚定基准。旧客户端（无 `field_meta`）整会话回退既有全量覆盖语义，混合版本窗口短暂。
+- **客户端**：新增字段级 sidecar（`.hermes-sync-<agent>-field-meta.json`，惰性填充、无需强制全量 pull）。push 仅推「脏或首次接触」的 user-edit 字段并带 base，其余剔除（绝不覆盖对端）；pull 跳过本地脏字段、锚定被采纳字段的 base/val。`full_sync` 与启动路径统一改为 **pull → push**（先锚定基准再推脏字段，本地改动不被回滚、对端改动不被冲掉）。
+
+### Fixed
+- **会话换项目后重启被回退**：把会话从 A 项目移到 B 项目（项目归属编码为 `cwd`）后立刻重启 hermes，先拉后推会拿服务器旧 `cwd` 把本地移动抹掉。字段级合并下：本地移动是脏字段 → pull 跳过、push 带走，跨设备各自保留有意改动。（此前「启动 push→pull」方案已被本设计取代。）
+- **server / mcp 消息层不变**：追加 + 三元组去重已跨端安全，pull 沿用 hidden 过滤、push 不复活隐藏消息。
+- 客户端版本 bump 至 `2026.08.23.1` 触发自动更新（需配套部署服务端 schema 迁移）
+
 ## [2026.08.22.8] - 2026-08-22
 
 ### Changed
