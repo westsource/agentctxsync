@@ -10,7 +10,8 @@
 
 ### Changed
 - **服务端**：`sessions` 新增 `rev`（会话级逻辑版本，默认 0）+ `field_rev`（JSONB 每字段版本，默认 `{}`，基线 0，无需重建历史）。`/push` 按字段合并：`base=None`（未知基准）→ 服务器权威一次不写；已知 base 的脏字段 → 接受并递增；新会话播种 `rev=1`。`/pull` 返回每字段 `field_rev`（JSONB 规范化为 dict）。push 响应新增 `session_revs` 供客户端即时锚定基准。旧客户端（无 `field_meta`）整会话回退既有全量覆盖语义，混合版本窗口短暂。
-- **客户端**：新增字段级 sidecar（`.hermes-sync-<agent>-field-meta.json`，惰性填充、无需强制全量 pull）。push 仅推「脏或首次接触」的 user-edit 字段并带 base，其余剔除（绝不覆盖对端）；pull 跳过本地脏字段、锚定被采纳字段的 base/val。`full_sync` 与启动路径统一改为 **pull → push**（先锚定基准再推脏字段，本地改动不被回滚、对端改动不被冲掉）。
+- **服务端（Phase 2）**：`projects` 同样新增 `rev` + `field_rev`；`/api/projects/push` 对项目标量字段（`name`/`primary_path`/`archived`/`description`）做同一字段级合并（`base=None` 服务器权威、已知 base 接受递增、新项目播种 `rev=1`），响应带 `project_revs`；`/api/projects/pull` 返回每项目 `field_rev`。folders 保持路径并集（跨设备增量共存），不入字段版本。
+- **客户端**：新增字段级 sidecar（`.hermes-sync-<agent>-field-meta.json` + `.hermes-sync-<agent>-projects-field-meta.json`，惰性填充、无需强制全量 pull）。push 仅推「脏或首次接触」的 user-edit 字段并带 base，其余剔除（绝不覆盖对端）；pull 跳过本地脏字段、锚定被采纳字段的 base/val。`full_sync` 与启动路径统一改为 **pull → push**（先锚定基准再推脏字段，本地改动不被回滚、对端改动不被冲掉）。
 
 ### Fixed
 - **会话换项目后重启被回退**：把会话从 A 项目移到 B 项目（项目归属编码为 `cwd`）后立刻重启 hermes，先拉后推会拿服务器旧 `cwd` 把本地移动抹掉。字段级合并下：本地移动是脏字段 → pull 跳过、push 带走，跨设备各自保留有意改动。（此前「启动 push→pull」方案已被本设计取代。）

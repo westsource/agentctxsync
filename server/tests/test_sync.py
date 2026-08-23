@@ -653,6 +653,77 @@ class ProjectsPullTest(unittest.TestCase):
         self.assertEqual({p["id"] for p in resp["projects"]}, {"p1", "p2"})
         self.assertEqual(resp["remaps"], [])
 
+    def test_projects_pull_returns_field_rev_parsed(self):
+        # /api/projects/pull carries each project's per-field logical clock
+        # as a dict (JSONB comes back text from PG).
+        cur = (ScriptedCursor()
+               .add(r"FROM projects", [
+                   {"id": "p1", "slug": "p1", "name": "P1",
+                    "field_rev": '{"name": 2, "primary_path": 1}'}])
+               .add(r"FROM project_folders", [])
+               .add(r"FROM project_remap", []))
+        conn = FakeConn(cur)
+        with mock.patch.object(projects, "get_conn", return_value=FakeCtx(conn)):
+            resp = run(projects.api_projects_pull(
+                JsonRequest({"device_id": "d", "agent": "codex"}),
+                {"workspace_id": 1, "user_id": None}))
+        p = resp["projects"][0]
+        self.assertIsInstance(p["field_rev"], dict)
+        self.assertEqual(p["field_rev"], {"name": 2, "primary_path": 1})
+
+
+class ProjectsPushMergeTest(unittest.TestCase):
+    """Field-level optimistic merge for project scalar fields (Phase 2)."""
+
+    def _push(self, project, existing_id=None, clock=None):
+        cur = (ScriptedCursor()
+               .add(r"SELECT id FROM projects", [(existing_id,)] if existing_id else [])
+               .add(r"SELECT rev, field_rev FROM projects",
+                    [(clock["rev"],
+                      json.dumps(clock["field_rev"]))] if clock else []))
+        conn = FakeConn(cur)
+        with mock.patch.object(projects, "get_conn", return_value=FakeCtx(conn)):
+            resp = run(projects.api_projects_push(
+                JsonRequest({"device_id": "d", "projects": [project]}),
+                {"workspace_id": 1, "user_id": None}))
+        return resp, cur
+
+    def test_project_field_merge_known_base_accepts_and_bumps(self):
+        project = {"id": "p1", "name": "新名字", "primary_path": "D:/x",
+                   "field_meta": {"name": 3}}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 3, "field_rev": {"name": 3}})
+        upd = last_update_map(cur, "projects")
+        self.assertEqual(upd["name"], "新名字")
+        self.assertNotIn("primary_path", upd)   # unasserted -> kept server-side
+        self.assertEqual(upd["rev"], 4)
+        self.assertEqual(json.loads(upd["field_rev"]), {"name": 4})
+
+    def test_project_field_merge_none_base_server_authoritative(self):
+        project = {"id": "p1", "name": "LOCAL", "field_meta": {"name": None}}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 5, "field_rev": {"name": 5}})
+        upd = last_update_map(cur, "projects")
+        self.assertNotIn("name", upd)
+        self.assertEqual(upd["rev"], 5)
+
+    def test_new_project_seeds_logical_clock(self):
+        project = {"id": "p2", "name": "New", "primary_path": "D:/n",
+                   "field_meta": {"name": None, "primary_path": None}}
+        resp, cur = self._push(project)
+        r = insert_rows(cur, "projects")[0]
+        self.assertEqual(r["rev"], 1)
+        self.assertEqual(json.loads(r["field_rev"]), {"name": 1, "primary_path": 1})
+
+    def test_legacy_client_full_overwrite(self):
+        # No field_meta key -> legacy client writes user-edit fields outright
+        # (documented mixed-version window).
+        project = {"id": "p1", "name": "legacy"}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 2, "field_rev": {"name": 2}})
+        upd = last_update_map(cur, "projects")
+        self.assertEqual(upd["name"], "legacy")
+
 
 if __name__ == "__main__":
     unittest.main()

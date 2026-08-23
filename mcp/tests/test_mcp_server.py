@@ -137,5 +137,45 @@ class FieldMergeTest(unittest.TestCase):
                          {"s1": {"cwd": {"base": 7, "val": "D:/NEW"}}})
 
 
+class ProjectFieldMergeTest(unittest.TestCase):
+    """Field-level optimistic merge for project scalar fields (Phase 2)."""
+
+    def test_push_omits_non_dirty_keeps_id_and_folders(self):
+        meta = {"p1": {"name": {"base": 3, "val": "P1"},
+                       "primary_path": {"base": 1, "val": "D:/x"}}}
+        p = {"id": "p1", "name": "P1", "primary_path": "D:/x", "slug": "s1",
+             "folders": [{"path": "D:/a"}]}
+        out = server._annotate_push_project(p, meta)
+        self.assertEqual(out["slug"], "s1")            # non-edit kept
+        self.assertEqual(out["folders"], [{"path": "D:/a"}])
+        self.assertNotIn("name", out)                  # not dirty -> omitted
+        self.assertNotIn("primary_path", out)
+        self.assertEqual(out["field_meta"], {})
+
+    def test_push_dirty_project_field_sends_with_base(self):
+        meta = {"p1": {"name": {"base": 3, "val": "P1"},
+                       "primary_path": {"base": 1, "val": "D:/x"}}}
+        p = {"id": "p1", "name": "新名", "primary_path": "D:/x", "folders": []}
+        out = server._annotate_push_project(p, meta)
+        self.assertEqual(out["name"], "新名")           # dirty -> asserted
+        self.assertNotIn("primary_path", out)          # not dirty -> omitted
+        self.assertEqual(out["field_meta"], {"name": 3})
+
+    def test_push_first_contact_project_uses_none_base(self):
+        p = {"id": "p1", "name": "New", "folders": []}
+        out = server._annotate_push_project(p, {})
+        self.assertEqual(out["name"], "New")
+        self.assertEqual(out["field_meta"], {"name": None})
+
+    def test_anchor_project_records_only_accepted_fields(self):
+        meta = {}
+        chunk = [{"id": "p1", "name": "新名",
+                  "field_meta": {"name": 3, "primary_path": None}}]
+        revs = {"p1": {"rev": 7, "field_rev": {"name": 7, "primary_path": 2}}}
+        server._anchor_push_project_meta(meta, chunk, revs)
+        self.assertEqual(meta,
+                         {"p1": {"name": {"base": 7, "val": "新名"}}})
+
+
 if __name__ == "__main__":
     unittest.main()

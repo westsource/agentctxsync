@@ -40,8 +40,9 @@ from mcp.types import Tool, TextContent
 SDK_V2 = not hasattr(Server, "list_tools")
 
 from adapters import get_adapter, available_agents
-from adapters.base import (AGENT_PREFIXES, USER_EDIT_FIELDS,
-                           align_path_to_local, build_path_map)
+from adapters.base import (AGENT_PREFIXES, PROJECT_USER_EDIT_FIELDS,
+                           USER_EDIT_FIELDS, align_path_to_local,
+                           build_path_map)
 import updater
 
 
@@ -253,6 +254,8 @@ def explain_quota_error(result):
 # a field is "dirty" when the local store value differs from "val". Lazy
 # populate: entries appear only after the first pull/push contact. Absent
 # entry == base unknown -> the server stays authoritative for that field.
+PROJECT_FIELD_META_PATH = getattr(adapter, "project_field_meta_path",
+                                  lambda: None)()
 FIELD_META_PATH = getattr(adapter, "field_meta_path", lambda: None)()
 
 
@@ -312,6 +315,65 @@ def _anchor_push_meta(meta: dict, chunk, session_revs):
         for f, B in (so.get("field_meta") or {}).items():
             if B is not None and f in revmap and f in so:
                 meta.setdefault(sid, {})[f] = {"base": revmap[f], "val": so[f]}
+
+
+def _load_project_field_meta():
+    if PROJECT_FIELD_META_PATH is None:
+        return {}
+    try:
+        data = json.loads(PROJECT_FIELD_META_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_project_field_meta(meta: dict):
+    if PROJECT_FIELD_META_PATH is None:
+        return
+    try:
+        PROJECT_FIELD_META_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PROJECT_FIELD_META_PATH.write_text(json.dumps(meta, ensure_ascii=False),
+                                           encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _annotate_push_project(p, meta: dict) -> dict:
+    """Push copy of project ``p`` asserting only dirty / first-contact scalar
+    user-edit fields (tagged with their base in ``field_meta``). Non-dirty
+    fields are omitted so this device never overwrites a peer's value."""
+    pid = str(p["id"])
+    pm = meta.get(pid, {})
+    out, field_meta = {}, {}
+    for k, v in p.items():
+        if k == "folders":
+            out["folders"] = v
+            continue
+        if k in PROJECT_USER_EDIT_FIELDS:
+            entry = pm.get(k)
+            if entry is None:
+                field_meta[k] = None            # base unknown -> server authority
+            elif v == entry.get("val"):
+                continue                         # not dirty: omit
+            else:
+                field_meta[k] = entry.get("base")  # dirty: known base
+            out[k] = v
+        else:
+            out[k] = v
+    out["field_meta"] = field_meta
+    return out
+
+
+def _anchor_push_project_meta(meta: dict, projects, project_revs):
+    """Record accepted base/val after a successful project push so those
+    fields stop reading dirty. base=None fields are NOT anchored -- the next
+    pull adopts the server value instead."""
+    for po in projects:
+        pid = str(po["id"])
+        revmap = (project_revs.get(pid) or {}).get("field_rev") or {}
+        for f, B in (po.get("field_meta") or {}).items():
+            if B is not None and f in revmap and f in po:
+                meta.setdefault(pid, {})[f] = {"base": revmap[f], "val": po[f]}
 
 
 def pull_sessions(last_sync_at=None, limit=None):
@@ -544,56 +606,92 @@ def full_sync():
     return {"push": push_result, "pull": pull_result}
 
 def push_projects():
-    """Push local projects (all profiles) to the server."""
+    """Push local projects (all profiles) to the server.
+
+    Field-level optimistic merge (Phase 2): only dirty / first-contact scalar
+    user-edit project fields (name/primary_path/archived/description) are
+    asserted, tagged with their base. Non-dirty fields and folders are omitted
+    so this device never overwrites a peer's newer metadata; folders remain
+    server-merged by union (multidevice coexist)."""
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
     projects = adapter.read_projects()
     if not projects:
         return {"message": "No local projects to push"}
+    meta = _load_project_field_meta()
+    outgoing = [_annotate_push_project(p, meta) for p in projects]
     result = api_call("POST", "/api/projects/push",
                       {"device_id": DEVICE_ID,
                        "client_version": CLIENT_VERSION,
                        "agent": AGENT,
-                       "projects": projects})
+                       "projects": outgoing})
+    if "error" not in result:
+        _anchor_push_project_meta(meta, outgoing,
+                                  result.get("project_revs") or {})
+    _save_project_field_meta(meta)
     return result
 
 def pull_projects():
-    """Pull remote projects + remap records into local projects.db."""
+    """Pull remote projects + remap records into local projects.db.
+
+    Field-level merge (Phase 2): a locally-dirty scalar user-edit project
+    field is kept (never overwritten by the pull) and pushed next cycle;
+    fields we do not locally differ on are adopted and their base anchored."""
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
-    # Full-pool pull (decision record 2026.08.22.4): the server returns the
-    # workspace's ENTIRE visible project set regardless of `agent` — the
-    # field is for device/version reporting only, never a filter.
-    result = api_call("POST", "/api/projects/pull",
-                      {"device_id": DEVICE_ID,
-                       "client_version": CLIENT_VERSION,
-                       "agent": AGENT})
-    if "error" in result:
-        return result
-    # Align pull-side project paths (primary_path, folders[]) to the local
-    # separator spelling where a local project already has the same path
-    # modulo separators, so a folder path that already exists locally is
-    # updated/merged instead of inserted as a duplicate spelling.
-    local_paths = set()
+    meta = _load_project_field_meta()
     try:
-        for _lp in adapter.read_projects() or []:
+        # Snapshot local project scalar values once for dirty detection and
+        # local separator spellings for path alignment.
+        local_projects = [dict(p) for p in (adapter.read_projects() or [])]
+        local_proj = {str(p["id"]): p for p in local_projects}
+        local_paths = set()
+        for _lp in local_projects:
             if isinstance(_lp.get("primary_path"), str) and _lp["primary_path"]:
                 local_paths.add(_lp["primary_path"])
             for _f in _lp.get("folders", []) or []:
                 if isinstance(_f.get("path"), str) and _f["path"]:
                     local_paths.add(_f["path"])
-    except (AttributeError, NotImplementedError):
-        local_paths = set()
-    for p in result.get("projects", []) or []:
-        if isinstance(p.get("primary_path"), str) and p["primary_path"]:
-            p["primary_path"] = align_path_to_local(p["primary_path"], local_paths)
-        for f in p.get("folders", []) or []:
-            if isinstance(f.get("path"), str) and f["path"]:
-                f["path"] = align_path_to_local(f["path"], local_paths)
-    stats = adapter.write_projects(result.get("projects", []),
-                                   result.get("remaps", []))
-    return {"imported": stats.get("imported", 0),
-            "projects": len(result.get("projects", []))}
+        # Full-pool pull (decision record 2026.08.22.4): the server returns
+        # the workspace's ENTIRE visible project set regardless of `agent` —
+        # the field is for device/version reporting only, never a filter.
+        result = api_call("POST", "/api/projects/pull",
+                          {"device_id": DEVICE_ID,
+                           "client_version": CLIENT_VERSION,
+                           "agent": AGENT})
+        if "error" in result:
+            return result
+        projects = result.get("projects", []) or []
+        for p in projects:
+            pid = str(p["id"])
+            sm = meta.get(pid) or {}
+            local = local_proj.get(pid, {})
+            fr = p.get("field_rev") or {}
+            # skip locally-dirty scalar fields (keep local; push next cycle)
+            for f in PROJECT_USER_EDIT_FIELDS:
+                if f in p and isinstance(p.get(f), str):
+                    entry = sm.get(f)
+                    if entry is not None and local.get(f) != entry.get("val"):
+                        p.pop(f, None)
+            # Align remaining pull-side paths to the local separator spelling
+            # where a local path already exists modulo separators, so a folder
+            # path that already exists locally is updated/merged instead of
+            # inserted as a duplicate spelling.
+            if isinstance(p.get("primary_path"), str) and p["primary_path"]:
+                p["primary_path"] = align_path_to_local(
+                    p["primary_path"], local_paths)
+            for f in p.get("folders", []) or []:
+                if isinstance(f.get("path"), str) and f["path"]:
+                    f["path"] = align_path_to_local(f["path"], local_paths)
+            # anchor adopted fields so they stop reading dirty
+            for f in PROJECT_USER_EDIT_FIELDS:
+                if f in p and isinstance(p.get(f), str) and f in fr:
+                    meta.setdefault(pid, {})[f] = {"base": fr[f], "val": p[f]}
+        stats = adapter.write_projects(projects, result.get("remaps", []))
+        return {"imported": stats.get("imported", 0),
+                "projects": len(projects)}
+    finally:
+        _save_project_field_meta(meta)
 
 # Tool names: neutral `sync_*` for any agent; `hermes_sync_*` aliases kept
 # for existing Hermes registrations.
