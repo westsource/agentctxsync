@@ -346,6 +346,17 @@ User (admin / user)
   `ProjectsPushMergeTest` + `mcp/tests/test_mcp_server.py` `ProjectFieldMergeTest`。
 - **消息墓碑（不做）**：绝大多数 agent 不支持删除消息；soft-hide 已保证 pull 不下发、push 不
   复活，暂无跨端删除传播需求，故 Phase 2 不引入墓碑。
+- **项目信息按 agent 的存储形态差异（分析记录）**：项目字段级合并只对**确有独立项目元数据
+  存储**的 agent 有意义，各适配器差异如下——
+  - **hermes**：`projects.db`（`projects` 表 + `project_folders` 表），项目为独立实体 →
+    纳入 Phase 2 字段级合并。
+  - **workbuddy**：**无独立项目实体**。会话文件存于 `~/.workbuddy-ai/projects/<slug>/<id>.jsonl`，
+    `projects/` 下的目录 slug 由该会话 `cwd` 经 `slugify()` 派生（`workbuddy.py::_session_path`），
+    `cwd` 存于 `workbuddy.db`。因此 workbuddy 的"项目归属"本质就是 `cwd`——已被 Phase 1 会话
+    字段级并发（`cwd ∈ USER_EDIT_FIELDS`）覆盖，项目层无元数据可冲突。
+  - **reasonix**：**无项目概念**。会话为 `<state root>/sessions/<id>.jsonl` 扁平目录，读出的
+    会话连 `cwd` 都没有，无项目目录/元数据，无冲突面。
+  - 结论：项目字段级合并仅 hermes 生效；workbuddy 由 cwd 承载（会话层已保护）；reasonix 无项目。
 - 回归防线：`server/tests/test_sync.py`（base=None 拒绝 / 已知 base 接受 / no-op / 并发到达
   LWW / 旧客户端回退）、`mcp/tests`（脏检测、pull 不覆盖脏字段、sidecar 惰性填充）。
 
