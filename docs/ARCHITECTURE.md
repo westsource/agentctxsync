@@ -179,6 +179,8 @@ User (admin / user)
 复合主键: `(workspace_id, id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 多 Agent 扩展列: `agent_type`（默认 `hermes`，存量数据自动归为 hermes）、`meta` (JSONB)
 数据保留/排序扩展列: `hidden`/`hidden_at`（软删除，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
+多端字段合并扩展列: `rev`（会话级全局递增版本，默认 0）、`field_rev`（JSONB，
+每字段最后被接受的 `rev`，默认 `{}`）——见「字段级乐观并发」决策记录
 
 ### messages
 复合主键: `(workspace_id, session_id, id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
@@ -299,6 +301,44 @@ User (admin / user)
 - pull 稳健性：每页 15 条（大页实测超时）；「页面与上次相同则停止」（防旧服务端忽略 offset
   死循环）；本地库被宿主锁定时按 0/2/5/10s 退避重试（`busy_timeout=5s` 快速失败，不阻塞宿主读）。
 - 拉取范围见「全池拉取契约」：agent 参数不参与过滤。
+
+### 字段级乐观并发 + 惰性 bootstrap（Field-Level Optimistic Concurrency，决策记录）
+
+> 背景：三机（同一 workspace）并发编辑同一会话元数据时，旧的「全量推、拉全覆盖、服务器权威
+> 一式」会让**任一端的过期快照抹掉另一端的有意改动**。典型：设备 A 把会话移到 B 项目
+> （项目归属编码为 `sessions.cwd` 匹配 `project_folders.path`），随即重启 hermes——启动路径
+> 先拉后推、增量拉退化为全量覆盖，服务端旧 `cwd` 把本地移动冲掉。本设计给出确定收敛的合并语义，
+> **不需用户做任何一次强制全量 pull**。
+
+- **概念**：`user-edit` 字段（纳入版本合并）= `cwd, git_branch, git_repo_root, title, pinned,
+  archived, display_name`；`derived` 字段（保留现状 LWW + 既有守卫，不纳入）= `message_count,
+  *tokens, *cost, model, source, started_at…`。字段冲突概率低/派生性质，维持原语义即可。
+- **base_rev / field_rev**：服务器分配的**逻辑版本**（非墙钟，跨端时钟偏移不影响判定）。
+  客户端只记录并回显，**从不生成**。约定规则：
+  - 服务器持有 `sessions.rev`（全局递增）+ `field_rev[f]`（字段 f 最后被接受的 `rev`，基线 0）。
+  - 客户端侧车（hermes：`.hermes-sync-meta.json`）逐字段存 `{base, val}`，其中
+    `base` = 上次观察到的服务器 `field_rev[f]`，`val` = 上次同步到的值（last_known）。
+  - **dirty 判定**：`本地当前值 != sidecar.val`。
+- **push 合并规则**（对每个 user-edit 字段 f，载荷带 `value V, base B`）：
+  - `B is None`（设备首次接触 / 字段从未同步）→ **不写**，返回 `(服务器值, cur)`；设备吸收 →
+    **服务器权威一次**（无法区分该值「过期」还是「新改」，默认信任服务器）。
+  - `B 已知`（客户端仅在 dirty 时才推该字段）→ `V == 服务器值` 则 no-op；否则**接受**并
+    `rev++, field_rev[f]=rev`。多端同时改同一字段 = 到达先后 LWW（确定性）。
+  - 旧客户端（载荷无 `field_meta`）→ 整会话回退既有全量覆盖语义；保护仅在新客户端之间生效。
+- **pull 规则**：pull 返回每个会话的 `field_rev`（JSONB）+ 各字段现值。本地对 user-edit 字段：
+  `本地脏`则**不写**（保留，下一轮推）；否则写服务器值并更新 `base/val`。derived 字段照旧写。
+- **同步顺序 pull → push**（启动与周期一致）：先把服务器最新值/版本吸进来且不覆盖本地脏字段，
+  再推脏字段；收敛、惰性、无强制全量。
+- **惰性 bootstrap**（升级后无需强制全量 pull，无用户动作）：sidecar 初始为空 → 所有字段
+  `base=None` → 每字段在**首次接触**时建立基准（pull 侧吸收服务器现值+rev；push 侧 `base=None`
+  被服务器权威化并返回 rev）。每台设备靠正常 5 分钟周期自行灌满。
+  一次性语义：升级瞬间、首接触前未推送的字段改动会被服务器权威覆盖一次——与现行行为一致，无回归。
+- **消息层不动**：追加 + 三元组去重已跨端安全；pull 沿用 `hidden=0` 过滤、push 不复活隐藏消息。
+- **Phase 2**（设计已定、实现待做）：projects 元数据（`name`/`primary_path`/`archived`/
+  `folders[].label|is_primary`）用同一惰性 bootstrap + 字段级语义；projects 有 slug 合并与
+  folders 并集两重自愈，冲突面比 sessions 小。消息墓碑（如需多端传播删除）另议。
+- 回归防线：`server/tests/test_sync.py`（base=None 拒绝 / 已知 base 接受 / no-op / 并发到达
+  LWW / 旧客户端回退）、`mcp/tests`（脏检测、pull 不覆盖脏字段、sidecar 惰性填充）。
 
 ### 项目同名合并（Project Slug Merge）
 

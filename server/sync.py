@@ -1,5 +1,6 @@
 """Sync domain: pull/push/status (API-Key protocol endpoints)."""
 import asyncio
+import json
 from datetime import datetime
 from decimal import Decimal, ROUND_DOWN
 
@@ -8,6 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth import get_workspace_by_api_key
 from db import _pg_val, get_conn, normalize_path_sep, plan_limits, quota_check
+
+# User-editable session fields that participate in field-level optimistic
+# concurrency (see docs/ARCHITECTURE.md "字段级乐观并发"). These are the
+# fields a user actually edits/conflicts across devices; everything else
+# (message_count, tokens, cost, model, source, ...) is derived/append and
+# keeps the legacy last-writer-with-guards semantics (NOT dirtiness-tracked).
+USER_EDIT_FIELDS = frozenset((
+    "cwd", "git_branch", "git_repo_root", "title", "pinned", "archived",
+    "display_name",
+))
 
 router = APIRouter()
 def log_audit(conn, event, user_id, workspace_id, device_id, code, detail):
@@ -129,6 +140,17 @@ def pull_sync(body, ws):
                 # every client writes a healthy count locally.
                 if s["messages"]:
                     s["message_count"] = len(s["messages"])
+                # field-level concurrency: hand the client the per-field
+                # logical clock so it can anchor base_rev on pull (PG returns
+                # JSONB as text unless adapted; normalize to a dict here).
+                _fr = s.get("field_rev")
+                if isinstance(_fr, str):
+                    try:
+                        s["field_rev"] = json.loads(_fr)
+                    except (ValueError, TypeError):
+                        s["field_rev"] = {}
+                elif not isinstance(_fr, dict):
+                    s["field_rev"] = {}
     now = datetime.now().timestamp()
     return {"sync_at": now, "session_count": len(sessions),
             "total_sessions": total_sessions,
@@ -272,6 +294,10 @@ def push_sync(body, ws):
         # carry both at once. Without this, the second copy would slip past
         # the snapshot check and re-create the duplicate server-side.
         seen_empty_ms: set = set()
+        # sid -> {"rev": R, "field_rev": {f: rev}} for sessions pushed with
+        # field metadata; lets a client anchor its base_rev immediately
+        # instead of waiting for the next pull.
+        session_revs: dict = {}
         for session in sessions_data:
             # message_count repair (mirrors the /pull side): derive the count
             # from the actual messages in this push so a client-side 0 (sync-
@@ -284,9 +310,20 @@ def push_sync(body, ws):
             sid = session["id"]
             session_agent = session.get("agent_type") or "hermes"
             c.execute("SELECT id FROM sessions WHERE id = %s AND workspace_id = %s", (sid, wid))
+            # field_meta: {field -> base_rev|None} for user-edit fields the
+            # client is choosing to push. Its PRESENCE marks a "new client":
+            # a user-edit field present in the payload but absent from
+            # field_meta is treated as base=None (server-authoritative, not
+            # written). Its ABSENCE marks a legacy client -> the whole
+            # session falls back to legacy full overwrite (documented
+            # mixed-version window). field_meta itself is never a column.
+            _fm = session.get("field_meta")
+            is_new_client = _fm is not None
+            field_meta = _fm if isinstance(_fm, dict) else {}
             if c.fetchone():
                 sd = {k: _pg_val(v) for k, v in session.items()
                       if k != "messages" and v is not None and k in sess_cols}
+                sd.pop("field_meta", None)
                 # agent_type records which agent CREATED the session; it is
                 # set once on INSERT and must never be overwritten by a
                 # re-push. A client that pulled sessions from other agents
@@ -298,6 +335,37 @@ def push_sync(body, ws):
                 # hidden is a server-side soft-hide flag: a client re-pushing
                 # a session it still holds must not reset it to visible.
                 sd.pop("hidden", None)
+                # Field-level optimistic merge (see USER_EDIT_FIELDS): the
+                # current logical clock for this session is the source of
+                # truth; baseline 0 / {} on the first post-upgrade touch.
+                c.execute("SELECT rev, field_rev FROM sessions "
+                          "WHERE id = %s AND workspace_id = %s", (sid, wid))
+                rrow = c.fetchone()
+                cur_rev = rrow[0] if rrow and rrow[0] is not None else 0
+                fr = rrow[1] if rrow and rrow[1] else {}
+                if isinstance(fr, str):
+                    try:
+                        fr = json.loads(fr)
+                    except (ValueError, TypeError):
+                        fr = {}
+                new_fr = dict(fr) if isinstance(fr, dict) else {}
+                if is_new_client:
+                    for f in USER_EDIT_FIELDS:
+                        if f in sd and f not in field_meta:
+                            # not asserted by this client -> keep server value
+                            sd.pop(f, None)
+                for f, B in field_meta.items():
+                    if f not in sd or f not in USER_EDIT_FIELDS:
+                        continue
+                    if B is None:
+                        # base unknown: server-authoritative once -> don't write
+                        sd.pop(f, None)
+                        continue
+                    # known base + dirty push -> accept (arrival LWW), bump
+                    cur_rev += 1
+                    new_fr[f] = cur_rev
+                sd["rev"] = cur_rev
+                sd["field_rev"] = _pg_val(new_fr)
                 # message_count guard: a message-less push (other devices'
                 # sync-written sessions whose local column is a stale 0)
                 # must not zero out an existing server-side count -- the
@@ -309,16 +377,25 @@ def push_sync(body, ws):
                 c.execute(f"UPDATE sessions SET {set_cl} WHERE id = %s AND workspace_id = %s",
                           list(sd.values()) + [sid, wid])
                 upd_s += 1
+                session_revs[sid] = {"rev": cur_rev, "field_rev": new_fr}
             else:
                 sd = {k: _pg_val(v) for k, v in session.items()
                       if k != "messages" and v is not None and k in sess_cols}
                 sd.setdefault("agent_type", session_agent)
+                sd.pop("field_meta", None)
+                # brand-new session: no conflict possible; seed the logical
+                # clock at rev 1 so the creating client (and everyone else)
+                # can anchor their base on the next pull.
+                fr_new = {f: 1 for f in USER_EDIT_FIELDS if f in sd}
+                sd["rev"] = 1
+                sd["field_rev"] = _pg_val(fr_new)
                 sd["last_synced_at"] = now
                 sd["workspace_id"] = wid
                 cols = ", ".join(sd.keys())
                 ph = ", ".join(["%s"] * len(sd))
                 c.execute(f"INSERT INTO sessions ({cols}) VALUES ({ph})", list(sd.values()))
                 imp_s += 1
+                session_revs[sid] = {"rev": 1, "field_rev": fr_new}
             # ---- messages: dedup in memory, batch insert per session ----
             new_msgs = []
             content_cache = {}
@@ -466,7 +543,8 @@ def push_sync(body, ws):
                 messages_synced = sync_state.messages_synced + EXCLUDED.messages_synced""",
             (device_id, wid, now, imp_s + upd_s, imp_m))
     return {"sync_at": now, "imported": imp_s, "updated": upd_s,
-            "new_messages": imp_m, "duplicates": dup_m}
+            "new_messages": imp_m, "duplicates": dup_m,
+            "session_revs": session_revs}
 
 @router.get("/status/{device_id}")
 async def status(device_id: str, ws: dict = Depends(get_workspace_by_api_key)):

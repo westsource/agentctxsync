@@ -90,6 +90,17 @@ CANONICAL_SESSION_FIELDS = (
     "archived",
 )
 
+# User-editable session fields that participate in field-level optimistic
+# concurrency (see docs/ARCHITECTURE.md "字段级乐观并发"). A device only
+# pushes these when `local value != sidecar last-known` (dirty), and a pull
+# never overwrites a locally-dirty field. Everything else is derived/append
+# and keeps legacy last-writer semantics (not dirtiness-tracked). Must match
+# USER_EDIT_FIELDS on the server (server/sync.py).
+USER_EDIT_FIELDS = frozenset((
+    "cwd", "git_branch", "git_repo_root", "title", "pinned", "archived",
+    "display_name",
+))
+
 CANONICAL_MESSAGE_FIELDS = (
     "session_id", "role", "content", "timestamp", "id", "token_count",
     "finish_reason", "reasoning", "tool_call_id", "tool_name", "tool_calls",
@@ -332,6 +343,17 @@ class Adapter(abc.ABC):
     def _watermark_file(self) -> Path | None:
         """Sidecar file for the sync watermark (None = not supported)."""
         return None
+
+    def field_meta_path(self) -> Path | None:
+        """Sidecar file for field-level sync metadata ({sid: {field:
+        {"base": rev, "val": value}}}). Lives next to the watermark; None =
+        agent does not participate in field-level optimistic merge (falls
+        back to legacy full-store push/pull, which the server still accepts).
+        """
+        wf = self._watermark_file()
+        if wf is None:
+            return None
+        return wf.parent / f".{self.agent_type}-sync-field-meta.json"
 
     # ------------------------------------------------------------------
     # Foreign id memory (free-form local id agents)

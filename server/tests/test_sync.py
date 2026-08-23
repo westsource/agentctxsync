@@ -7,6 +7,7 @@ by SQL shape only, so the batch-optimization rewrite keeps the same
 assertions.
 """
 import asyncio
+import json
 import os
 import re
 import sys
@@ -97,7 +98,7 @@ class JsonRequest:
 
 SESS_COLS = ("id", "workspace_id", "title", "agent_type", "meta", "hidden",
              "pinned", "profile_name", "last_synced_at", "archived",
-             "cwd", "git_repo_root")
+             "cwd", "git_repo_root", "rev", "field_rev")
 MSG_COLS = ("id", "session_id", "workspace_id", "role", "content", "timestamp",
             "agent_type", "meta", "hidden")
 
@@ -132,6 +133,16 @@ def update_set_cols(cur, table):
     return cols
 
 
+def last_update_map(cur, table):
+    """{col: value} from the LAST `UPDATE <table> SET ...` statement run."""
+    for sql, params in reversed(cur.executed):
+        if sql.startswith(f"UPDATE {table}") and params is not None:
+            m = re.search(r"SET (.+?) WHERE", sql)
+            cols = [c.split("=")[0].strip() for c in m.group(1).split(",")]
+            return dict(zip(cols, params))
+    return {}
+
+
 def fake_execute_values(cur, sql, argslist, template=None, page_size=100, fetch=False):
     """Stand-in for psycopg2.extras.execute_values: record the batched rows
     and emit the statement with an empty RETURNING (so the push's conflict
@@ -144,14 +155,20 @@ def fake_execute_values(cur, sql, argslist, template=None, page_size=100, fetch=
 
 class PushTest(unittest.TestCase):
     def _push(self, sessions, existing_ids=(), msg_keys=(), msg_contents=(),
-              next_id=5, ws=None):
+              next_id=5, ws=None, field_revs=None):
         """msg_keys: existing (sid, role, timestamp) triples on the server.
-        msg_contents: existing (sid, role, content) triples on the server."""
+        msg_contents: existing (sid, role, content) triples on the server.
+        field_revs: {sid: {"rev": R, "field_rev": {f: rev}}} = the logical
+        clock the server currently holds for that session (UPDATE path)."""
         content_by_sid = {}
         for sid, role, content in msg_contents:
             content_by_sid.setdefault(sid, []).append((role, content, None))
         cur = (ScriptedCursor()
                .add(r"SELECT id FROM sessions", [(i,) for i in existing_ids])
+               .add(r"SELECT rev, field_rev FROM sessions",
+                    {sid: [(v["rev"], json.dumps(v["field_rev"]))]
+                     for sid, v in (field_revs or {}).items()},
+                    key=lambda p: p[0])   # WHERE id = %s -> sid is params[0]
                .add(r"information_schema\.columns.*sessions",
                     [(c,) for c in SESS_COLS])
                .add(r"information_schema\.columns.*messages",
@@ -448,6 +465,84 @@ class PushTest(unittest.TestCase):
         sessions = [{"id": "s1", "messages": []}]
         resp, cur = self._push(sessions)
         self.assertEqual(resp["imported"], 1)
+
+    # ---- field-level optimistic merge (decision: 字段级乐观并发) ----
+
+    def test_field_merge_none_base_is_server_authoritative(self):
+        # New-client push of a user-edit field whose base it doesn't know
+        # (base=None): server must NOT write it (trust the server value) and
+        # must not bump that field's version.
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/LOCAL_MOVE",
+                     "field_meta": {"cwd": None}, "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 3, "field_rev": {"cwd": 3, "title": 1}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertNotIn("cwd", upd)          # server authority: not written
+        self.assertEqual(upd["rev"], 3)       # nothing accepted -> no bump
+        self.assertEqual(resp["session_revs"]["s1"]["field_rev"]["cwd"], 3)
+
+    def test_field_merge_known_base_accepts_and_bumps(self):
+        # Dirty user-edit field with a known base -> accept + bump version.
+        sessions = [{"id": "s1", "title": "t",
+                     "cwd": "D:/work/2026新疆公路数字底座",
+                     "field_meta": {"cwd": 3}, "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 3, "field_rev": {"cwd": 3, "title": 1}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertEqual(upd["cwd"], "D:/work/2026新疆公路数字底座")
+        self.assertEqual(upd["rev"], 4)
+        self.assertEqual(json.loads(upd["field_rev"]), {"cwd": 4, "title": 1})
+
+    def test_field_merge_unasserted_user_field_not_written(self):
+        # New client sends a user-edit field in the payload but does NOT
+        # assert it in field_meta -> server keeps its value (a stale/non-dirty
+        # device must not clobber a peer's change).
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/STALE",
+                     "field_meta": {"title": 2}, "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 5, "field_rev": {"cwd": 3, "title": 2}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertNotIn("cwd", upd)          # unasserted -> not written
+        self.assertEqual(upd["rev"], 6)       # title bumped
+
+    def test_legacy_client_without_field_meta_full_overwrite(self):
+        # No field_meta key -> legacy client: user-edit fields ARE written
+        # (documented mixed-version window), no protection.
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/legacy",
+                     "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 2, "field_rev": {"cwd": 2}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertEqual(upd["cwd"], "D:/legacy")
+
+    def test_field_merge_concurrent_same_field_arrival_lww(self):
+        # Two devices edit the same field off the same base; the later push
+        # arrives with a stale base but is a genuine dirty edit -> accept
+        # (arrival LWW), bump past the first device's version.
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/B_SIDE",
+                     "field_meta": {"cwd": 3}, "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 7, "field_rev": {"cwd": 7}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertEqual(upd["cwd"], "D:/B_SIDE")
+        self.assertEqual(upd["rev"], 8)
+
+    def test_new_session_seeds_logical_clock(self):
+        # Brand-new session: no conflict possible; seed rev=1 and field_rev
+        # for every present user-edit field so the creator can anchor on pull.
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/x",
+                     "field_meta": {"cwd": None, "title": None},
+                     "messages": []}]
+        resp, cur = self._push(sessions)
+        r = insert_rows(cur, "sessions")[0]
+        self.assertEqual(r["rev"], 1)
+        self.assertEqual(json.loads(r["field_rev"]), {"cwd": 1, "title": 1})
+        self.assertEqual(resp["session_revs"]["s1"]["rev"], 1)
         self.assertFalse(any("quota_config" in s for s, _ in cur.executed))
         self.assertFalse(any("FROM users" in s for s, _ in cur.executed))
 
@@ -510,6 +605,17 @@ class PullTest(unittest.TestCase):
         self.assertEqual(by_id["20260808_180013_0c275e"]["profile_name"], "magic")
         self.assertEqual(by_id["3cbe89cb-8f8a-4fbf-8bf2-8b221e728f06"]["agent_type"],
                          "workbuddy")
+
+    def test_pull_returns_field_rev_parsed_as_dict(self):
+        # /pull carries each session's per-field logical clock so clients can
+        # anchor base_rev. PG returns JSONB as text; the server must normalize
+        # it to a dict before handing it to the client.
+        sessions = [{"id": "a", "title": "A", "started_at": 10.0,
+                     "field_rev": '{"cwd": 3, "title": 7}'}]
+        resp, _ = self._pull({"device_id": "d", "last_sync_at": 5.0}, sessions, {})
+        s = resp["sessions"][0]
+        self.assertIsInstance(s["field_rev"], dict)
+        self.assertEqual(s["field_rev"], {"cwd": 3, "title": 7})
 
     def test_agent_param_ignored_full_pool(self):
         # Full-pool pull: the workspace's whole visible session set is served

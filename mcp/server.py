@@ -40,7 +40,8 @@ from mcp.types import Tool, TextContent
 SDK_V2 = not hasattr(Server, "list_tools")
 
 from adapters import get_adapter, available_agents
-from adapters.base import AGENT_PREFIXES, align_path_to_local, build_path_map
+from adapters.base import (AGENT_PREFIXES, USER_EDIT_FIELDS,
+                           align_path_to_local, build_path_map)
 import updater
 
 
@@ -246,6 +247,73 @@ def explain_quota_error(result):
         return {**result, "error": hint, "code": detail}
     return result
 
+# ---- Field-level optimistic concurrency sidecar (see ARCHITECTURE.md) ----
+# Per-agent persistent store of {session_id: {field: {"base": server_rev,
+# "val": last_known_value}}}. base is the server's per-field logical clock;
+# a field is "dirty" when the local store value differs from "val". Lazy
+# populate: entries appear only after the first pull/push contact. Absent
+# entry == base unknown -> the server stays authoritative for that field.
+FIELD_META_PATH = getattr(adapter, "field_meta_path", lambda: None)()
+
+
+def _load_field_meta():
+    if FIELD_META_PATH is None:
+        return {}
+    try:
+        data = json.loads(FIELD_META_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_field_meta(meta: dict):
+    if FIELD_META_PATH is None:
+        return
+    try:
+        FIELD_META_PATH.parent.mkdir(parents=True, exist_ok=True)
+        FIELD_META_PATH.write_text(json.dumps(meta, ensure_ascii=False),
+                                   encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _annotate_push_session(s, meta: dict):
+    """Return a push copy of session ``s`` containing only the user-edit
+    fields this device is asserting (dirty / first-contact), tagged with
+    their base in ``field_meta``. Non-dirty user-edit fields are omitted so
+    the server never overwrites them from this (possibly stale) device."""
+    sid = str(s["id"])
+    sm = meta.get(sid, {})
+    out, field_meta = {}, {}
+    for k, v in s.items():
+        if k in USER_EDIT_FIELDS:
+            entry = sm.get(k)
+            if entry is None:
+                field_meta[k] = None            # base unknown -> server authority
+                out[k] = v
+            elif v == entry.get("val"):
+                continue                         # not dirty: omit entirely
+            else:
+                field_meta[k] = entry.get("base")  # dirty: push with known base
+                out[k] = v
+        else:
+            out[k] = v
+    out["field_meta"] = field_meta
+    return out
+
+
+def _anchor_push_meta(meta: dict, chunk, session_revs):
+    """After a successful push, record the accepted base/val per field so the
+    device stops treating them as dirty. base=None fields (server-authoritative
+    once) are NOT anchored -- the next pull adopts the server value instead."""
+    for so in chunk:
+        sid = str(so["id"])
+        revmap = (session_revs.get(sid) or {}).get("field_rev") or {}
+        for f, B in (so.get("field_meta") or {}).items():
+            if B is not None and f in revmap and f in so:
+                meta.setdefault(sid, {})[f] = {"base": revmap[f], "val": so[f]}
+
+
 def pull_sessions(last_sync_at=None, limit=None):
     """Pull remote sessions into the local store via the agent adapter.
 
@@ -274,7 +342,15 @@ def pull_sessions(last_sync_at=None, limit=None):
     PAGE = 15
     fetched = 0
     prev_page_ids = None
-    local_cwd_map = None  # lazily built from local sessions for path alignment
+    meta = _load_field_meta()
+    # Snapshot local user-edit values once: a pull must NEVER overwrite a
+    # field this device edited locally since its last sync (dirty == local
+    # value != sidecar last-known). The same read also feeds the
+    # path-separator alignment below.
+    _local = adapter.read_sessions()
+    local_by_id = {str(s["id"]): s for s in _local}
+    local_cwd_map = build_path_map(
+        s.get("cwd") for s in _local if isinstance(s.get("cwd"), str))
     while True:
         page_limit = PAGE if limit is None else max(min(PAGE, limit - fetched), 0)
         if page_limit <= 0:
@@ -293,7 +369,9 @@ def pull_sessions(last_sync_at=None, limit=None):
         })
         if "error" in result:
             if fetched == 0:
+                _save_field_meta(meta)
                 return result
+            _save_field_meta(meta)
             return {"imported": imported, "new_messages": new_messages,
                     "total_remote_sessions": total_remote,
                     "error": f"partial pull after {fetched} sessions: {result['error']}"}
@@ -309,23 +387,32 @@ def pull_sessions(last_sync_at=None, limit=None):
             break
         prev_page_ids = page_ids
 
+        # Field-level merge BEFORE writing: never overwrite a user-edit field
+        # this device changed locally since its last sync (dirty). The server
+        # stays authoritative for both unanchored fields (no sidecar entry)
+        # and fields we do not locally differ on -- those we adopt here.
+        for s in sessions:
+            sid = str(s["id"])
+            fr = s.get("field_rev") or {}
+            sm = meta.get(sid) or {}
+            local = local_by_id.get(sid, {})
+            for f in USER_EDIT_FIELDS:
+                if f in s and isinstance(s.get(f), str):
+                    entry = sm.get(f)
+                    if entry is not None and local.get(f) != entry.get("val"):
+                        s.pop(f, None)   # locally edited since last sync
+            # Align pull-side path fields (cwd/git_repo_root) to the local
+            # separator spelling where a local path already exists with only
+            # a different separator — keeps local storage consistent and
+            # merges instead of splitting the same path.
+            for _pk in ("cwd", "git_repo_root"):
+                if isinstance(s.get(_pk), str) and s[_pk]:
+                    s[_pk] = align_path_to_local(s[_pk], local_cwd_map)
         # Retry the write a few times when the local store is locked by the
         # host agent (Hermes on SQLite < 3.51.3 uses journal_mode=DELETE,
         # where a write contends with concurrent readers). Each attempt
         # fails fast (busy_timeout=5s); short gaps between attempts catch
         # brief idle windows instead of deferring to the next sync cycle.
-        # Before writing, align pull-side path fields (cwd/git_repo_root) to
-        # the local separator spelling where a local path already exists with
-        # only a different separator — keeps local storage consistent and
-        # merges instead of splitting the same path.
-        if local_cwd_map is None:
-            _local = adapter.read_sessions()
-            local_cwd_map = build_path_map(
-                s.get("cwd") for s in _local if isinstance(s.get("cwd"), str))
-        for s in sessions:
-            for _pk in ("cwd", "git_repo_root"):
-                if isinstance(s.get(_pk), str) and s[_pk]:
-                    s[_pk] = align_path_to_local(s[_pk], local_cwd_map)
         stats = None
         for gap in (0, 2, 5, 10):
             if gap:
@@ -341,6 +428,16 @@ def pull_sessions(last_sync_at=None, limit=None):
         imported += stats.get("imported", 0)
         new_messages += stats.get("new_messages", 0)
 
+        # Anchor sidecar base/val for fields adopted from the server (they
+        # now read clean), so this device stops treating them as dirty and
+        # does not needlessly re-push them.
+        for s in sessions:
+            sid = str(s["id"])
+            fr = s.get("field_rev") or {}
+            for f in USER_EDIT_FIELDS:
+                if f in s and isinstance(s.get(f), str) and f in fr:
+                    meta.setdefault(sid, {})[f] = {"base": fr[f], "val": s[f]}
+
         fetched += len(sessions)
         if len(sessions) < page_limit:
             break  # last page
@@ -349,7 +446,7 @@ def pull_sessions(last_sync_at=None, limit=None):
 
     if "error" not in result and result.get("sync_at"):
         adapter.save_sync_watermark(result["sync_at"])
-
+    _save_field_meta(meta)
     return {"imported": imported, "new_messages": new_messages,
             "total_remote_sessions": total_remote}
 
@@ -386,21 +483,30 @@ def push_sessions():
     # no session starves behind a per-cycle cap.
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
     processed = 0
-    for chunk in _chunk_sessions(sessions_data):
-        result = api_call("POST", "/push",
-                          {"device_id": DEVICE_ID,
-                           "client_version": CLIENT_VERSION,
-                           "agent": AGENT,
-                           "sessions": chunk})
-        if "error" in result:
-            result = explain_quota_error(result)
-            if processed == 0:
-                return result
-            return {**totals, "error": f"partial failure after {processed} sessions: {result['error']}"}
-        for k in ("imported", "updated", "new_messages"):
-            totals[k] += result.get(k, 0)
-        totals["sync_at"] = result.get("sync_at", totals["sync_at"])
-        processed += len(chunk)
+    meta = _load_field_meta()
+    try:
+        for chunk in _chunk_sessions(sessions_data):
+            # field-level merge: only dirty/first-contact user-edit fields are
+            # asserted (others omitted so this device never clobbers a peer)
+            outgoing = [_annotate_push_session(s, meta) for s in chunk]
+            result = api_call("POST", "/push",
+                              {"device_id": DEVICE_ID,
+                               "client_version": CLIENT_VERSION,
+                               "agent": AGENT,
+                               "sessions": outgoing})
+            if "error" in result:
+                result = explain_quota_error(result)
+                if processed == 0:
+                    return result
+                return {**totals, "error": f"partial failure after {processed} sessions: {result['error']}"}
+            # anchor accepted base/val so these fields stop reading dirty
+            _anchor_push_meta(meta, outgoing, result.get("session_revs") or {})
+            for k in ("imported", "updated", "new_messages"):
+                totals[k] += result.get(k, 0)
+            totals["sync_at"] = result.get("sync_at", totals["sync_at"])
+            processed += len(chunk)
+    finally:
+        _save_field_meta(meta)
     return totals
 
 def _chunk_sessions(sessions: list[dict],
@@ -428,8 +534,13 @@ def _chunk_sessions(sessions: list[dict],
     return chunks
 
 def full_sync():
-    push_result = push_sessions()
+    # pull first, then push: the pull anchors this device's per-field base
+    # (and adopts server values) before it pushes only its dirty fields, so
+    # a device's own state never clobbers a peer's newer metadata and an
+    # un-pushed local edit is never overwritten by the pull. (Field-level
+    # optimistic concurrency -- see ARCHITECTURE.md.)
     pull_result = pull_sessions()
+    push_result = push_sessions()
     return {"push": push_result, "pull": pull_result}
 
 def push_projects():
@@ -613,44 +724,43 @@ async def background_startup_sync():
     if not AUTO_SYNC:
         log("Background startup sync disabled (HERMES_SYNC_AUTO_SYNC=0)")
         return
-    # Delay the first pull so the host agent's own startup/read burst (e.g.
+    # Delay the first sync so the host agent's own startup/read burst (e.g.
     # Hermes session.resume) has finished before we take SQLite locks.
     await asyncio.sleep(8)
-    log(f"Starting, auto-pulling from {SYNC_SERVER} (agent: {adapter.agent_type})...")
+    log(f"Starting, auto-syncing from {SYNC_SERVER} (agent: {adapter.agent_type})...")
     if not _try_acquire_lock():
-        log("Initial pull skipped: another server process holds the lock")
+        log("Initial sync skipped: another server process holds the lock")
         return
     try:
         loop = asyncio.get_event_loop()
-        watermark = adapter.last_synced_at()
-        result = await loop.run_in_executor(None, lambda: pull_sessions())
-        # Fresh-pairing bootstrap: when the local store has NEVER synced
-        # (watermark == 0 the pull above is a full pull, so its total is the
-        # real remote count) and the remote is empty, push the local data.
-        # Retry the pull a couple of times to guard transient flakiness; a
-        # false positive is harmless -- the server dedupes on
-        # (session, role, timestamp), so an extra full push is a no-op.
-        if (watermark == 0 and "error" not in result
-                and result.get("total_remote_sessions") == 0):
-            for _ in range(2):
-                await asyncio.sleep(2)
-                result = await loop.run_in_executor(None, lambda: pull_sessions())
-                if "error" in result or result.get("total_remote_sessions", 0) > 0:
-                    break
-            if "error" not in result and result.get("total_remote_sessions") == 0:
-                log("Remote workspace is empty; bootstrapping by pushing local data")
-                push_result = await loop.run_in_executor(None, push_sessions)
-                log(f"Bootstrap push: {push_result}")
-        log(f"Initial pull: {result}")
-        if "error" in result:
+        # pull first, then push (matches periodic full_sync). The pull
+        # anchors this device's per-field base/adopts server values BEFORE
+        # it pushes only its genuinely-dirty fields, so:
+        #   * a local move (cwd -> new project) is never overwritten by the
+        #     pull (it is locally dirty and excluded), and it is pushed next;
+        #   * a stale/unmodified device never clobbers a peer's newer value
+        #     (only dirty fields are pushed; the server rejects unknown-base
+        #     writes). Call this the field-level optimistic concurrency model
+        #     (see docs/ARCHITECTURE.md).
+        # An empty remote on a fresh pairing is seeded naturally: pull returns
+        # nothing, push inserts this device's sessions (idempotent dedupe).
+        result = await loop.run_in_executor(None, pull_sessions)
+        push_result = await loop.run_in_executor(None, push_sessions)
+        push_err = push_result.get("error") if isinstance(push_result, dict) else None
+        log(f"Initial sync: pull={result} | push={push_result}")
+        if push_err or "error" in result:
             await _notify_host(
-                f"Startup sync failed: {result['error']}", level="warning")
+                f"Startup sync failed: pull={result.get('error')} "
+                f"push={push_err or 'ok'}", level="warning")
         else:
+            pushed = (push_result.get("imported", 0) + push_result.get("updated", 0)) \
+                if isinstance(push_result, dict) else 0
             await _notify_host(
                 f"Startup sync complete: pulled {result.get('imported', 0)} "
-                f"session(s), {result.get('new_messages', 0)} new message(s)")
+                f"session(s), pushed {pushed} session(s), "
+                f"{result.get('new_messages', 0)} new message(s)")
     except Exception as e:
-        log(f"Initial pull failed: {e}")
+        log(f"Initial sync failed: {e}")
         await _notify_host(f"Startup sync failed: {e}", level="warning")
     finally:
         _release_lock()

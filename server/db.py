@@ -134,6 +134,7 @@ def init_db():
             profile_name TEXT, compression_ineffective_count INTEGER DEFAULT 0,
             pinned INTEGER DEFAULT 0, last_synced_at DOUBLE PRECISION,
             agent_type TEXT DEFAULT 'hermes', meta JSONB,
+            rev BIGINT NOT NULL DEFAULT 0, field_rev JSONB NOT NULL DEFAULT '{}'::jsonb,
             PRIMARY KEY (workspace_id, id)
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS messages (
@@ -200,6 +201,13 @@ def init_db():
         c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hidden_at DOUBLE PRECISION")
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden INTEGER DEFAULT 0")
         c.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS hidden_at DOUBLE PRECISION")
+        # Field-level optimistic concurrency (see ARCHITECTURE.md decision
+        # record): rev is the session-wide monotonic version, field_rev the
+        # per-field map of the rev at which each field was last accepted.
+        # Baseline 0 = "never written under the new merge logic" (no history
+        # reconstruction needed -- clients anchor lazily on first contact).
+        c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS rev BIGINT NOT NULL DEFAULT 0")
+        c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS field_rev JSONB NOT NULL DEFAULT '{}'::jsonb")
         # Concurrent pushes from two devices can race past the SELECT-based
         # message dedup (its key snapshot is taken per request), inserting the
         # same (session_id, role, timestamp) triple twice under different ids.
