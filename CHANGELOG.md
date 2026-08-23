@@ -3,6 +3,17 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.23.2] - 2026-08-23
+
+### Fixed
+- **服务端项目「关联会话」大小写不敏感匹配（S1 修复）**：Windows 盘符/路径大小写不敏感
+  （`D:` == `d:`），但 `server/workspace.py` 的会话↔项目关联用大小写敏感的 SQL `=`/`LIKE`，
+  导致 `cwd` 盘符大小写与会话项目 folder 不一致的会话在 Web 项目卡片下漏显示「暂无关联会话」
+  （实测某项目下 7 个会话被隐藏）。改为 `LOWER(cwd)` 大小写不敏感 + `LEFT(...)=prefix`
+  无 LIKE 通配符的前缀匹配，与客户端 `_path_key` 的 Windows 大小写折叠一致。
+- 纯服务端改动，客户端无需更新（客户端版本保持 `2026.08.23.1`）。回归：
+  `server/tests/test_workspace.py::ProjectSessionMatchTest`
+
 ## [2026.08.23.1] - 2026-08-23
 
 ### Added

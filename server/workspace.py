@@ -20,6 +20,36 @@ from render import get_lang, get_translations, make_flash, render_page
 router = APIRouter()
 # ============================================================
 
+
+def _session_for_project_match(folder_path: str) -> tuple[str, tuple]:
+    """SQL + params (minus the leading workspace id) matching sessions whose
+    `cwd` lives under `folder_path`, CASE-INSENSITIVELY and without LIKE
+    wildcard chars in the path.
+
+    Windows drive letters/paths are case-insensitive (`d:` == `D:`), but a
+    plain `=`/`LIKE` in SQL is case-sensitive -- a session whose stored cwd
+    casing differs from the project folder (e.g. lowercase drive letter) would
+    otherwise be hidden from the project's "关联会话". Note the client's
+    path-alignment (`align_path_to_local` / `_path_key`) already case-folds on
+    Windows; this keeps the server-side association consistent.
+    `LEFT(LOWER(cwd), n) = prefix` checks an exact path prefix without
+    touching `%`/`_` (which LIKE would treat as wildcards).
+    """
+    exact = folder_path.lower()
+    base = folder_path.rstrip("\\/").lower()
+    fwd = base + "/"
+    bwd = base + "\\"
+    sql = """SELECT id, title FROM sessions
+             WHERE workspace_id = %s AND COALESCE(hidden,0) = 0
+               AND cwd IS NOT NULL AND cwd <> ''
+               AND (LOWER(cwd) = %s OR LOWER(cwd) = %s
+                    OR LEFT(LOWER(cwd), %s) = %s
+                    OR LEFT(LOWER(cwd), %s) = %s)
+             ORDER BY started_at DESC LIMIT 100"""
+    params = (exact, base, len(fwd), fwd, len(bwd), bwd)
+    return sql, params
+
+
 @router.get("/web/", response_class=HTMLResponse)
 async def web_dashboard(request: Request):
     try:
@@ -336,13 +366,8 @@ async def web_workspace_detail(ws_id: int, request: Request):
             # (prefix match, mirroring hermes project_for_path)
             seen: dict[str, str] = {}
             for f in p["folders"]:
-                base = f["path"].rstrip("\\/")
-                c.execute("""SELECT id, title FROM sessions
-                             WHERE workspace_id = %s AND COALESCE(hidden,0) = 0
-                               AND cwd IS NOT NULL AND cwd <> ''
-                               AND (cwd = %s OR cwd LIKE %s OR cwd LIKE %s)
-                             ORDER BY started_at DESC LIMIT 100""",
-                          (ws_id, f["path"], base + "\\%", base + "/%"))
+                sql, match_params = _session_for_project_match(f["path"])
+                c.execute(sql, (ws_id,) + match_params)
                 for r in c.fetchall():
                     seen.setdefault(r["id"], r["title"])
             p["sessions"] = [{"id": k, "title": v} for k, v in seen.items()]
