@@ -101,6 +101,15 @@ USER_EDIT_FIELDS = frozenset((
     "display_name",
 ))
 
+# Scalar project fields that participate in the same field-level optimistic
+# concurrency (Phase 2, see ARCHITECTURE.md). Project folder paths remain
+# unioned by path (append-safe, multi-device coexist); their label/is_primary
+# are effectively constant in practice and path-keyed versions would be
+# fragile across separator spellings.
+PROJECT_USER_EDIT_FIELDS = frozenset((
+    "name", "primary_path", "archived", "description",
+))
+
 CANONICAL_MESSAGE_FIELDS = (
     "session_id", "role", "content", "timestamp", "id", "token_count",
     "finish_reason", "reasoning", "tool_call_id", "tool_name", "tool_calls",
@@ -354,6 +363,14 @@ class Adapter(abc.ABC):
         if wf is None:
             return None
         return wf.parent / f".{self.agent_type}-sync-field-meta.json"
+
+    def project_field_meta_path(self) -> Path | None:
+        """Sidecar for project field-level sync metadata (mirrors
+        field_meta_path but for the project store)."""
+        wf = self._watermark_file()
+        if wf is None:
+            return None
+        return wf.parent / f".{self.agent_type}-projects-field-meta.json"
 
     # ------------------------------------------------------------------
     # Foreign id memory (free-form local id agents)

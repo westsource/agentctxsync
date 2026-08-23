@@ -1,4 +1,5 @@
 """Project sync domain: projects.db push/pull."""
+import json
 import psycopg2.extras
 from datetime import datetime
 
@@ -8,6 +9,32 @@ from auth import get_workspace_by_api_key
 from db import get_conn, normalize_path_sep
 
 router = APIRouter()
+
+# Scalar project fields that participate in field-level optimistic
+# concurrency (mirrors sessions, see ARCHITECTURE.md). Folders stay unioned
+# by path (append-safe, multi-device coexist) with per-path LWW -- their
+# label/is_primary are effectively constant in practice and path-keyed
+# versions would be fragile across separator spellings.
+PROJECT_USER_EDIT_FIELDS = frozenset(("name", "primary_path", "archived",
+                                      "description"))
+# Non-editable scalar fields written last-writer (identity/derived).
+PROJECT_PLAIN_FIELDS = ("slug", "icon", "color", "board_slug", "created_at")
+
+
+def _read_clock(c, wid, pid):
+    """(cur_rev, field_rev dict) for a project -- baseline 0 / {} on first
+    post-upgrade touch (no history reconstruction needed)."""
+    c.execute("SELECT rev, field_rev FROM projects "
+              "WHERE id = %s AND workspace_id = %s", (pid, wid))
+    row = c.fetchone()
+    cur_rev = row[0] if row and row[0] is not None else 0
+    fr = row[1] if row and row[1] else {}
+    if isinstance(fr, str):
+        try:
+            fr = json.loads(fr)
+        except (ValueError, TypeError):
+            fr = {}
+    return cur_rev, (dict(fr) if isinstance(fr, dict) else {})
 @router.post("/api/projects/push")
 async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     """Upsert projects + folders. Same (workspace, profile, slug) with a
@@ -19,6 +46,7 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
     with get_conn() as conn:
         c = conn.cursor()
         imp = upd = merged = 0
+        project_revs: dict = {}
         for p in projects:
             pid = p["id"]
             slug = p.get("slug") or p["name"]
@@ -70,26 +98,56 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                 c.execute("DELETE FROM project_folders WHERE workspace_id = %s AND project_id = %s", (wid, pid))
                 merged += 1
                 continue
-            # upsert project
-            cols = [k for k in ("slug","name","description","icon","color","board_slug",
-                                "primary_path","created_at","archived") if p.get(k) is not None]
+            # field_meta: {field -> base_rev|None} for scalar user-edit fields
+            # this client asserts. Its PRESENCE marks a "new client" (an
+            # unasserted user-edit field keeps the server value); its ABSENCE
+            # marks a legacy client -> whole project uses legacy overwrite.
+            _fm = p.get("field_meta")
+            is_new_client = _fm is not None
+            field_meta = _fm if isinstance(_fm, dict) else {}
             if row:
-                sets = ", ".join(f"{k} = %s" for k in cols)
-                vals = [p[k] for k in cols] + [pid, wid]
-                c.execute(f"UPDATE projects SET {sets} WHERE id = %s AND workspace_id = %s", vals)
+                cur_rev, fr = _read_clock(c, wid, pid)
+                new_fr = dict(fr)
+                # scalar user-edit fields: accept only asserted (base known);
+                # base None / unasserted -> server stays authoritative
+                sd = {k: p[k] for k in PROJECT_PLAIN_FIELDS if p.get(k) is not None}
+                for k in PROJECT_USER_EDIT_FIELDS:
+                    v = p.get(k)
+                    if v is None:
+                        continue
+                    if is_new_client and (k not in field_meta
+                                          or field_meta.get(k) is None):
+                        # new client not asserting this field / base unknown
+                        # -> keep the server value
+                        continue
+                    sd[k] = v
+                    cur_rev += 1
+                    new_fr[k] = cur_rev
+                sd["rev"] = cur_rev
+                sd["field_rev"] = json.dumps(new_fr, ensure_ascii=False)
+                set_cl = ", ".join(f"{k} = %s" for k in sd)
+                c.execute(f"UPDATE projects SET {set_cl} WHERE id = %s AND workspace_id = %s",
+                          list(sd.values()) + [pid, wid])
                 upd += 1
+                project_revs[pid] = {"rev": cur_rev, "field_rev": new_fr}
             else:
                 cols_all = ["id","workspace_id","slug","name","created_at","archived","agent_type","profile"]
                 vals = [pid, wid, slug, p["name"], p.get("created_at") or now, p.get("archived") or 0, "hermes", profile]
                 for k in ("description","icon","color","board_slug","primary_path"):
                     if p.get(k) is not None:
                         cols_all.append(k); vals.append(p[k])
+                # brand-new project: no conflict; seed the logical clock so
+                # the creator (and everyone else) can anchor on the next pull.
+                sd_present = {k: p.get(k) for k in PROJECT_USER_EDIT_FIELDS if p.get(k) is not None}
+                cols_all += ["rev", "field_rev"]
+                vals += [1, json.dumps({k: 1 for k in sd_present}, ensure_ascii=False)]
                 ph = ", ".join(["%s"] * len(vals))
                 c.execute(f"INSERT INTO projects ({', '.join(cols_all)}) VALUES ({ph}) "
                           "ON CONFLICT (workspace_id, id) DO UPDATE SET "
                           + ", ".join(f"{k} = EXCLUDED.{k}" for k in cols_all if k not in ("id","workspace_id")),
                           vals)
                 imp += 1
+                project_revs[pid] = {"rev": 1, "field_rev": {k: 1 for k in sd_present}}
             # upsert folders incrementally: new paths are added, existing
             # ones updated (is_primary/label) — multi-device edits coexist
             # instead of last-writer-wins replacing the whole set.
@@ -103,7 +161,8 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                           (wid, pid, f.get("path"), f.get("label"),
                            f.get("is_primary") or 0, f.get("added_at") or now))
         conn.commit()
-    return {"imported": imp, "updated": upd, "merged": merged}
+    return {"imported": imp, "updated": upd, "merged": merged,
+            "project_revs": project_revs}
 
 @router.post("/api/projects/pull")
 async def api_projects_pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
@@ -117,6 +176,16 @@ async def api_projects_pull(request: Request, ws: dict = Depends(get_workspace_b
         projects = []
         for row in c.fetchall():
             p = dict(row)
+            # field-level concurrency: hand the client the per-field logical
+            # clock so it can anchor base on pull (JSONB comes back as text).
+            _fr = p.get("field_rev")
+            if isinstance(_fr, str):
+                try:
+                    p["field_rev"] = json.loads(_fr)
+                except (ValueError, TypeError):
+                    p["field_rev"] = {}
+            elif not isinstance(_fr, dict):
+                p["field_rev"] = {}
             c.execute("""SELECT path, label, is_primary, added_at FROM project_folders
                          WHERE workspace_id = %s AND project_id = %s""", (wid, p["id"]))
             p["folders"] = [dict(r) for r in c.fetchall()]

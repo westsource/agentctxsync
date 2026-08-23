@@ -194,6 +194,8 @@ User (admin / user)
 复合主键: `(workspace_id, id)`（canonical id 全部裸 id；agent 归属在 `agent_type` 列，hermes 档案在 `profile_name` 列；旧前缀 id 由 `server/sync.py` 的入站兼容层规范化）
 列: `slug`（同 (workspace, profile) 唯一，同名合并依据，profile 存于 `profile` 列）、`name`、`description`、`icon`、`color`、
 `board_slug`、`primary_path`、`created_at`、`archived`、`hidden`/`hidden_at`、`merged_into`、`agent_type`
+多端字段合并扩展列: `rev`（项目级全局递增版本，默认 0）、`field_rev`（JSONB 每字段版本，
+默认 `{}`）——见「字段级乐观并发」决策记录（扩 sessional merge + 项目标量字段）
 
 ### project_folders
 复合主键: `(workspace_id, project_id, path)`；列: `label`、`is_primary`、`added_at`；
@@ -334,9 +336,16 @@ User (admin / user)
   被服务器权威化并返回 rev）。每台设备靠正常 5 分钟周期自行灌满。
   一次性语义：升级瞬间、首接触前未推送的字段改动会被服务器权威覆盖一次——与现行行为一致，无回归。
 - **消息层不动**：追加 + 三元组去重已跨端安全；pull 沿用 `hidden=0` 过滤、push 不复活隐藏消息。
-- **Phase 2**（设计已定、实现待做）：projects 元数据（`name`/`primary_path`/`archived`/
-  `folders[].label|is_primary`）用同一惰性 bootstrap + 字段级语义；projects 有 slug 合并与
-  folders 并集两重自愈，冲突面比 sessions 小。消息墓碑（如需多端传播删除）另议。
+- **Phase 2（已实现）· projects 元数据**：`projects` 表同样引入 `rev` + `field_rev`，对标量
+  user-edit 字段（`name`/`primary_path`/`archived`/`description`）做同一字段级乐观并发 +
+  惰性 bootstrap（sidecar `.hermes-sync-<agent>-projects-field-meta.json`）。
+  **folders 不入字段版本**：路径按 `(project_id, path)` 并集（跨设备增量共存，已有路径
+  label/is_primary 走路径级 LWW）——其 label/is_primary 实际近乎常量；且以路径为版本键会因
+  分隔符拼写不同而分裂（客户端 pull 已按本机分隔符对齐，见「路径分隔符约定」）。slug 合并
+  时存活项目保留其 `rev`/`field_rev`。回归防线：`server/tests/test_sync.py`
+  `ProjectsPushMergeTest` + `mcp/tests/test_mcp_server.py` `ProjectFieldMergeTest`。
+- **消息墓碑（不做）**：绝大多数 agent 不支持删除消息；soft-hide 已保证 pull 不下发、push 不
+  复活，暂无跨端删除传播需求，故 Phase 2 不引入墓碑。
 - 回归防线：`server/tests/test_sync.py`（base=None 拒绝 / 已知 base 接受 / no-op / 并发到达
   LWW / 旧客户端回退）、`mcp/tests`（脏检测、pull 不覆盖脏字段、sidecar 惰性填充）。
 

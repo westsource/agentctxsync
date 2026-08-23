@@ -170,11 +170,16 @@ def init_db():
             hidden INTEGER DEFAULT 0, hidden_at DOUBLE PRECISION,
             merged_into TEXT, agent_type TEXT DEFAULT 'hermes',
             profile TEXT DEFAULT '',
+            rev BIGINT NOT NULL DEFAULT 0, field_rev JSONB NOT NULL DEFAULT '{}'::jsonb,
             PRIMARY KEY (workspace_id, id)
         )""")
         # id-scheme upgrade: existing deployments get projects.profile added
         # in place (CREATE TABLE above includes it for fresh installs).
         c.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS profile TEXT DEFAULT ''")
+        # field-level optimistic concurrency (mirrors sessions): rev is the
+        # project-wide logical version, field_rev the per-field map.
+        c.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS rev BIGINT NOT NULL DEFAULT 0")
+        c.execute("ALTER TABLE projects ADD COLUMN IF NOT EXISTS field_rev JSONB NOT NULL DEFAULT '{}'::jsonb")
         c.execute("""CREATE TABLE IF NOT EXISTS project_folders (
             workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE,
             project_id TEXT NOT NULL, path TEXT NOT NULL, label TEXT,
