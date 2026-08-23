@@ -482,6 +482,22 @@ class PushTest(unittest.TestCase):
         self.assertEqual(upd["rev"], 3)       # nothing accepted -> no bump
         self.assertEqual(resp["session_revs"]["s1"]["field_rev"]["cwd"], 3)
 
+    def test_field_merge_none_base_seeds_unversioned_field(self):
+        # Migration baseline: the field has never been written under the new
+        # scheme (field_rev empty). A base=None push MUST seed it (accept +
+        # allocate rev 1) -- otherwise field_rev stays 0, every later push is
+        # again base=None and refused, and the field could never change
+        # (bootstrap deadlock; observed: 266 sessions stuck at field_rev={}).
+        sessions = [{"id": "s1", "title": "t", "cwd": "D:/work/X",
+                     "field_meta": {"cwd": None}, "messages": []}]
+        resp, cur = self._push(
+            sessions, existing_ids=("s1",),
+            field_revs={"s1": {"rev": 0, "field_rev": {}}})
+        upd = last_update_map(cur, "sessions")
+        self.assertEqual(upd["cwd"], "D:/work/X")
+        self.assertEqual(upd["rev"], 1)
+        self.assertEqual(json.loads(upd["field_rev"]), {"cwd": 1})
+
     def test_field_merge_known_base_accepts_and_bumps(self):
         # Dirty user-edit field with a known base -> accept + bump version.
         sessions = [{"id": "s1", "title": "t",
@@ -706,6 +722,18 @@ class ProjectsPushMergeTest(unittest.TestCase):
         upd = last_update_map(cur, "projects")
         self.assertNotIn("name", upd)
         self.assertEqual(upd["rev"], 5)
+
+    def test_project_field_merge_none_base_seeds_unversioned(self):
+        # Bootstrap deadlock fix (mirrors sessions): a base=None field this
+        # server has never versioned is accepted as the first new-scheme seed.
+        project = {"id": "p1", "name": "P1", "primary_path": "D:/x",
+                   "field_meta": {"primary_path": None}}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 0, "field_rev": {}})
+        upd = last_update_map(cur, "projects")
+        self.assertEqual(upd["primary_path"], "D:/x")
+        self.assertEqual(upd["rev"], 1)
+        self.assertEqual(json.loads(upd["field_rev"]), {"primary_path": 1})
 
     def test_new_project_seeds_logical_clock(self):
         project = {"id": "p2", "name": "New", "primary_path": "D:/n",
