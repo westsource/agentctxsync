@@ -355,11 +355,26 @@ def push_sync(body, ws):
                             # not asserted by this client -> keep server value
                             sd.pop(f, None)
                 for f, B in field_meta.items():
-                    if f not in sd or f not in USER_EDIT_FIELDS:
+                    if f not in USER_EDIT_FIELDS:
                         continue
+                    if f not in sd:
+                        continue
+                    cur_field = new_fr.get(f, 0)
                     if B is None:
-                        # base unknown: server-authoritative once -> don't write
-                        sd.pop(f, None)
+                        if cur_field == 0:
+                            # First new-scheme write for this field (migration
+                            # baseline; server has no version to compare against).
+                            # Accept this client's value as the seed + allocate its
+                            # version -- otherwise field_rev can never leave 0 and
+                            # no field could ever be written again (bootstrap
+                            # deadlock: every later push is base=None + refused).
+                            cur_rev += 1
+                            new_fr[f] = cur_rev
+                        else:
+                            # server already holds a new-scheme write for this
+                            # field; a base=None client is stale/un-anchored ->
+                            # server-authoritative, keep the server value.
+                            sd.pop(f, None)
                         continue
                     # known base + dirty push -> accept (arrival LWW), bump
                     cur_rev += 1

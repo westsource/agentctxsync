@@ -115,11 +115,18 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                     v = p.get(k)
                     if v is None:
                         continue
-                    if is_new_client and (k not in field_meta
-                                          or field_meta.get(k) is None):
-                        # new client not asserting this field / base unknown
-                        # -> keep the server value
-                        continue
+                    if is_new_client:
+                        if k not in field_meta:
+                            # not asserting this field -> keep the server value
+                            continue
+                        if field_meta.get(k) is None:
+                            # base unknown: accept only as first new-scheme
+                            # write (seed when un-versioned); otherwise this
+                            # client is stale -> keep the server value
+                            # (avoids the bootstrap deadlock where field_rev
+                            # could never leave 0).
+                            if new_fr.get(k, 0) > 0:
+                                continue
                     sd[k] = v
                     cur_rev += 1
                     new_fr[k] = cur_rev

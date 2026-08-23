@@ -11,8 +11,17 @@
   导致 `cwd` 盘符大小写与会话项目 folder 不一致的会话在 Web 项目卡片下漏显示「暂无关联会话」
   （实测某项目下 7 个会话被隐藏）。改为 `LOWER(cwd)` 大小写不敏感 + `LEFT(...)=prefix`
   无 LIKE 通配符的前缀匹配，与客户端 `_path_key` 的 Windows 大小写折叠一致。
+- **字段级合并 bootstrap 死锁修复**：`base=None`（客户端未锚定基准）此前被服务端一律按
+  「服务器权威」拒绝，导致 `field_rev[f]` 永远不被种成非 0，客户端永远无法锚定 base，
+  每次推送都 base=None 且被拒——**任何字段在新协议下都无法写入**（实测 266 个会话
+  `field_rev={}` 卡住，会话换项目/改标题/改 pinned 等元数据改动全部推不上去）。修复：
+  当服务端该字段从未有过新协议版本（`field_rev[f]==0`，迁移基线）时，`base=None` 作为
+  **首次种子接受并分配版本**；仅当已有版本（`field_rev[f]>0`）才拒绝过期写入。纯服务端
+  修复（`server/sync.py` + `server/projects.py`），客户端无需改（推后拉自然锚定）。
 - 纯服务端改动，客户端无需更新（客户端版本保持 `2026.08.23.1`）。回归：
-  `server/tests/test_workspace.py::ProjectSessionMatchTest`
+  `server/tests/test_workspace.py::ProjectSessionMatchTest` +
+  `server/tests/test_sync.py`（field_merge_none_base_seeds_unversioned /
+  project_field_merge_none_base_seeds_unversioned）
 
 ## [2026.08.23.1] - 2026-08-23
 
