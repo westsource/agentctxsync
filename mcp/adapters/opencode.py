@@ -1,286 +1,383 @@
 """
-opencode CLI adapter (anomalyco/opencode).
+opencode (desktop / CLI 1.x) adapter -- SQLite store.
 
-Local store: <XDG_DATA_HOME or %LOCALAPPDATA%>/opencode/storage/
-  0.4.x layout (and 1.x, per-project):
-    session/info/<sessionID>.json              -- session metadata
-    session/message/<sessionID>/<messageID>.json -- one file per message
-    session/part/<sessionID>/<messageID>/<partID>.json -- content parts
-  ids are prefixed: ses_/msg_/prt_ + 26 chars (12 hex timestamp + 14
-  base62 random). Message files are discriminated unions
-  (type: user|assistant|system|shell|synthetic|...); assistant content is
-  an inline array of text|reasoning|tool parts.
+Local store: <XDG_DATA_HOME or %LOCALAPPDATA% or ~/.local/share>/opencode/opencode.db
+  opencode CLI and the desktop app share ONE SQLite database (confirmed:
+  `opencode db path` == the desktop's opencode.db). Sessions live in the
+  ``session`` table, messages in ``message`` (role + time in a data JSON),
+  content parts in ``part`` (text/reasoning/tool discrimated-union JSON).
 
-Cross-agent sessions: opencode ids are restricted to its own format, so a
-session coming from another agent gets a fresh ``ses_`` id on first write;
-the mapping canonical-id -> local-id is persisted in
-storage/.hermes-sync-idmap.json so later pulls reuse the same local id
-(dedupe stays stable).
+  The previous adapter targeted the OLD open-source JSON layout
+  (storage/session/info/*.json) which the 1.x desktop/CLI no longer writes --
+  it saw 0 sessions. This adapter reads the shared opencode.db.
+
+We write pulled/synced data back into the SAME opencode.db with the same row
+shapes the app produces (id prefixed ses_/msg_/prt_, ms timestamps, project_id
+defaulting to the existing 'global' project, unique slug, version header), so
+foreign sessions round-trip without a second store. The desktop app may not
+render foreign rows (its own UI reads them as best-effort) -- sync/CLI reads
+still work, matching the cross-agent round-trip behaviour used elsewhere.
 """
 
 import json
 import os
+import re
 import secrets
+import sqlite3
 import string
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from .base import Adapter, canonical_id, local_id_lenient, validate_local_id
 
-_IDMAP = ".hermes-sync-idmap.json"
+_IDMAP = ".hermes-sync-idmap.json"      # canonical foreign id -> local ses_ id
+_VERSION = "1.17.15"                    # version header stamped on written sessions
 _ID_ALPHABET = string.digits + string.ascii_lowercase + string.ascii_uppercase
 
 
 def _gen_id(prefix: str) -> str:
     """opencode-style id: <prefix>_ + 12 hex ts + 14 base62 random."""
     ts = int(time.time() * 1000)
-    # opencode writes timestamps bit-flipped for reverse-sortable ids; a
-    # plain hex ts is still schema-valid (only the prefix is validated).
     rand = "".join(secrets.choice(_ID_ALPHABET) for _ in range(14))
     return f"{prefix}_{ts:012x}{rand}"
 
 
+def _candidates_common() -> list[Path]:
+    """All plausible <base>/opencode/opencode.db paths, most-specific first."""
+    bases = []
+    for k in ("XDG_DATA_HOME", "LOCALAPPDATA"):
+        v = os.environ.get(k)
+        if v:
+            bases.append(Path(v))
+    bases.append(Path.home() / ".local" / "share")
+    return [b / "opencode" / "opencode.db" for b in bases]
+
+
+def _unique_slug(base: str) -> str:
+    """opencode slug: lowercase alnum/dash; caller ensures uniqueness."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (base or "session").lower()).strip("-")
+    return slug[:64] or "session"
+
+
 class OpencodeAdapter(Adapter):
-    """opencode JSON-file store adapter (canonical ids prefixed ``opencode:``)."""
+    """opencode SQLite (opencode.db) adapter."""
 
     agent_type = "opencode"
 
-    def __init__(self, storage_dir: Path | str | None = None):
-        self.storage = Path(storage_dir) if storage_dir else self.discover()
+    def __init__(self, db_path: Path | str | None = None):
+        self.db_path = Path(db_path) if db_path else self.discover()
 
+    # ------------------------------------------------------------------
     def discover(self) -> Path | None:
-        base = (os.environ.get("XDG_DATA_HOME")
-                or os.environ.get("LOCALAPPDATA")
-                or str(Path.home() / ".local" / "share"))
-        d = Path(base) / "opencode" / "storage"
-        return d if d.is_dir() else None
-
-    def _watermark_file(self) -> Path | None:
-        if self.storage:
-            return self.storage / ".hermes-sync-watermark"
+        for p in _candidates_common():
+            if p.is_file():
+                return p
         return None
 
     # ------------------------------------------------------------------
-    # idmap (canonical id -> local id) for foreign sessions
+    # connections
     # ------------------------------------------------------------------
-    def _idmap(self) -> dict[str, str]:
-        if not self.storage:
-            return {}
-        p = self.storage / _IDMAP
-        if not p.exists():
-            return {}
+    def _conn(self, ro: bool = False) -> sqlite3.Connection:
+        if not self.db_path:
+            raise FileNotFoundError("opencode.db not found")
+        if ro:
+            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True,
+                                   timeout=5)
+        else:
+            conn = sqlite3.connect(str(self.db_path), timeout=5,
+                                   isolation_level=None)  # autocommit
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @contextmanager
+    def _connect(self, ro: bool = False):
+        """Context manager that reliably CLOSES the connection (sqlite3's
+        ``with conn`` only commits/rolls back -- on Windows an unclosed
+        handle locks the db file and blocks cleanup/tests)."""
+        conn = self._conn(ro)
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
+            yield conn
+        finally:
+            conn.close()
+
+    def _watermark_file(self) -> Path | None:
+        if self.db_path:
+            return self.db_path.with_name(
+                self.db_path.name + ".hermes-sync-watermark")
+        return None
+
+    # ------------------------------------------------------------------
+    # foreign-id / owner registry (keyed by CANONICAL id, mirrors base)
+    # ------------------------------------------------------------------
+    def _registry_files(self) -> tuple[Path, Path]:
+        base = self.db_path.with_name(self.db_path.name)
+        return base.with_name(".hermes-sync-idmap.json"), \
+            base.with_name(".hermes-sync-foreign.json")
+
+    def _idmap(self) -> dict[str, str]:
+        p, _ = self._registry_files()
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
             return {}
 
-    def _save_idmap(self, m: dict):
-        p = self.storage / _IDMAP
-        p.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    def _save_idmap(self, m: dict[str, str]):
+        p, _ = self._registry_files()
+        p.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
 
-    def _local_id_for(self, canonical_id: str) -> str:
-        """Map a canonical session id to a local opencode id."""
-        local = local_id_lenient(self.agent_type, canonical_id)
+    def _foreign_ids(self) -> dict[str, str]:
+        _, p = self._registry_files()
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _remember_foreign(self, canonical_id: str, agent: str = ""):
+        f = self._foreign_ids()
+        if f.get(canonical_id) != agent:
+            f[canonical_id] = agent
+            self._registry_files()[1].write_text(
+                json.dumps(f, ensure_ascii=False), encoding="utf-8")
+
+    def _local_id_for(self, canonical: str) -> str:
+        """Canonical id -> local opencode ses_ id (own pass-through, foreign
+        via idmap with a fresh id)."""
+        local = local_id_lenient(self.agent_type, canonical)
         if local.startswith("ses_") and len(local) > 4 and validate_local_id(local):
             return local
         m = self._idmap()
-        if canonical_id in m:
-            return m[canonical_id]
+        if canonical in m:
+            return m[canonical]
         fresh = _gen_id("ses")
-        m[canonical_id] = fresh
+        m[canonical] = fresh
         self._save_idmap(m)
         return fresh
 
     # ------------------------------------------------------------------
-    # reading
+    # reading: opencode.db -> canonical
     # ------------------------------------------------------------------
-    def _session_ids(self) -> list[str]:
-        if not self.storage:
-            return []
-        d = self.storage / "session" / "info"
-        if not d.is_dir():
-            return []
-        return sorted((p.stem for p in d.glob("*.json")), reverse=True)
-
     def read_sessions(self, limit: int | None = None) -> list[dict]:
-        ids = self._session_ids()
-        if limit:
-            ids = ids[:limit]
-        # reverse idmap: local opencode id -> foreign canonical id
-        rev = {v: k for k, v in self._idmap().items()}
-        sessions = []
-        for sid in ids:
-            s = self._read_session(sid)
-            if s is None:
-                continue
-            canonical_sid = rev.get(sid, canonical_id(self.agent_type, sid))
-            s["id"] = canonical_sid
-            for m in s.get("messages", []):
-                m["session_id"] = canonical_sid
-            sessions.append(s)
-        return sessions
+        if not self.db_path or not self.db_path.is_file():
+            return []
+        own_to_canon = {v: k for k, v in self._idmap().items()}  # ses_ -> foreign canon
+        with self._connect(ro=True) as conn:
+            cur = conn.cursor()
+            rows = cur.execute(
+                "SELECT * FROM session ORDER BY time_created DESC").fetchall()
+            if limit:
+                rows = rows[:limit]
+            out = []
+            for row in rows:
+                s = self._session_canonical(cur, row, own_to_canon)
+                if s is not None:
+                    out.append(s)
+        return out
 
-    def _read_session(self, sid: str) -> dict | None:
-        info_p = self.storage / "session" / "info" / f"{sid}.json"
+    def _session_canonical(self, cur, row, own_to_canon: dict) -> dict | None:
+        sid = row["id"]
+        canonical = own_to_canon.get(sid, canonical_id(self.agent_type, sid))
+        s = {
+            "id": canonical,
+            "started_at": (row["time_created"] or 0) / 1000.0,
+            "messages": [],
+        }
+        if row["time_updated"]:
+            s["ended_at"] = row["time_updated"] / 1000.0
+        if row["title"]:
+            s["title"] = row["title"]
+        if row["directory"]:
+            s["cwd"] = row["directory"]
+        if row["model"]:
+            s["model"] = row["model"]
+        meta = {}
+        if row["project_id"] and row["project_id"] != "global":
+            meta["opencode:projectID"] = row["project_id"]
+        if row["tokens_input"] or row["tokens_output"] or row["tokens_reasoning"]:
+            meta["opencode:tokens"] = {
+                "input": row["tokens_input"], "output": row["tokens_output"],
+                "reasoning": row["tokens_reasoning"],
+            }
+        if meta:
+            s["meta"] = meta
+        # messages (chronological). Materialize ALL rows first: running a new
+        # query on the same cursor would otherwise clobber the open resultset.
+        msgs_rows = cur.execute(
+            "SELECT * FROM message WHERE session_id=? ORDER BY time_created",
+            (sid,)).fetchall()
+        msgs = []
+        for mrow in msgs_rows:
+            cmsg = self._message_canonical(cur, mrow, canonical)
+            if cmsg:
+                msgs.append(cmsg)
+        s["messages"] = msgs
+        s["message_count"] = len(msgs)
+        if not s["started_at"]:
+            s["started_at"] = row["time_created"] or time.time()
+        return self.canonicalize(s)
+
+    def _message_canonical(self, cur, mrow, session_canonical: str) -> dict | None:
         try:
-            info = json.loads(info_p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-        session = {"id": sid, "started_at": 0.0, "messages": []}
-        if isinstance(info.get("time"), dict):
-            t = info["time"]
-            if t.get("created") is not None:
-                session["started_at"] = t["created"]
-            if t.get("updated") is not None:
-                session["ended_at"] = t["updated"]
-        if info.get("title"):
-            session["title"] = info["title"]
-        if info.get("model"):
-            session["model"] = info["model"]
-        if info.get("projectID"):
-            session["meta"] = {"opencode:projectID": info["projectID"]}
-        # messages
-        msg_dir = self.storage / "session" / "message" / sid
-        if msg_dir.is_dir():
-            # message files are named with random ids: sort by the message
-            # timestamp so the transcript stays chronological
-            msgs = []
-            for mp in msg_dir.glob("*.json"):
-                try:
-                    msg = json.loads(mp.read_text(encoding="utf-8"))
-                except (ValueError, OSError):
-                    continue
-                m = self._msg_to_canonical(sid, msg)
-                if m:
-                    msgs.append(m)
-            msgs.sort(key=lambda m: m.get("timestamp") or 0)
-            session["messages"] = msgs
-        session["message_count"] = len(session["messages"])
-        if not session["started_at"]:
-            session["started_at"] = info_p.stat().st_mtime
-        return session
-
-    @staticmethod
-    def _msg_to_canonical(sid: str, msg: dict) -> dict | None:
-        role = msg.get("role") or msg.get("type")
-        if role in ("agent-switched", "model-switched", "compaction"):
+            data = json.loads(mrow["data"]) if mrow["data"] else {}
+        except (ValueError, TypeError):
+            data = {}
+        role = data.get("role") or data.get("type") or "assistant"
+        if role in ("agent-switched", "model-switched", "compaction", "step"):
             return None
         if role == "shell":
             role = "tool"
-        content_parts = []
-        reasoning_parts = []
-        raw = msg.get("content")
-        if isinstance(raw, list):
-            for part in raw:
-                if not isinstance(part, dict):
-                    continue
-                ptype = part.get("type")
-                if ptype in ("text", "input_text", "output_text") and part.get("text"):
-                    content_parts.append(str(part["text"]))
-                elif ptype == "reasoning" and part.get("text"):
-                    reasoning_parts.append(str(part["text"]))
-                elif ptype == "tool" and part.get("tool"):
-                    tool = part["tool"]
-                    if isinstance(tool, dict) and tool.get("name"):
-                        content_parts.append(
-                            f"[tool:{tool['name']}] {tool.get('input') or ''}")
-        elif isinstance(raw, str):
-            content_parts.append(raw)
-        if not content_parts and not reasoning_parts:
+        text, reasoning, tool_refs = [], [], []
+        for prow in cur.execute(
+                "SELECT * FROM part WHERE message_id=? ORDER BY time_created",
+                (mrow["id"],)):
+            try:
+                part = json.loads(prow["data"]) if prow["data"] else {}
+            except (ValueError, TypeError):
+                continue
+            ptype = part.get("type")
+            if ptype in ("text", "input_text", "output_text") and part.get("text"):
+                text.append(str(part["text"]))
+            elif ptype == "reasoning" and part.get("text"):
+                reasoning.append(str(part["text"]))
+            elif ptype == "tool":
+                tname = part.get("tool")
+                state = part.get("state") or {}
+                inp = state.get("input") if isinstance(state, dict) else None
+                if tname:
+                    tool_refs.append(f"[tool:{tname}] {inp or ''}".rstrip())
+        content = "\n".join(text)
+        if tool_refs:
+            content = (content + "\n" if content else "") + "\n".join(tool_refs)
+        if not content and not reasoning:
             return None
-        out = {"session_id": sid, "role": role or "assistant",
-               "content": "\n".join(content_parts),
-               "timestamp": (msg.get("time")
-                             if isinstance(msg.get("time"), (int, float))
-                             else time.time())}
-        if reasoning_parts:
-            out["reasoning"] = "\n".join(reasoning_parts)
-        if msg.get("model"):
-            out["model"] = msg["model"]
-        if msg.get("id"):
-            out["meta"] = {"opencode:message_id": msg["id"]}
+        out = {"session_id": session_canonical, "role": role or "assistant",
+               "content": content,
+               "timestamp": (mrow["time_created"] or time.time()) / 1000.0}
+        if reasoning:
+            out["reasoning"] = "\n".join(reasoning)
+        model = data.get("model")
+        if isinstance(model, dict):
+            m = model.get("modelID")
+            if m:
+                out["model"] = str(m)
         return out
 
     # ------------------------------------------------------------------
-    # writing
+    # writing: canonical -> opencode.db rows
     # ------------------------------------------------------------------
     def write_sessions(self, sessions: list[dict]) -> dict:
-        if not self.storage:
-            return {"error": "opencode storage not found"}
-        (self.storage / "session" / "info").mkdir(parents=True, exist_ok=True)
-        imported = updated = new_messages = duplicates = 0
-        for session in sessions:
-            s = dict(session)
-            msgs = s.pop("messages", [])
-            sid = self._local_id_for(session["id"])
-            s["id"] = sid
-            info_p = self.storage / "session" / "info" / f"{sid}.json"
-            now = time.time()
-            info = {
-                "id": sid,
-                "title": s.get("title") or "untitled",
-                "time": {"created": s.get("started_at") or now,
-                         "updated": s.get("ended_at") or now},
-            }
-            for k in ("model", "agent", "projectID", "location", "subpath"):
-                if s.get(k) is not None:
-                    info[k] = s[k]
-            if info_p.exists():
-                updated += 1
-            else:
-                imported += 1
-            self._atomic_write(info_p, json.dumps(info, ensure_ascii=False))
-            # messages: dedupe on (role, timestamp) against existing files
-            msg_dir = self.storage / "session" / "message" / sid
-            msg_dir.mkdir(parents=True, exist_ok=True)
-            existing = set()
-            for mp in msg_dir.glob("*.json"):
-                try:
-                    m = json.loads(mp.read_text(encoding="utf-8"))
-                    existing.add((m.get("role"), m.get("time")))
-                except (ValueError, OSError):
-                    continue
-            for m in msgs:
-                key = (m.get("role"), m.get("timestamp"))
-                if key in existing:
-                    duplicates += 1
-                    continue
-                mid = _gen_id("msg")
-                mfile = {
-                    "id": mid,
-                    "sessionID": sid,
-                    "role": m.get("role", "assistant"),
-                    "time": m.get("timestamp") or now,
-                    "content": [{"type": "text",
-                                 "text": m.get("content", "")}],
-                }
-                if m.get("reasoning"):
-                    mfile["content"].append(
-                        {"type": "reasoning", "text": m["reasoning"]})
-                self._atomic_write(
-                    msg_dir / f"{mid}.json", json.dumps(mfile, ensure_ascii=False))
-                new_messages += 1
-        return {"imported": imported, "updated": updated,
-                "new_messages": new_messages, "duplicates": duplicates}
+        if not self.db_path:
+            return {"error": "opencode.db not found"}
+        (self.db_path.parent / "session").mkdir(parents=True, exist_ok=True)
+        stats = {"imported": 0, "updated": 0, "new_messages": 0, "duplicates": 0}
+        with self._connect() as conn:
+            cur = conn.cursor()
+            taken = {r[0] for r in cur.execute("SELECT id FROM session")}
+            for session in sessions:
+                s = dict(session)
+                msgs = s.pop("messages", [])
+                canonical = str(s.get("id", ""))
+                sid = self._local_id_for(canonical)
+                exists = sid in taken
+                now_s = time.time()
+                title = (s.get("title") or "untitled")
+                slug = _unique_slug(title)
+                # ensure slug uniqueness like the desktop
+                n = 2
+                while slug in {r[0] for r in cur.execute(
+                        "SELECT slug FROM session WHERE id != ?", (sid,))}:
+                    slug = f"{_unique_slug(title)[:60]}-{n}"; n += 1
+                # project_id is NOT NULL with an FK to project; default to the
+                # always-present 'global' project unless the session names one.
+                project_id = "global"
+                if isinstance(s.get("meta"), dict):
+                    project_id = s.get("meta", {}).get("opencode:projectID") or "global"
+                if exists:
+                    cur.execute(
+                        "UPDATE session SET title=?, directory=?, model=?, "
+                        "time_updated=?, parent_id=? WHERE id=?",
+                        (title, s.get("cwd") or "", s.get("model"),
+                         int((s.get("ended_at") or now_s) * 1000),
+                         s.get("parent_session_id"), sid))
+                    stats["updated"] += 1
+                else:
+                    cur.execute(
+                        "INSERT INTO session (id, project_id, parent_id, slug, "
+                        "directory, title, version, time_created, time_updated, "
+                        "cost, tokens_input, tokens_output, tokens_reasoning, "
+                        "tokens_cache_read, tokens_cache_write, agent, model) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (sid, project_id, s.get("parent_session_id"), slug,
+                         s.get("cwd") or "", title, _VERSION,
+                         int((s.get("started_at") or now_s) * 1000),
+                         int((s.get("ended_at") or now_s) * 1000),
+                         0.0, 0, 0, 0, 0, 0, "opencode", s.get("model")))
+                    taken.add(sid)
+                    stats["imported"] += 1
+                    # own opencode ids are bare ses_...; anything pushed under a
+                    # different canonical id is a foreign session -- register its
+                    # owner so push_sessions tags agent_type correctly.
+                    if not local_id_lenient(self.agent_type, canonical).startswith("ses_"):
+                        self._remember_foreign(canonical, s.get("agent_type") or "")
+                # messages
+                msg_dir_ids = {r[0] for r in cur.execute(
+                    "SELECT id FROM part WHERE session_id=?", (sid,))}
+                existing_triples = set()
+                for mrow in cur.execute(
+                        "SELECT id, time_created, data FROM message WHERE session_id=?",
+                        (sid,)):
+                    try:
+                        role = (json.loads(mrow["data"] or "{}") or {}).get("role")
+                    except (ValueError, TypeError):
+                        role = None
+                    existing_triples.add((role, mrow["time_created"]))
+                for m in msgs:
+                    ms = int((m.get("timestamp") or now_s) * 1000)
+                    key = (m.get("role"), ms)
+                    if key in existing_triples:
+                        stats["duplicates"] += 1
+                        continue
+                    mid = _gen_id("msg")
+                    data = {"role": m.get("role", "assistant"),
+                            "time": {"created": ms}}
+                    if m.get("model"):
+                        data["model"] = {"modelID": m["model"]}
+                    cur.execute(
+                        "INSERT INTO message (id, session_id, time_created, "
+                        "time_updated, data) VALUES (?,?,?,?,?)",
+                        (mid, sid, ms, ms, json.dumps(data, ensure_ascii=False)))
+                    existing_triples.add(key)
+                    parts = []
+                    if m.get("content"):
+                        parts.append({"type": "text", "text": m["content"]})
+                    if m.get("reasoning"):
+                        parts.append({"type": "reasoning", "text": m["reasoning"]})
+                    if m.get("tool_name"):
+                        parts.append({"type": "tool", "tool": m["tool_name"],
+                                      "callID": m.get("tool_call_id"),
+                                      "state": {"input": m.get("content", ""),
+                                                "status": "completed"}})
+                    for pt in parts or [{"type": "text", "text": ""}]:
+                        pid = _gen_id("prt")
+                        cur.execute(
+                            "INSERT INTO part (id, message_id, session_id, "
+                            "time_created, time_updated, data) VALUES (?,?,?,?,?,?)",
+                            (pid, mid, sid, ms, ms,
+                             json.dumps(pt, ensure_ascii=False)))
+                    stats["new_messages"] += 1
+        return stats
 
-    @staticmethod
-    def _atomic_write(path: Path, text: str):
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-
-    # ------------------------------------------------------------------
-    # status
     # ------------------------------------------------------------------
     def status(self) -> dict:
-        ids = self._session_ids()
-        total_msgs = 0
-        for sid in ids:
-            d = self.storage / "session" / "message" / sid
-            if d.is_dir():
-                total_msgs += len(list(d.glob("*.json")))
-        return {"store": str(self.storage), "sessions": len(ids),
-                "messages": total_msgs}
+        if not self.db_path or not self.db_path.is_file():
+            return {"store": str(self.db_path), "sessions": 0, "messages": 0}
+        with self._connect(ro=True) as conn:
+            cur = conn.cursor()
+            s = cur.execute("SELECT COUNT(*) FROM session").fetchone()[0]
+            m = cur.execute("SELECT COUNT(*) FROM message").fetchone()[0]
+        return {"store": str(self.db_path), "sessions": s, "messages": m}
 
 
 # registry alias (mcp/adapters/__init__.py looks up ``module.Adapter``)
@@ -291,4 +388,4 @@ if __name__ == "__main__":
     a = OpencodeAdapter()
     print("discover:", a.discover())
     print("status:", a.status())
-    print("sessions:", len(a.read_sessions(limit=5)))
+    print("sessions:", len(a.read_sessions()))

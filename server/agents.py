@@ -195,12 +195,12 @@ AGENTS = {
     "opencode": {
         "label": "OpenCode",
         "desc": {
-            "zh": "opencode CLI（anomalyco/opencode），会话为 JSON 文件存储。",
-            "en": "opencode CLI (anomalyco/opencode); sessions stored as JSON files.",
+            "zh": "opencode（CLI / 桌面版 1.x），会话存于共享 SQLite opencode.db。",
+            "en": "opencode (CLI / desktop 1.x); sessions stored in the shared opencode.db SQLite.",
         },
         "store": {
-            "zh": "本地存储：$XDG_DATA_HOME/opencode/storage/（session/info|message|part）",
-            "en": "Local store: $XDG_DATA_HOME/opencode/storage/ (session/info|message|part)",
+            "zh": "本地存储：$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；CLI 与桌面版共用）",
+            "en": "Local store: $XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; shared by CLI & desktop)",
         },
         "register": {
             "zh": (

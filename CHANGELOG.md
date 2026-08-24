@@ -23,6 +23,16 @@
   `server/tests/test_sync.py`（field_merge_none_base_seeds_unversioned /
   project_field_merge_none_base_seeds_unversioned）
 
+### Changed（客户端，opencode 适配器）
+- **opencode 适配器改写为读 SQLite `opencode.db`**：原适配器读旧开源版 JSON 布局
+  （`storage/session/info/*.json`），而 opencode CLI/桌面版 1.x 共用 `opencode.db`
+  （`session`/`message`/`part` 表），导致适配器对真实会话（实测 52 会话/1838 消息）完全不可见。
+  新适配器 `discover()` 定位 `opencode.db`、读三表→canonical（text/reasoning/tool part 映射、
+  ms→s、tool 引用折叠），写入按桌面版行格式 INSERT（id 前缀 `ses_/msg_/prt_`、`project_id`
+  默认 `'global'`、唯一 slug、`version` 头、ms 时间戳）；外来会话经 idmap 生成 `ses_` id
+  往返、dedupe 稳定。客户端改动，随下次客户端版本 bump 分发。回归：
+  `mcp/tests/test_opencode.py` + `mcp/tests/test_cross_agent.py`（已按新存储改写）
+
 ## [2026.08.23.1] - 2026-08-23
 
 ### Added
