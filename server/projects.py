@@ -49,7 +49,8 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
         project_revs: dict = {}
         for p in projects:
             pid = p["id"]
-            slug = p.get("slug") or p["name"]
+            pname = p.get("name")
+            slug = p.get("slug") or pname or "project"
             # canonical path: normalize Windows backslashes to '/' before
             # storing primary_path and folder paths.
             if p.get("primary_path"):
@@ -139,7 +140,7 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                 project_revs[pid] = {"rev": cur_rev, "field_rev": new_fr}
             else:
                 cols_all = ["id","workspace_id","slug","name","created_at","archived","agent_type","profile"]
-                vals = [pid, wid, slug, p["name"], p.get("created_at") or now, p.get("archived") or 0, "hermes", profile]
+                vals = [pid, wid, slug, p.get("name") or slug, p.get("created_at") or now, p.get("archived") or 0, "hermes", profile]
                 for k in ("description","icon","color","board_slug","primary_path"):
                     if p.get(k) is not None:
                         cols_all.append(k); vals.append(p[k])
