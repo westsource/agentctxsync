@@ -313,7 +313,8 @@ async def web_workspace_detail(ws_id: int, request: Request):
                           "WHERE project_id = %s AND workspace_id = %s AND path IS NOT NULL",
                           (project, ws_id))
                 conds = []
-                for (fpath,) in c.fetchall():
+                for frow in c.fetchall():
+                    fpath = frow["path"]
                     if not fpath:
                         continue
                     exact = fpath.lower()
