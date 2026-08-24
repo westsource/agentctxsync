@@ -29,8 +29,11 @@
   （`session`/`message`/`part` 表），导致适配器对真实会话（实测 52 会话/1838 消息）完全不可见。
   新适配器 `discover()` 定位 `opencode.db`、读三表→canonical（text/reasoning/tool part 映射、
   ms→s、tool 引用折叠），写入按桌面版行格式 INSERT（id 前缀 `ses_/msg_/prt_`、`project_id`
-  默认 `'global'`、唯一 slug、`version` 头、ms 时间戳）；外来会话经 idmap 生成 `ses_` id
-  往返、dedupe 稳定。客户端改动，随下次客户端版本 bump 分发。回归：
+  按目录解析到对应项目或回退 `'global'`、唯一 slug、`version` 头、ms 时间戳、`model` 列写
+  `{id, providerID}` 合法 JSON）；外来会话经 idmap 生成 `ses_` id 往返、dedupe 稳定。
+- **支持范围：仅 OpenCode CLI，桌面版暂不支持**（桌面 UI 无法可靠渲染外部写入的会话 &
+  按项目分桶显示）。服务端 `agents.py` 帮助页 opencode 部分已注明「仅支持 CLI」。
+  客户端改动，随下次客户端版本 bump 分发。回归：
   `mcp/tests/test_opencode.py` + `mcp/tests/test_cross_agent.py`（已按新存储改写）
 
 ## [2026.08.23.1] - 2026-08-23

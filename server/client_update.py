@@ -23,7 +23,7 @@ router = APIRouter()
 # other agent adapters stay in AGENTS (registry) for development, but their
 # MCP client distribution and help-page onboarding are taken offline until
 # validated. Re-enable an agent by adding its key here.
-PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix")
+PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)

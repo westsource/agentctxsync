@@ -195,12 +195,12 @@ AGENTS = {
     "opencode": {
         "label": "OpenCode",
         "desc": {
-            "zh": "opencode（CLI / 桌面版 1.x），会话存于共享 SQLite opencode.db。",
-            "en": "opencode (CLI / desktop 1.x); sessions stored in the shared opencode.db SQLite.",
+            "zh": "仅支持 **OpenCode CLI**（桌面版暂不支持）；会话存于共享 SQLite opencode.db。",
+            "en": "OpenCode **CLI only** (desktop app not supported); sessions stored in the shared opencode.db SQLite.",
         },
         "store": {
-            "zh": "本地存储：$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；CLI 与桌面版共用）",
-            "en": "Local store: $XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; shared by CLI & desktop)",
+            "zh": "本地存储：$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；仅支持 CLI，桌面版不支持）",
+            "en": "Local store: $XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; CLI-only, desktop not supported)",
         },
         "register": {
             "zh": (
@@ -238,7 +238,7 @@ AGENTS = {
                 '}'
             ),
         },
-        "verify": "opencode 启动后 /mcp 命令查看 hermes-sync 状态",
+        "verify": "opencode CLI 启动后 /mcp 命令查看 hermes-sync 状态（仅支持 CLI，不支持桌面版）",
         "env_agent": True,
         "uninstall": {
             "zh": (
@@ -250,16 +250,16 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "注：仅支持 OpenCode CLI，OpenCode 桌面版暂不支持。将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "编辑 <code>~/.config/opencode/opencode.json</code>（或项目根目录 <code>opencode.json</code>），在 <code>mcp</code> 字段添加 hermes-sync（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
-                {"text": "重启 opencode。"},
+                {"text": "重启 opencode（CLI）。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Note: OpenCode CLI only; the desktop app is not supported. Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Edit <code>~/.config/opencode/opencode.json</code> (or the project-root <code>opencode.json</code>) and add hermes-sync under <code>mcp</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
                 {"code": "<REGISTER>"},
-                {"text": "Restart opencode."},
+                {"text": "Restart opencode (CLI)."},
             ],
         },
     },

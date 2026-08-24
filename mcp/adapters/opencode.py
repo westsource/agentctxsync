@@ -60,6 +60,38 @@ def _unique_slug(base: str) -> str:
     return slug[:64] or "session"
 
 
+def _model_db(value) -> str | None:
+    """Value for the opencode ``session.model`` column.
+
+    opencode's ``Model.Ref`` schema requires ``{id: string, providerID:
+    string}`` (``variant`` optional) -- it JSON-parses the column and rejects
+    a bare string or a missing ``providerID`` with "Expected string, got
+    undefined", which breaks the whole session list. Emit ``{id, providerID}``
+    (providerID defaulted to "unknown" for foreign sessions) and NULL out
+    missing values.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, dict):
+        m = dict(value)
+        m.setdefault("providerID", "unknown")
+        if "id" not in m:
+            m["id"] = str(m.get("id", "unknown"))
+        return json.dumps(m, ensure_ascii=False)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                parsed.setdefault("providerID", "unknown")
+                return json.dumps(parsed, ensure_ascii=False)
+        except (ValueError, TypeError):
+            pass
+        return json.dumps({"id": value, "providerID": "unknown"},
+                          ensure_ascii=False)
+    return json.dumps({"id": str(value), "providerID": "unknown"},
+                      ensure_ascii=False)
+
+
 class OpencodeAdapter(Adapter):
     """opencode SQLite (opencode.db) adapter."""
 
@@ -141,6 +173,39 @@ class OpencodeAdapter(Adapter):
             f[canonical_id] = agent
             self._registry_files()[1].write_text(
                 json.dumps(f, ensure_ascii=False), encoding="utf-8")
+
+    def _resolve_project_for_directory(self, cur, cwd) -> str:
+        """Map a session directory (cwd) to the opencode project it belongs
+        to, so pulled sessions land under the right project and show in the
+        desktop UI (which scopes its list by project_id). Falls back to the
+        'global' bucket when no project worktree/directory matches."""
+        if not cwd:
+            return "global"
+        key = cwd.replace("\\", "/").lower()
+        cands = []
+        try:
+            cur.execute("SELECT id, worktree FROM project WHERE worktree IS NOT NULL")
+            for rid, wt in cur.fetchall():
+                if wt:
+                    cands.append((wt.replace("\\", "/").lower(), rid))
+        except sqlite3.Error:
+            pass
+        try:
+            cur.execute(
+                "SELECT project_id, directory FROM project_directory "
+                "WHERE directory IS NOT NULL")
+            for pid, d in cur.fetchall():
+                if d:
+                    cands.append((d.replace("\\", "/").lower(), pid))
+        except sqlite3.Error:
+            pass
+        best, blen = "global", -1
+        for dkey, pid in cands:
+            base = dkey.rstrip("/")
+            if key == base or key.startswith(base + "/"):
+                if len(base) > blen:
+                    best, blen = pid, len(base)
+        return best
 
     def _local_id_for(self, canonical: str) -> str:
         """Canonical id -> local opencode ses_ id (own pass-through, foreign
@@ -289,16 +354,24 @@ class OpencodeAdapter(Adapter):
                 while slug in {r[0] for r in cur.execute(
                         "SELECT slug FROM session WHERE id != ?", (sid,))}:
                     slug = f"{_unique_slug(title)[:60]}-{n}"; n += 1
-                # project_id is NOT NULL with an FK to project; default to the
-                # always-present 'global' project unless the session names one.
+                # project_id is NOT NULL with an FK to project. Use the
+                # session's own opencode attribution when present; otherwise
+                # resolve its directory to the matching opencode project so
+                # the pulled session shows in the right project context in the
+                # desktop UI (which scopes its list by project_id). Last
+                # resort: the always-present 'global' bucket.
                 project_id = "global"
                 if isinstance(s.get("meta"), dict):
-                    project_id = s.get("meta", {}).get("opencode:projectID") or "global"
+                    project_id = (s.get("meta", {}).get("opencode:projectID")
+                                  or "global")
+                if project_id in ("global", None):
+                    project_id = self._resolve_project_for_directory(
+                        cur, s.get("cwd"))
                 if exists:
                     cur.execute(
                         "UPDATE session SET title=?, directory=?, model=?, "
                         "time_updated=?, parent_id=? WHERE id=?",
-                        (title, s.get("cwd") or "", s.get("model"),
+                        (title, s.get("cwd") or "", _model_db(s.get("model")),
                          int((s.get("ended_at") or now_s) * 1000),
                          s.get("parent_session_id"), sid))
                     stats["updated"] += 1
@@ -313,7 +386,7 @@ class OpencodeAdapter(Adapter):
                          s.get("cwd") or "", title, _VERSION,
                          int((s.get("started_at") or now_s) * 1000),
                          int((s.get("ended_at") or now_s) * 1000),
-                         0.0, 0, 0, 0, 0, 0, "opencode", s.get("model")))
+                         0.0, 0, 0, 0, 0, 0, "opencode", _model_db(s.get("model"))))
                     taken.add(sid)
                     stats["imported"] += 1
                     # own opencode ids are bare ses_...; anything pushed under a
