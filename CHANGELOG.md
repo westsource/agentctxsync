@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
-## [2026.08.23.2] - 2026-08-23
+## [2026.08.24.1] - 2026-08-24
 
 ### Fixed
 - **服务端项目「关联会话」大小写不敏感匹配（S1 修复）**：Windows 盘符/路径大小写不敏感
@@ -16,10 +16,14 @@
   每次推送都 base=None 且被拒——**任何字段在新协议下都无法写入**（实测 266 个会话
   `field_rev={}` 卡住，会话换项目/改标题/改 pinned 等元数据改动全部推不上去）。修复：
   当服务端该字段从未有过新协议版本（`field_rev[f]==0`，迁移基线）时，`base=None` 作为
-  **首次种子接受并分配版本**；仅当已有版本（`field_rev[f]>0`）才拒绝过期写入。纯服务端
+  首次种子接受并分配版本**；仅当已有版本（`field_rev[f]>0`）才拒绝过期写入。纯服务端
   修复（`server/sync.py` + `server/projects.py`），客户端无需改（推后拉自然锚定）。
-- 纯服务端改动，客户端无需更新（客户端版本保持 `2026.08.23.1`）。回归：
-  `server/tests/test_workspace.py::ProjectSessionMatchTest` +
+- **项目卡片「查看全部会话」按项目过滤而非标题搜索**：此前跳
+  `/web/workspace/{id}?q={项目名}`，但 `q` 过滤的是会话 title/id，项目名搜不到任何会话。
+  改为新增 `project=<项目id>` 参数：服务端按该项目 `project_folders` 的所有路径做
+  `cwd` 大小写不敏感前缀过滤，页面显示「仅项目：<名称>」胶片可清除，title 搜索独立可用。
+- S1/死锁/项目过滤为纯服务端改动；本版同时含 opencode 客户端改动，**客户端版本 bump 至
+  `2026.08.24.1`**。回归：`server/tests/test_workspace.py::ProjectSessionMatchTest` +
   `server/tests/test_sync.py`（field_merge_none_base_seeds_unversioned /
   project_field_merge_none_base_seeds_unversioned）
 

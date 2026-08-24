@@ -42,7 +42,7 @@
 |-------|----------|-------------------|----------|
 | Hermes | `%LOCALAPPDATA%\hermes`（POSIX：`~/.hermes`）下扫描全部档案：`state.db`（default）+ `profiles/<name>/state.db`（命名档案）(SQLite) | 裸 id（hermes 档案存于 `profile_name` 列，归属存于 `agent_type`） | SQLite 事务 |
 | DeepSeek Harness | `~/.codex/sessions/rollout-*.jsonl` | 裸 id | append-only；标题需追加 `session_index.jsonl`；harness 靠 backfill 感知新会话 |
-| OpenCode | `$XDG_DATA_HOME/opencode/storage/` (JSON 文件) | 裸 id | `.tmp`+rename 原子写；外来会话经 idmap 分配 `ses_` id |
+| OpenCode（仅 CLI，桌面版不支持） | `$XDG_DATA_HOME/opencode/opencode.db`（SQLite；`session`/`message`/`part` 表，CLI 与桌面版共用） | 裸 id | SQLite 写；外来会话经 idmap 分配 `ses_` id 往返、dedupe 稳定；`model` 列写 `{id, providerID}` JSON |
 | Reasonix | `%APPDATA%\reasonix\sessions\*.jsonl` | 裸 id（文件名） | append-only；运行中（有锁文件）的会话跳过 |
 | OpenClaw | `~/.openclaw/agents/<id>/agent/openclaw-agent.sqlite` | 裸 id | schema 自动探测（实验性） |
 | WorkBuddy | `~/.workbuddy/projects/<slug>/*.jsonl` + `workbuddy.db` | 裸 id（uuid） | JSONL 追加 + SQLite upsert；cwd 目录自动创建；写入的会话需重启 WorkBuddy 后出现（启动时 MIGRATE 扫描识别） |
