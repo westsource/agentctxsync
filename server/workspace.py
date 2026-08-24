@@ -297,6 +297,35 @@ async def web_workspace_detail(ws_id: int, request: Request):
         # Deleted sessions are always hidden here (they live in the trash);
         # the trash pages are the only place to view/restore them.
         hide_clause = " AND COALESCE(hidden,0) = 0"
+        # Project filter: show only sessions whose cwd lives under one of the
+        # project's folders (case-insensitive, reusing the project-card match).
+        project = (request.query_params.get("project") or "").strip()
+        project_clause = ""
+        project_params: list = []
+        project_name = ""
+        if project:
+            c.execute("SELECT name FROM projects WHERE id = %s AND workspace_id = %s "
+                      "AND COALESCE(hidden,0) = 0", (project, ws_id))
+            prow = c.fetchone()
+            if prow:
+                project_name = prow["name"]
+                c.execute("SELECT path FROM project_folders "
+                          "WHERE project_id = %s AND workspace_id = %s AND path IS NOT NULL",
+                          (project, ws_id))
+                conds = []
+                for (fpath,) in c.fetchall():
+                    if not fpath:
+                        continue
+                    exact = fpath.lower()
+                    base = fpath.rstrip("\\/").lower()
+                    fwd = base + "/"
+                    bwd = base + "\\"
+                    conds.append("(LOWER(cwd) = %s OR LOWER(cwd) = %s "
+                                 "OR LEFT(LOWER(cwd), %s) = %s "
+                                 "OR LEFT(LOWER(cwd), %s) = %s)")
+                    project_params += [exact, base, len(fwd), fwd, len(bwd), bwd]
+                if conds:
+                    project_clause = " AND (" + " OR ".join(conds) + ")"
         q = (request.query_params.get("q") or "").strip()
         if q:
             # escape LIKE wildcards so user input is matched literally
@@ -308,11 +337,12 @@ async def web_workspace_detail(ws_id: int, request: Request):
         params: list = [ws_id]
         if agent != "all":
             params.append(agent)
+        params += project_params   # project filter folders (order matches clause)
         if q:
-            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{hide_clause}{q_clause}",
+            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{project_clause}{hide_clause}{q_clause}",
                       params + [esc, esc])
         else:
-            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{hide_clause}",
+            c.execute(f"SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s {agent_clause}{profile_clause}{project_clause}{hide_clause}",
                       params)
         total = c.fetchone()["cnt"]
         pages = max(1, (total + size - 1) // size)
@@ -324,7 +354,7 @@ async def web_workspace_detail(ws_id: int, request: Request):
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS last_msg_at,
                          (SELECT COUNT(*) FROM messages m
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS msg_count
-                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{hide_clause}{q_clause}
+                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{project_clause}{hide_clause}{q_clause}
                          ORDER BY COALESCE(s.pinned,0) DESC, {sort_col} {dir} NULLS LAST, s.id
                          LIMIT {size} OFFSET %s""",
                       params + [esc, esc, (page - 1) * size])
@@ -334,7 +364,7 @@ async def web_workspace_detail(ws_id: int, request: Request):
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS last_msg_at,
                          (SELECT COUNT(*) FROM messages m
                           WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id AND COALESCE(m.hidden,0) = 0) AS msg_count
-                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{hide_clause}
+                         FROM sessions s WHERE s.workspace_id = %s {agent_clause}{profile_clause}{project_clause}{hide_clause}
                          ORDER BY COALESCE(s.pinned,0) DESC, {sort_col} {dir} NULLS LAST, s.id
                          LIMIT {size} OFFSET %s""", params + [(page - 1) * size])
         sessions = [dict(r) for r in c.fetchall()]
@@ -386,7 +416,8 @@ async def web_workspace_detail(ws_id: int, request: Request):
            "ws": dict(ws), "sessions": sessions, "devices": devices,
            "sort": sort, "dir": dir, "page": page, "pages": pages, "size": size, "total": total,
            "profile": profile, "profile_options": profile_options, "q": q,
-           "agent": agent, "new_24h": new_24h,
+           "agent": agent, "new_24h": new_24h, "project": project,
+           "project_name": project_name,
            "trash_count": trash_count,
            "projects": projects}
     return await render_page("workspace_detail.html", ctx)
