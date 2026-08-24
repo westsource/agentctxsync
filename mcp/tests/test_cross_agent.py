@@ -19,6 +19,34 @@ from adapters.opencode import OpencodeAdapter  # noqa: E402
 from adapters.reasonix import ReasonixAdapter  # noqa: E402
 
 
+def make_opencode_db(path: Path):
+    import sqlite3
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("CREATE TABLE project (id TEXT PRIMARY KEY, name TEXT)")
+    conn.execute("INSERT INTO project VALUES('global',NULL)")
+    conn.execute("""CREATE TABLE session (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES project(id),
+        parent_id TEXT, slug TEXT NOT NULL, directory TEXT NOT NULL,
+        title TEXT NOT NULL, version TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0,
+        tokens_input INTEGER NOT NULL DEFAULT 0, tokens_output INTEGER NOT NULL DEFAULT 0,
+        tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+        tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+        tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, agent TEXT,
+        model TEXT)""")
+    conn.execute("""CREATE TABLE message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+        data TEXT NOT NULL)""")
+    conn.execute("""CREATE TABLE part (
+        id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+        data TEXT NOT NULL)""")
+    conn.commit()
+    conn.close()
+
+
 def make_hermes_db(path: Path):
     conn = sqlite3.connect(str(path))
     conn.execute("""CREATE TABLE sessions (
@@ -48,9 +76,9 @@ class CrossAgentTest(unittest.TestCase):
         return HermesAdapter(db_path=self.hermes_db).read_sessions()
 
     def test_hermes_to_opencode_idmapped(self):
-        storage = Path(self.tmp.name) / "storage"
-        (storage / "session" / "info").mkdir(parents=True)
-        a = OpencodeAdapter(storage_dir=storage)
+        db = Path(self.tmp.name) / "opencode.db"
+        make_opencode_db(db)
+        a = OpencodeAdapter(db_path=db)
         stats = a.write_sessions(self._hermes_sessions())
         self.assertEqual(stats["imported"], 1)
         back = {s["id"]: s for s in a.read_sessions()}
