@@ -68,37 +68,46 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                                "workbuddy") and pfx != "default":
                     profile = profile or pfx
                 pid = bare
-            # find existing same (workspace, profile, slug); the legacy id
-            # prefix branch only matches unmigrated rows
-            c.execute("""SELECT id FROM projects
-                         WHERE workspace_id = %s AND agent_type = %s
-                           AND slug = %s
-                           AND (COALESCE(profile,'') = %s
-                                OR (COALESCE(profile,'') = '' AND %s = ''
-                                    AND CASE WHEN id LIKE '%%:%%' THEN split_part(id,':',1) ELSE '' END = %s))
-                         ORDER BY created_at ASC, id ASC LIMIT 1""",
-                      (wid, "hermes", slug, profile, profile, profile))
-            row = c.fetchone()
-            if row and row[0] != pid:
-                # merge into the existing (earliest) project
-                keep = row[0]
-                # union folders from the incoming project
-                for f in p.get("folders", []):
-                    c.execute("""INSERT INTO project_folders
-                                 (workspace_id, project_id, path, label, is_primary, added_at)
-                                 VALUES (%s,%s,%s,%s,%s,%s)
-                                 ON CONFLICT (workspace_id, project_id, path) DO NOTHING""",
-                              (wid, keep, f.get("path"), f.get("label"),
-                               f.get("is_primary") or 0, f.get("added_at") or now))
-                # record remap (idempotent) and drop the merged row
-                c.execute("""INSERT INTO project_remap (workspace_id, old_id, new_id)
-                             VALUES (%s,%s,%s)
-                             ON CONFLICT (workspace_id, old_id) DO UPDATE SET new_id = EXCLUDED.new_id""",
-                          (wid, pid, keep))
-                c.execute("DELETE FROM projects WHERE workspace_id = %s AND id = %s", (wid, pid))
-                c.execute("DELETE FROM project_folders WHERE workspace_id = %s AND project_id = %s", (wid, pid))
-                merged += 1
-                continue
+            # canonical identity first: an existing id must route to the
+            # field-level update path even when the client renamed its slug
+            # (the slug lookup below would miss a renamed row, and the INSERT
+            # conflict branch would then clobber name with the slug fallback
+            # — the hermes duplicate-project slug churn hit exactly that).
+            c.execute("SELECT id FROM projects WHERE workspace_id = %s AND id = %s",
+                      (wid, pid))
+            exists = c.fetchone() is not None
+            if not exists:
+                # find existing same (workspace, profile, slug); the legacy id
+                # prefix branch only matches unmigrated rows
+                c.execute("""SELECT id FROM projects
+                             WHERE workspace_id = %s AND agent_type = %s
+                               AND slug = %s
+                               AND (COALESCE(profile,'') = %s
+                                    OR (COALESCE(profile,'') = '' AND %s = ''
+                                        AND CASE WHEN id LIKE '%%:%%' THEN split_part(id,':',1) ELSE '' END = %s))
+                             ORDER BY created_at ASC, id ASC LIMIT 1""",
+                          (wid, "hermes", slug, profile, profile, profile))
+                row = c.fetchone()
+                if row and row[0] != pid:
+                    # merge into the existing (earliest) project
+                    keep = row[0]
+                    # union folders from the incoming project
+                    for f in p.get("folders", []):
+                        c.execute("""INSERT INTO project_folders
+                                     (workspace_id, project_id, path, label, is_primary, added_at)
+                                     VALUES (%s,%s,%s,%s,%s,%s)
+                                     ON CONFLICT (workspace_id, project_id, path) DO NOTHING""",
+                                  (wid, keep, f.get("path"), f.get("label"),
+                                   f.get("is_primary") or 0, f.get("added_at") or now))
+                    # record remap (idempotent) and drop the merged row
+                    c.execute("""INSERT INTO project_remap (workspace_id, old_id, new_id)
+                                 VALUES (%s,%s,%s)
+                                 ON CONFLICT (workspace_id, old_id) DO UPDATE SET new_id = EXCLUDED.new_id""",
+                              (wid, pid, keep))
+                    c.execute("DELETE FROM projects WHERE workspace_id = %s AND id = %s", (wid, pid))
+                    c.execute("DELETE FROM project_folders WHERE workspace_id = %s AND project_id = %s", (wid, pid))
+                    merged += 1
+                    continue
             # field_meta: {field -> base_rev|None} for scalar user-edit fields
             # this client asserts. Its PRESENCE marks a "new client" (an
             # unasserted user-edit field keeps the server value); its ABSENCE
@@ -106,7 +115,7 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
             _fm = p.get("field_meta")
             is_new_client = _fm is not None
             field_meta = _fm if isinstance(_fm, dict) else {}
-            if row:
+            if exists:
                 cur_rev, fr = _read_clock(c, wid, pid)
                 new_fr = dict(fr)
                 # scalar user-edit fields: accept only asserted (base known);
@@ -146,13 +155,21 @@ async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_b
                         cols_all.append(k); vals.append(p[k])
                 # brand-new project: no conflict; seed the logical clock so
                 # the creator (and everyone else) can anchor on the next pull.
+                # A concurrent push inserting the same id first must not
+                # clobber its name with the slug fallback when this payload
+                # omitted name (the hermes duplicate slug churn sends the
+                # 63-char slug in the name column via this very path).
+                name_provided = p.get("name") is not None
                 sd_present = {k: p.get(k) for k in PROJECT_USER_EDIT_FIELDS if p.get(k) is not None}
                 cols_all += ["rev", "field_rev"]
                 vals += [1, json.dumps({k: 1 for k in sd_present}, ensure_ascii=False)]
+                conflict_cols = [k for k in cols_all if k not in ("id", "workspace_id")]
+                if not name_provided:
+                    conflict_cols = [k for k in conflict_cols if k != "name"]
                 ph = ", ".join(["%s"] * len(vals))
                 c.execute(f"INSERT INTO projects ({', '.join(cols_all)}) VALUES ({ph}) "
                           "ON CONFLICT (workspace_id, id) DO UPDATE SET "
-                          + ", ".join(f"{k} = EXCLUDED.{k}" for k in cols_all if k not in ("id","workspace_id")),
+                          + ", ".join(f"{k} = EXCLUDED.{k}" for k in conflict_cols),
                           vals)
                 imp += 1
                 project_revs[pid] = {"rev": 1, "field_rev": {k: 1 for k in sd_present}}
