@@ -369,6 +369,32 @@ User (admin / user)
 - 分隔符敏感点：`project_folders.path` 是主键一部分，靠「路径分隔符约定」的对齐逻辑避免同一路径
   插成两条。
 
+#### 重复项目改名不再污染 name（决策记录 2026.08.25.1）
+
+> 背景：hermes 桌面端会为同一文件夹创建**重复项目**（实测「对话分析」×2、「投资研究」×2），
+> 中文文件夹名的 slugify 落到 `project` 兜底，撞名后唯一 slug 退化为 63 字符数字链
+> （`project-3-2-2-…-N`，尾部 `-N` 是 `_unique_slug` 截断改名的痕迹）。两台机器各持不同尾部
+> 变体，客户端每 5 分钟周期互推。旧 push 先按 slug 查存量：重复项目每次改名后新 slug 查不到
+> 行 → 落入 INSERT 的 `ON CONFLICT (workspace_id, id)` 分支 → `name = p.get("name") or slug`
+> 把 63 字符 slug 链写进 name 列（字段级客户端对未脏 name 会省略上传，恰好触发兜底），且
+> `rev`/`field_rev` 被重置为 1 → 两端互推把 name 在 `-2/-3/-4` 变体间来回覆盖，永不收敛；
+> 另可见 `project_remap` 双向记录（同一对项目反复互相合并删除）。
+
+- **项目身份由 id 决定**（`server/projects.py::api_projects_push`）：先按
+  `(workspace_id, id)` 查存量，id 已存在**一律走字段级 UPDATE 路径**——slug/icon/color 等
+  plain 字段照常 LWW 同步，name 只在 `field_meta` 断言（已知 base）时更新。改名后的重复项目
+  无论推哪个 slug 变体都命中 UPDATE，不再触达 INSERT 冲突分支。
+- **同名合并仅对全新 id 执行**：同 slug 撞存量行的合并（保留最早 + remap）只在 id 不存在时
+  触发；已存在的行不因 slug 撞车被误删（旧代码会把改名撞上他人 slug 的存量行整个 merge 掉）。
+- **INSERT 冲突分支保护 name**（并发兜底）：载荷未提供 name 时，`ON CONFLICT` 的 SET 列表
+  动态剔除 `name` 列，即使并发竞争也不会用 slug 覆盖存量 name。
+- 效果：服务端 name 收敛为用户设置的真实名；slug 继续随客户端同步（plain LWW），但不再反向
+  污染 name。实测（生产）：存量 id + 新 slug 变体 + 无 name 的推送返回 `updated:1` 且
+  `field_rev.name` 不变；客户端真实同步两轮后 name 稳定、重复行未回写。
+- 回归防线：`server/tests/test_sync.py` `ProjectsPushMergeTest`
+  （`test_existing_id_renamed_slug_keeps_server_name` /
+  `test_existing_id_renamed_slug_new_client_preserves_name`）。
+
 ### 配额执法（Quota Enforcement）
 
 - 只对**新建会话**执法，已存在会话继续同步（调低配额不破坏既有池）；Master API Key
