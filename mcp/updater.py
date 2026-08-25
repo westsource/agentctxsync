@@ -23,8 +23,8 @@ import urllib.error
 import zipfile
 from pathlib import Path
 
-# Keep in sync with CLIENT_VERSION in server/server.py when releasing.
-CLIENT_VERSION = "2026.08.24.1"
+# Keep in sync with CLIENT_VERSION in server/client_update.py when releasing.
+CLIENT_VERSION = "2026.08.25.2"
 
 VERSION_FILE_NAME = ".hermes-sync-version"
 
