@@ -752,6 +752,34 @@ class ProjectsPushMergeTest(unittest.TestCase):
         upd = last_update_map(cur, "projects")
         self.assertEqual(upd["name"], "legacy")
 
+    def test_existing_id_renamed_slug_keeps_server_name(self):
+        # A duplicate project hermes renamed locally (new slug, name omitted)
+        # must route to the field-level UPDATE path: the slug syncs (plain
+        # field) but an unasserted name stays server-side — the INSERT
+        # conflict branch would have clobbered name with the slug fallback.
+        project = {"id": "p1", "slug": "project-3-2-2-2"}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 3, "field_rev": {"name": 3}})
+        upd = last_update_map(cur, "projects")
+        self.assertEqual(upd["slug"], "project-3-2-2-2")
+        self.assertNotIn("name", upd)
+        self.assertEqual(upd["rev"], 3)          # plain field only: no bump
+        self.assertEqual(resp["updated"], 1)
+
+    def test_existing_id_renamed_slug_new_client_preserves_name(self):
+        # Same shape with a field-level client: an asserted archived field is
+        # accepted and bumps the clock, while the omitted name is untouched.
+        project = {"id": "p1", "slug": "renamed", "archived": 1,
+                   "field_meta": {"archived": None}}
+        resp, cur = self._push(project, existing_id="p1",
+                               clock={"rev": 3, "field_rev": {"name": 3}})
+        upd = last_update_map(cur, "projects")
+        self.assertEqual(upd["slug"], "renamed")
+        self.assertNotIn("name", upd)
+        self.assertEqual(upd["archived"], 1)
+        self.assertEqual(upd["rev"], 4)
+        self.assertEqual(json.loads(upd["field_rev"]), {"name": 3, "archived": 4})
+
 
 if __name__ == "__main__":
     unittest.main()
