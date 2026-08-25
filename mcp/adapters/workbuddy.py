@@ -159,6 +159,50 @@ class WorkBuddyAdapter(Adapter):
     def _session_path(self, cwd: str, local_id: str) -> Path:
         return self._projects_dir() / self.slugify(cwd) / f"{local_id}.jsonl"
 
+    def _session_copies(self, local_id: str, primary: Path) -> list[Path]:
+        """Every project-dir file holding this session id, primary first.
+
+        A session can legitimately exist under several cwd dirs (a project
+        move, or the pull cycle writing a copy at a peer-supplied cwd). The
+        read path must see the union so a stale cwd pointer never strands
+        newer messages again (2026-08-25 split-session incident)."""
+        copies = []
+        if primary.exists():
+            copies.append(primary)
+        try:
+            for d in sorted(self._projects_dir().iterdir()):
+                if not d.is_dir():
+                    continue
+                p = d / f"{local_id}.jsonl"
+                if p.exists() and p not in copies:
+                    copies.append(p)
+        except OSError:
+            pass
+        return copies
+
+    def session_mtime(self, local_id: str) -> float | None:
+        """Newest mtime across every copy of this session's file.
+
+        Mirrors the B2 merge read path so a pull-touched copy (or the live
+        file growing) also invalidates the push fingerprint."""
+        try:
+            conn = self._conn(self._db())
+            row = conn.execute("SELECT cwd FROM sessions WHERE id = ?",
+                               (local_id,)).fetchone()
+            conn.close()
+            cwd = str(row[0]) if row else None
+        except Exception:
+            cwd = None
+        if cwd is None:
+            return None
+        files = self._session_copies(local_id, self._session_path(cwd, local_id))
+        if not files:
+            return None
+        try:
+            return max(p.stat().st_mtime for p in files)
+        except OSError:
+            return None
+
     def _session_rows(self, limit: int | None = None) -> list[dict]:
         """All non-deleted sessions from workbuddy.db, newest first."""
         db = self._db()
@@ -284,7 +328,30 @@ class WorkBuddyAdapter(Adapter):
             cwd = row.get("cwd") or str(Path.home())
             title = row.get("title") or row.get("custom_title")
             path = self._session_path(str(cwd), sid)
-            msgs, title_from_events = self._parse_jsonl(path, sid)
+            files = self._session_copies(sid, path)
+            # Parse the first existing copy (the row-cwd file when it
+            # exists), then merge any additional copies (project moves,
+            # cwd divergence): the first file's content wins on
+            # (role, timestamp) ties, newer events from other copies are
+            # appended so a stale pointer never strands messages again.
+            msgs: list[dict] = []
+            title_from_events = None
+            if files:
+                msgs, title_from_events = self._parse_jsonl(files[0], sid)
+                seen_ts = {(m.get("role"), m["timestamp"])
+                           for m in msgs if m.get("timestamp") is not None}
+                for extra in files[1:]:
+                    more, t2 = self._parse_jsonl(extra, sid)
+                    for m in more:
+                        key = (m.get("role"), m.get("timestamp"))
+                        if key in seen_ts:
+                            continue
+                        seen_ts.add(key)
+                        msgs.append(m)
+                    if not title_from_events and t2:
+                        title_from_events = t2
+                if len(msgs) > 1:
+                    msgs.sort(key=lambda m: float(m["timestamp"]))
             if not title and title_from_events:
                 title = title_from_events
             created_ms = row.get("created_at") or row.get("updated_at") or 0
@@ -357,9 +424,16 @@ class WorkBuddyAdapter(Adapter):
             title = s.get("title")
             model = s.get("model")
             mode = (s.get("meta") or {}).get("workbuddy:mode")
+            # Locally-owned sessions keep their local cwd: WorkBuddy writes
+            # their files where IT decides, so a peer-supplied server cwd
+            # must not repoint the read path at a stale copy (2026-08-25
+            # split-session incident). Foreign sessions have no local truth —
+            # the pulled cwd defines their storage location.
+            foreign = session.get("agent_type") not in (None, "workbuddy")
             was_new = self._upsert_session(local_id, cwd, user_id, title,
                                            model, mode, created_ms,
-                                           updated_ms, now_ms)
+                                           updated_ms, now_ms,
+                                           preserve_cwd=not foreign)
             if was_new:
                 imported += 1
             else:
@@ -468,8 +542,12 @@ class WorkBuddyAdapter(Adapter):
 
     def _upsert_session(self, local_id: str, cwd: str, user_id: str | None,
                         title, model, mode, created_ms: int, updated_ms: int,
-                        now_ms: int) -> bool:
-        """Upsert one row in workbuddy.db sessions. Returns True if new."""
+                        now_ms: int, preserve_cwd: bool = False) -> bool:
+        """Upsert one row in workbuddy.db sessions. Returns True if new.
+
+        ``preserve_cwd`` (locally-owned sessions): keep the row's existing
+        cwd on UPDATE so a peer-supplied value can never repoint the read
+        path at a stale file; cwd is still set on INSERT."""
         db = self._db()
         conn = self._conn(db)
         try:
@@ -478,8 +556,11 @@ class WorkBuddyAdapter(Adapter):
             exists = cur.execute("SELECT 1 FROM sessions WHERE id = ?",
                                  (local_id,)).fetchone()
             if exists:
-                sets = ["cwd = ?", "updated_at = ?", "last_activity_at = ?"]
-                vals = [cwd, updated_ms, now_ms]
+                sets = ["updated_at = ?", "last_activity_at = ?"]
+                vals = [updated_ms, now_ms]
+                if not preserve_cwd:
+                    sets.append("cwd = ?")
+                    vals.append(cwd)
                 if title:
                     sets.append("title = ?")
                     vals.append(title)

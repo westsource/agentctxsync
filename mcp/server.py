@@ -257,6 +257,55 @@ def explain_quota_error(result):
 PROJECT_FIELD_META_PATH = getattr(adapter, "project_field_meta_path",
                                   lambda: None)()
 FIELD_META_PATH = getattr(adapter, "field_meta_path", lambda: None)()
+# Push fingerprint sidecar (sibling of the field meta): {session_id:
+# [message_count, max_timestamp, mtime]} recorded after a successful push.
+# The push loop skips sessions whose fingerprint is unchanged, so a full
+# store is not re-uploaded every cycle. `None` (no field meta) disables
+# the optimization and falls back to push-everything.
+PUSH_FINGERPRINT_PATH = None
+if FIELD_META_PATH is not None:
+    PUSH_FINGERPRINT_PATH = FIELD_META_PATH.with_name(
+        FIELD_META_PATH.stem + "-push-fingerprint.json")
+
+
+def _load_push_fingerprint() -> dict:
+    if PUSH_FINGERPRINT_PATH is None:
+        return {}
+    try:
+        data = json.loads(PUSH_FINGERPRINT_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_push_fingerprint(fp: dict):
+    if PUSH_FINGERPRINT_PATH is None:
+        return
+    try:
+        PUSH_FINGERPRINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PUSH_FINGERPRINT_PATH.write_text(json.dumps(fp, ensure_ascii=False),
+                                         encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _session_fingerprint(s: dict) -> tuple:
+    """Fingerprint of one session for the push skip-check: message count +
+    max message timestamp, plus the backing file mtime when the adapter
+    provides it (covers in-place edits that change neither)."""
+    msgs = s.get("messages") or []
+    count = len(msgs)
+    max_ts = max((m.get("timestamp") or 0 for m in msgs), default=0)
+    fp: tuple = (count, max_ts)
+    mtime_fn = getattr(adapter, "session_mtime", None)
+    if mtime_fn is not None:
+        try:
+            m = mtime_fn(str(s["id"]))
+            if m is not None:
+                fp = (count, max_ts, round(m, 3))
+        except Exception:
+            pass
+    return fp
 
 
 def _load_field_meta():
@@ -545,52 +594,87 @@ def push_sessions():
     # no session starves behind a per-cycle cap.
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
     processed = 0
+    errors: list[str] = []
     meta = _load_field_meta()
+    fp = _load_push_fingerprint()
     try:
         for chunk in _chunk_sessions(sessions_data):
+            # Skip sessions whose fingerprint is unchanged since the last
+            # successful push (see _session_fingerprint): the server dedupes
+            # re-pushes, but a full store re-upload every cycle is wasteful
+            # (measured 1.6GB/cycle here). Fingerprints update only on
+            # success, so a failed push retries next cycle.
+            changed = [s for s in chunk
+                       if _session_fingerprint(s)
+                       != tuple(fp.get(str(s["id"])) or ())]
+            if not changed:
+                continue
             # field-level merge: only dirty/first-contact user-edit fields are
             # asserted (others omitted so this device never clobbers a peer)
-            outgoing = [_annotate_push_session(s, meta) for s in chunk]
+            outgoing = [_annotate_push_session(s, meta) for s in changed]
             result = api_call("POST", "/push",
                               {"device_id": DEVICE_ID,
                                "client_version": CLIENT_VERSION,
                                "agent": AGENT,
                                "sessions": outgoing})
             if "error" in result:
+                # A failing chunk (413 oversized payload, quota, timeout) must
+                # NOT starve the rest of the store: record it and keep pushing
+                # so sessions behind the failing one still sync this cycle.
                 result = explain_quota_error(result)
-                if processed == 0:
-                    return result
-                return {**totals, "error": f"partial failure after {processed} sessions: {result['error']}"}
+                err = result.get("error")
+                errors.append(f"{len(changed)} sessions: {err}")
+                log(f"Push chunk failed ({len(changed)} sessions, "
+                    f"{len(errors)} failed so far): {err}")
+                continue
             # anchor accepted base/val so these fields stop reading dirty
             _anchor_push_meta(meta, outgoing, result.get("session_revs") or {})
             for k in ("imported", "updated", "new_messages"):
                 totals[k] += result.get(k, 0)
             totals["sync_at"] = result.get("sync_at", totals["sync_at"])
-            processed += len(chunk)
+            processed += len(changed)
+            for s in changed:
+                fp[str(s["id"])] = _session_fingerprint(s)
     finally:
         _save_field_meta(meta)
+        _save_push_fingerprint(fp)
+    if errors:
+        return {**totals, "error": f"{len(errors)} chunk(s) failed: "
+                                f"{'; '.join(errors[:3])}"
+                                + ("..." if len(errors) > 3 else "")}
     return totals
 
 def _chunk_sessions(sessions: list[dict],
                     max_sessions: int = 20,
-                    max_messages: int = 3000) -> list[list[dict]]:
-    """Split sessions into push batches bounded by BOTH session count and
-    total message count. A few huge sessions (e.g. a 10MB workbuddy session
-    with thousands of events) must not ride along with a full batch of
-    average ones -- the per-message dedup on the server makes one request
-    cost scale with message count, and a giant request times out.
-    A single session larger than max_messages gets its own batch (the
-    message bound cannot split a session)."""
+                    max_messages: int = 3000,
+                    max_bytes: int = 8 * 1024 * 1024) -> list[list[dict]]:
+    """Split sessions into push batches bounded by session count, total
+    message count AND approximate payload bytes. A few huge sessions (e.g. a
+    10MB workbuddy session with thousands of events) must not ride along
+    with a full batch of average ones -- the per-message dedup on the server
+    makes one request cost scale with message count, and a giant request
+    times out or trips the proxy body limit (413). A single session larger
+    than any bound gets its own batch (a session cannot be split)."""
     chunks: list[list[dict]] = []
     cur: list[dict] = []
     cur_msgs = 0
+    cur_bytes = 0
+    sizes: dict[str, int] = {}
+    def _size(s: dict) -> int:
+        sid = str(s["id"])
+        if sid not in sizes:
+            sizes[sid] = len(json.dumps(s, ensure_ascii=False).encode("utf-8"))
+        return sizes[sid]
     for s in sessions:
         msgs = len(s.get("messages") or [])
-        if cur and (len(cur) >= max_sessions or cur_msgs + msgs > max_messages):
+        sz = _size(s)
+        if cur and (len(cur) >= max_sessions or cur_msgs + msgs > max_messages
+                    or cur_bytes + sz > max_bytes):
             chunks.append(cur)
-            cur, cur_msgs = [], 0
+            cur, cur_msgs, cur_bytes = [], 0, 0
         cur.append(s)
         cur_msgs += msgs
+        cur_bytes += sz
     if cur:
         chunks.append(cur)
     return chunks

@@ -229,14 +229,74 @@ class WorkBuddyWriteTest(unittest.TestCase):
             sessions = a.read_sessions()
             self.assertEqual(len(sessions[0]["messages"]), 6)
 
-    def test_idempotent(self):
+
+    def test_upsert_preserves_local_cwd(self):
+        """B1 regression: a workbuddy-owned session's row cwd must survive a
+        pull whose server copy carries a divergent cwd (the 2026-08-25
+        split-session incident: the pull repointed the row at a stale copy
+        and stranded newer messages)."""
         with tempfile.TemporaryDirectory() as td:
-            a, home, cwd = new_adapter(Path(td))
-            a.write_sessions([self._canonical(cwd)])
-            stats = a.write_sessions([self._canonical(cwd)])
-            self.assertEqual(stats["new_messages"], 0)
-            self.assertGreater(stats["duplicates"], 0)
-            self.assertEqual(stats["imported"], 0)
+            td = Path(td)
+            cwd_a = (td / "ProjectA").as_posix()
+            cwd_b = (td / "ProjectB").as_posix()
+            home = make_fixture(td / ".workbuddy", cwd_a)
+            a = WorkBuddyAdapter(home)
+            c = self._canonical(cwd_b, title="Pulled with divergent cwd")
+            stats = a.write_sessions([c])
+            self.assertEqual(stats["updated"], 1)
+            conn = sqlite3.connect(home / "workbuddy.db")
+            row = conn.execute("SELECT cwd FROM sessions WHERE id=?",
+                               (SID,)).fetchone()
+            conn.close()
+            self.assertEqual(row[0], cwd_a)  # local cwd kept
+
+    def test_upsert_moves_foreign_session_cwd(self):
+        """B1: foreign sessions still follow the pulled cwd (no local
+        truth — the pulled path IS their storage location)."""
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            cwd_a = (td / "ProjectA").as_posix()
+            cwd_b = (td / "ProjectB").as_posix()
+            home = make_fixture(td / ".workbuddy", cwd_a)
+            a = WorkBuddyAdapter(home)
+            c = self._canonical(cwd_b, title="Foreign pull")
+            c["agent_type"] = "hermes"
+            a.write_sessions([c])
+            conn = sqlite3.connect(home / "workbuddy.db")
+            row = conn.execute("SELECT cwd FROM sessions WHERE id=?",
+                               (SID,)).fetchone()
+            conn.close()
+            self.assertEqual(row[0], cwd_b)
+
+    def test_read_merges_split_session_copies(self):
+        """B2: a session split across project dirs reads as one merged,
+        timestamp-ordered stream — the stale row-cwd copy plus a newer
+        live file elsewhere must not lose the newer events."""
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            cwd_a = (td / "ProjectA").as_posix()
+            cwd_b = (td / "ProjectB").as_posix()
+            home = make_fixture(td / ".workbuddy", cwd_a)
+            # newer events exist only in a second copy (the live file)
+            extra = [
+                {"id": str(uuid.uuid4()), "timestamp": TS_MS + 6000,
+                 "type": "message", "role": "user", "status": "completed",
+                 "content": [{"type": "input_text", "text": "round two"}],
+                 "sessionId": SID, "cwd": cwd_b},
+                {"id": str(uuid.uuid4()), "timestamp": TS_MS + 7000,
+                 "type": "message", "role": "assistant", "status": "completed",
+                 "content": [{"type": "output_text", "text": "second answer"}],
+                 "sessionId": SID, "cwd": cwd_b},
+            ]
+            write_jsonl(home, cwd_b, extra)
+            a = WorkBuddyAdapter(home)
+            s = a.read_sessions()[0]
+            msgs = s["messages"]
+            self.assertEqual(len(msgs), 7)  # 5 fixture + 2 newer
+            self.assertEqual(msgs[-1]["role"], "assistant")
+            self.assertEqual(msgs[-1]["content"], "second answer")
+            timestamps = [m["timestamp"] for m in msgs]
+            self.assertEqual(timestamps, sorted(timestamps))
 
     def test_foreign_id_kept(self):
         """A codex:-prefixed session must keep its bare id locally."""
