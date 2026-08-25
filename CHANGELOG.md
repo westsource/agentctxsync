@@ -3,6 +3,50 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
 版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
 
+## [2026.08.25.2] - 2026-08-25
+
+### Changed（客户端，推送水位线）
+- **B5 会话指纹跳过（推送侧水位线）**：此前 push 每轮把本地 store **全部会话**重推
+  （全池契约 + 服务端幂等去重，无水位线），本机实测每轮约 1.6GB、单会话最大 156MB，
+  正是 413/超时的放大器。现在每个会话记录推送指纹
+  `(message_count, max_timestamp[, 文件 mtime])`（`mcp/server.py` 新增
+  `_session_fingerprint` + `PUSH_FINGERPRINT_PATH` sidecar，与 field-meta 同目录），
+  push 循环跳过指纹未变化的会话，仅成功推送后更新指纹（失败不更新、下轮重试）。
+  mtime 由 adapter 可选提供（`base.Adapter.session_mtime`，workbuddy 已实现——
+  取该会话所有副本的最新 mtime，与 B2 合并读路径一致，pull 触及的副本也会失效指纹）。
+  无 field-meta 的 agent 回退为全量推送（原行为）。
+  回归：`mcp/tests/test_mcp_server.py::PushFingerprintTest`
+  （跳过未变化 / 失败不锚定 / mtime 参与指纹）。
+- **客户端版本 bump 至 `2026.08.25.2`**（`mcp/.hermes-sync-version` +
+  `server/client_update.py`）。
+
+## [2026.08.25.1] - 2026-08-25
+
+### Fixed（客户端，workbuddy 适配器 + 通用同步）
+- **会话 cwd 漂移导致新增消息不再同步（workbuddy 会话分裂事故）**：同一会话的
+  jsonl 出现在多个 `projects/<slug>/` 目录时（cwd 被反复改写为其他值：主页目录、另一份
+  项目克隆目录），`read_sessions` 只读 `workbuddy.db.sessions.cwd` 指向的那一份，其余副本里
+  的新消息永久搁浅。实测某会话第一轮已同步、后续 40 条消息（含最终结论）滞留
+  `projects/e-OpenCode-agentctxsync/` 副本 1 小时以上。
+  - **B2（读路径）**：`read_sessions` 现在收集同 id 会话在所有项目目录的副本，
+    按 `(role, timestamp)` 去重合并、按时间排序；行 cwd 指向的文件优先（冲突时内容以它为准）。
+  - **B1（写路径）**：`_upsert_session` 对**本机自有**会话（`agent_type` 为 workbuddy/空）
+    的已存在行不再用拉取值覆写 `cwd`（外来会话保持原行为：拉取路径即其存储位置）。
+    此前一次 peer 值（或应用侧改写）经「push 上报 → 服务端接受 → pull 回写」回路固化，
+    把读路径指向陈旧副本。回归：`mcp/tests/test_workbuddy.py`
+    （`test_upsert_preserves_local_cwd` / `test_upsert_moves_foreign_session_cwd` /
+    `test_read_merges_split_session_copies`）。
+- **巨型 push 分块 413 中止整个推送循环**：`_chunk_sessions` 只按会话数/消息数分块，
+  不按字节大小；本机 store 中单会话可达 100MB+（实测 156.7MB / 8.5 万消息），一个 chunk
+  超过 nginx `client_max_body_size 100m` 被拒（413），`push_sessions` 随即中止，
+  排在巨型会话之后的会话整轮推不出去（每 5 分钟周期重复失败）。
+  - **B4**：`_chunk_sessions` 增加 `max_bytes`（默认 8MB）字节上限；单会话超限时单独成块。
+  - **循环容错**：单个 chunk 失败（413/配额/超时）不再中止剩余会话，记录错误并继续，
+    结束时汇总返回。回归：`mcp/tests/test_mcp_server.py`
+    （`test_bytes_bound_splits_big_session_out` / `test_single_huge_session_rides_alone`）。
+- **客户端版本 bump 至 `2026.08.25.1`**（`mcp/.hermes-sync-version` +
+  `server/client_update.py`）；nginx 部署侧 `client_max_body_size` 100m → 300m。
+
 ## [2026.08.24.1] - 2026-08-24
 
 ### Fixed

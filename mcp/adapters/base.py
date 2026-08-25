@@ -380,9 +380,13 @@ class Adapter(abc.ABC):
     # ids lets push_sessions tag the correct owner agent: with the
     # prefix-free id scheme the agent can no longer be derived from the
     # id, so the registry stores {id: agent_type} (legacy plain-id-list
-    # files are read as unknown-agent entries and upgraded on write).
-    def _foreign_ids_file(self) -> Path | None:
-        """Sidecar file remembering foreign local ids (None = not supported)."""
+
+    def session_mtime(self, local_id: str) -> float | None:
+        """Best-effort mtime of the local file(s) backing ``local_id``.
+
+        Used by the push fingerprint (see server.push_sessions) to skip
+        unchanged sessions; ``None`` = not supported, in which case the
+        fingerprint falls back to (message_count, max_timestamp)."""
         return None
 
     def _foreign_ids(self) -> dict[str, str]:

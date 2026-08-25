@@ -36,3 +36,7 @@ Thumbs.db
 
 # generated promo/verification artifacts
 output/
+
+# MCP client runtime artifacts (auto-update backup + version marker)
+mcp/.hermes-sync-version
+mcp/.bak-*
