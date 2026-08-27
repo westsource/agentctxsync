@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% from "_macros.html" import agent_color %}
+{% block title %}{{ t.nav_search }} - Agent Context Sync{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ t.nav_search }}</h1>
+      {% if q %}
+      <p class="text-[13px] text-gray-400 mt-0.5">{{ t.search_results_for.format(q=q) }}</p>
+      {% else %}
+      <p class="text-[13px] text-gray-400 mt-0.5">{{ t.search_hint }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 mb-6">
+    <form method="GET" action="/web/search" class="flex items-center gap-2">
+      <div class="relative flex-1">
+        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>
+        <input type="search" name="q" value="{{ q }}" placeholder="{{ t.search_placeholder }}"
+               class="w-full pl-10 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF]"
+               autofocus>
+      </div>
+      <button type="submit"
+              class="px-4 py-2 rounded-xl text-sm font-medium bg-[#6E56CF] text-white hover:bg-[#5B46C3] transition-colors">
+        {{ t.search_submit }}
+      </button>
+    </form>
+  </div>
+
+  {% if q and not sessions and not messages %}
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm py-16 text-center">
+    <svg class="w-10 h-10 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>
+    <p class="text-gray-400">{{ t.search_empty }}</p>
+  </div>
+  {% endif %}
+
+  {% if sessions %}
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden mb-6">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-[15px] font-semibold text-gray-900">{{ t.search_sessions_title.format(count=session_total) }}</h2>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for s in sessions %}
+      <a href="/web/workspace/{{ s.workspace_id }}/session/{{ s.id }}"
+         class="flex items-center gap-3.5 px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
+        <div class="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
+          <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 6C4 4.9 4.9 4 6 4H14C15.1 4 16 4.9 16 6V11.5C16 12.6 15.1 13.5 14 13.5H10L7.5 15.8V13.5H6C4.9 13.5 4 12.6 4 11.5V6Z"/></svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-gray-900 truncate">{{ s.title or s.id }}</p>
+          <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ s.workspace_name }}</span>
+            <span class="shrink-0">{{ s.sync_label }}</span>
+          </div>
+        </div>
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(s.agent_type) }}">
+          <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    {% if session_pages > 1 %}
+    <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+      {% if page > 1 %}
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_prev }}</a>
+      {% else %}<span></span>{% endif %}
+      <span class="text-xs text-gray-400">{{ t.search_page.format(page=page) }}</span>
+      {% if page < session_pages %}
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_next }}</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if messages %}
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-[15px] font-semibold text-gray-900">{{ t.search_messages_title.format(count=message_total) }}</h2>
+    </div>
+    <div class="divide-y divide-gray-50">
+      {% for m in messages %}
+      <a href="/web/workspace/{{ m.workspace_id }}/session/{{ m.session_id }}"
+         class="block px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
+        <div class="flex items-center gap-2 text-xs text-gray-400 mb-1.5">
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ m.workspace_name }}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium {% if m.role == 'user' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}bg-[#E9F9EF] text-[#34A853]{% endif %} shrink-0">{{ m.role }}</span>
+          <span class="truncate font-medium text-gray-600">{{ m.title or m.session_id }}</span>
+        </div>
+        <p class="text-sm text-gray-700 leading-relaxed break-words">{{ m.snippet }}</p>
+      </a>
+      {% endfor %}
+    </div>
+    {% if message_pages > 1 %}
+    <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+      {% if page > 1 %}
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_prev }}</a>
+      {% else %}<span></span>{% endif %}
+      <span class="text-xs text-gray-400">{{ t.search_page.format(page=page) }}</span>
+      {% if page < message_pages %}
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_next }}</a>
+      {% else %}<span></span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if q %}
+  <script>
+    (function () {
+      var q = {{ q|tojson }};
+      if (!q) return;
+      var re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      document.querySelectorAll('p.text-gray-700, p.text-sm.font-medium').forEach(function (el) {
+        if (el.dataset.hl) return;
+        el.dataset.hl = '1';
+        el.innerHTML = el.textContent.replace(re, '<mark class="bg-yellow-200 text-gray-900 rounded px-0.5">$1</mark>');
+      });
+    })();
+  </script>
+  {% endif %}
+</div>
+{% endblock %}

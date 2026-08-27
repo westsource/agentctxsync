@@ -349,6 +349,14 @@ def init_db():
             resolved_at DOUBLE PRECISION,
             resolved_by INTEGER
         )""")
+        # Global search: pg_trgm GIN indexes accelerate ILIKE on message
+        # content and session titles (see docs/SEARCH.md). Idempotent; the
+        # extension ships in the pgvector image and standard PG.
+        c.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_messages_content_trgm
+            ON messages USING gin (content gin_trgm_ops)""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_sessions_title_trgm
+            ON sessions USING gin (title gin_trgm_ops)""")
         # Default 'free' cap raised 200 -> 300. DO UPDATE with a guard on the
         # old default so an operator's hand-set value is never overwritten;
         # fresh databases just get 300 directly.
