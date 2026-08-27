@@ -18,12 +18,15 @@ router = APIRouter()
 # ============================================================
 
 
-# Hermes is the original fully-validated client; workbuddy and reasonix have
-# been validated end-to-end (auto-start, pull, push dedupe, titles). The
-# other agent adapters stay in AGENTS (registry) for development, but their
-# MCP client distribution and help-page onboarding are taken offline until
-# validated. Re-enable an agent by adding its key here.
-PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode")
+# Hermes is the original fully-validated client; workbuddy, reasonix and
+# opencode have been validated end-to-end (auto-start, pull, push dedupe,
+# titles). openclaw was validated 2026-08 against the real gateway store
+# (sessions.json + jsonl transcripts) and ships the standalone auto-sync.py
+# because OpenClaw spawns MCP servers lazily. The other agent adapters stay
+# in AGENTS (registry) for development, but their MCP client distribution
+# and help-page onboarding are taken offline until validated. Re-enable an
+# agent by adding its key here.
+PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
@@ -37,7 +40,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.08.25.2"
+CLIENT_VERSION = "2026.08.27.3"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -45,6 +48,19 @@ def _client_archive_files():
              ("mcp/updater.py", os.path.join(CLIENT_DIR, "updater.py")),
              ("mcp/run.sh", os.path.join(CLIENT_DIR, "run.sh")),
              ("mcp/run.bat", os.path.join(CLIENT_DIR, "run.bat"))]
+    auto = os.path.join(CLIENT_DIR, "auto-sync.py")
+    if os.path.exists(auto):
+        # standalone periodic sync loop; required for agents whose host
+        # spawns MCP servers lazily (OpenClaw) so auto-sync works without
+        # an agent turn
+        files.append(("mcp/auto-sync.py", auto))
+    # one-shot deploy scripts (ship next to mcp/ so the `../mcp` layout
+    # resolves inside the extracted archive)
+    repo_scripts = os.path.join(os.path.dirname(_SRV_DIR), "scripts")
+    for name in ("deploy-local-mcp.ps1", "deploy-local-mcp.sh"):
+        src = os.path.join(repo_scripts, name)
+        if os.path.exists(src):
+            files.append((f"scripts/{name}", src))
     ad = os.path.join(CLIENT_DIR, "adapters")
     if os.path.isdir(ad):
         for name in sorted(os.listdir(ad)):
@@ -112,15 +128,129 @@ def _build_client_zip(agent: str, default_server: str,
             ensure_ascii=False))
     return buf.getvalue()
 
+
 def _build_readme(agent_key, api_key, ws_name, server_url):
     """Build the in-archive README. ``api_key`` is a placeholder string
     (never a real key -- the archive may be shared)."""
     agent = AGENTS[agent_key]
     lang = get_lang()
     is_en = lang == "en"
-    t_ = (lambda zh, en: en if is_en else zh)
     register = agent["register"]["en" if is_en else "zh"] \
         .replace("<KEY>", api_key).replace("<SERVER>", server_url)
+    # OpenClaw spawns bundled MCP servers lazily (only when the agent calls
+    # a tool), so the MCP server's own background sync never runs on its own.
+    # The standalone auto-sync loop is required there for automatic syncing.
+    needs_auto = agent_key == "openclaw"
+    files_note = ("- `mcp/server.py` - the MCP server (stdio)\n"
+                  "- `mcp/run.sh` / `mcp/run.bat` - optional launchers\n"
+                  "- `mcp/adapters/` - per-agent local store adapters (loaded by server.py)\n"
+                  + ("- `mcp/auto-sync.py` - standalone periodic sync loop "
+                     "(required for OpenClaw, see below)\n" if needs_auto else ""))
+    auto_block_en = (
+        "## Auto-sync (OpenClaw only)\n"
+        "OpenClaw spawns bundled MCP servers lazily -- the process only exists "
+        "while the agent is calling a tool, so the MCP server's own background "
+        "sync never runs on its own. Start the standalone loop once (it uses the "
+        "same sync engine, same lock and same watermark as server.py):\n\n"
+        "```bash\n"
+        "start \"\" /min \"<PYTHON>\" -u \"<EXTRACT_DIR>/mcp/auto-sync.py\"\n"
+        "```\n\n"
+        "It pulls once ~8s after start, then syncs both ways every 300 seconds "
+        "(override with HERMES_SYNC_INTERVAL). For boot-time autostart, put a "
+        "shortcut to the same command in `shell:startup` or create a Scheduled "
+        "Task.\n\n"
+        "**One-shot alternative:** run the deploy script from this archive "
+        "(extract next to `mcp/`):\n\n"
+        "```powershell\n"
+        "$env:HERMES_SYNC_AGENT = \"openclaw\"\n"
+        "$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n"
+        "$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n"
+        ".\\scripts\\deploy-local-mcp.ps1\n"
+        "```\n\n"
+        "It copies the client files and registers boot autostart (Scheduled Task; "
+        "non-admin shells fall back to the Startup folder). "
+        "Git Bash users can run `scripts/deploy-local-mcp.sh` instead.\n\n"
+    ) if needs_auto else ""
+    auto_block_zh = (
+        "## 自动同步（仅 OpenClaw）\n"
+        "OpenClaw 对内置 MCP Server 采用惰性启动——进程只在 agent 调用工具时存在，"
+        "因此 MCP Server 自带的后台同步不会自行运行。请单独启动常驻同步循环"
+        "（与 server.py 共用同一套同步引擎、锁和水位线）：\n\n"
+        "```bash\n"
+        "start \"\" /min \"<PYTHON>\" -u \"<EXTRACT_DIR>/mcp/auto-sync.py\"\n"
+        "```\n\n"
+        "启动约 8 秒后自动拉取一次，之后每 300 秒双向同步一次"
+        "（可用 HERMES_SYNC_INTERVAL 调整间隔）。需要开机自启时，把同一条命令的快捷方式"
+        "放入 `shell:startup` 启动文件夹，或创建计划任务。\n\n"
+        "**一键替代：** 运行本压缩包内的部署脚本（与 `mcp/` 同级解压）：\n\n"
+        "```powershell\n"
+        "$env:HERMES_SYNC_AGENT = \"openclaw\"\n"
+        "$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n"
+        "$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n"
+        ".\\scripts\\deploy-local-mcp.ps1\n"
+        "```\n\n"
+        "自动复制客户端文件并注册开机自启（计划任务；非管理员环境自动改用启动文件夹）。"
+        "Git Bash 用户可改用 `scripts/deploy-local-mcp.sh`。\n\n"
+    ) if needs_auto else ""
+    if is_en:
+        return (
+            f"# Agent Context Sync MCP Client ({agent['label']})\n\n"
+            f"Workspace: **{ws_name}**  \u00b7  Sync server: `{server_url}`\n\n"
+            "This client connects your agent to the sync server above so sessions "
+            "sync across devices and across agents (Hermes / DeepSeek Harness / opencode / "
+            "Reasonix / OpenClaw / WorkBuddy share the same workspace pool).\n\n"
+            "## Files\n"
+            + files_note + "\n"
+            f"Agent: **{agent['label']}**  \u00b7  {agent['desc']['en']}\n\n"
+            f"Local store: {agent['store']['en']}\n\n"
+            "## Install\n"
+            f"1. Unzip this archive to a folder, e.g. `C:\\agentctxsync-mcp-client-{agent_key}`.\n"
+            "2. Register the MCP server for your agent (replace `<PYTHON>` with a "
+            "Python 3.10+ interpreter, `<EXTRACT_DIR>` with the folder from step 1, "
+            "and `<YOUR_API_KEY>` with your workspace API key from the help page):\n\n"
+            "```bash\n" + register + "\n```\n\n"
+            + auto_block_en
+            + "## Remove (old version / cleanup)\n"
+            f"```bash\n{agent.get('uninstall', {}).get('en', '')}\n```\n\n"
+            "## Verify\n"
+            f"```bash\n{agent['verify']}\n```\n"
+            "Tools: `hermes_sync_status`, `hermes_sync_pull`, `hermes_sync_push`, `hermes_sync_full`\n\n"
+            "The client pulls once on startup (bootstrapping local data when the "
+            "remote workspace is empty), then auto-syncs every 300 seconds.\n\n"
+            "## Auto-update\n"
+            "The client checks for updates shortly after startup and then every "
+            "24 hours; new files replace the old ones in place and take effect "
+            "on the next agent restart (set HERMES_SYNC_AUTO_UPDATE=0 to "
+            "disable, or HERMES_SYNC_UPDATE_INTERVAL to change the interval).\n"
+        )
+    return (
+        f"# Hermes 会话同步 MCP 客户端（{agent['label']}）\n\n"
+        f"工作空间：**{ws_name}**  \u00b7  同步服务器：`{server_url}`\n\n"
+        "将该 Agent 接入同步服务器，实现跨设备、跨 Agent（Hermes / DeepSeek Harness / "
+        "opencode / Reasonix / OpenClaw / WorkBuddy 共享同一工作空间会话池）的会话同步。\n\n"
+        "## 文件说明\n"
+        + files_note + "\n"
+        f"Agent：**{agent['label']}**  \u00b7  {agent['desc']['zh']}\n\n"
+        f"本地存储：{agent['store']['zh']}\n\n"
+        "## 安装步骤\n"
+        f"1. 将本压缩包解压到任意目录，例如 `C:\\agentctxsync-mcp-client-{agent_key}`。\n"
+        "2. 按你的 Agent 注册 MCP Server（将 `<PYTHON>` 替换为 Python 3.10+ 解释器路径，"
+        "`<EXTRACT_DIR>` 替换为第 1 步的目录，`<YOUR_API_KEY>` 替换为帮助页中的工作空间 "
+        "API Key）：\n\n"
+        "```bash\n" + register + "\n```\n\n"
+        + auto_block_zh
+        + "## 移除旧版（重新安装或清理时）\n"
+        f"```bash\n{agent.get('uninstall', {}).get('zh', '')}\n```\n\n"
+        "## 验证\n"
+        f"```bash\n{agent['verify']}\n```\n"
+        "可用工具：`hermes_sync_status`、`hermes_sync_pull`、`hermes_sync_push`、`hermes_sync_full`\n\n"
+        "客户端启动时自动拉取一次（远程为空时自动推送本地数据完成首次配对），"
+        "之后每 300 秒自动同步一次。\n\n"
+        "## 自动更新\n"
+        "客户端启动后稍候即检查一次更新，之后每 24 小时检查一次；新文件就地替换，"
+        "**重启 Agent 后生效**（设 `HERMES_SYNC_AUTO_UPDATE=0` 可关闭，"
+        "或用 `HERMES_SYNC_UPDATE_INTERVAL` 调整检查间隔）。\n"
+    )
     if is_en:
         return (
             f"# Agent Context Sync MCP Client ({agent['label']})\n\n"
@@ -135,7 +265,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
             f"Agent: **{agent['label']}**  \u00b7  {agent['desc']['en']}\n\n"
             f"Local store: {agent['store']['en']}\n\n"
             "## Install\n"
-            "1. Unzip this archive to a folder, e.g. `C:\\hermes-sync-mcp`.\n"
+            f"1. Unzip this archive to a folder, e.g. `C:\\agentctxsync-mcp-client-{agent_key}`.\n"
             "2. Register the MCP server for your agent (replace `<PYTHON>` with a "
             "Python 3.10+ interpreter, `<EXTRACT_DIR>` with the folder from step 1, "
             "and `<YOUR_API_KEY>` with your workspace API key from the help page):\n\n"
@@ -165,7 +295,7 @@ def _build_readme(agent_key, api_key, ws_name, server_url):
         f"Agent：**{agent['label']}**  \u00b7  {agent['desc']['zh']}\n\n"
         f"本地存储：{agent['store']['zh']}\n\n"
         "## 安装步骤\n"
-        "1. 将本压缩包解压到任意目录，例如 `C:\\hermes-sync-mcp`。\n"
+        f"1. 将本压缩包解压到任意目录，例如 `C:\\agentctxsync-mcp-client-{agent_key}`。\n"
         "2. 按你的 Agent 注册 MCP Server（将 `<PYTHON>` 替换为 Python 3.10+ 解释器路径，"
         "`<EXTRACT_DIR>` 替换为第 1 步的目录，`<YOUR_API_KEY>` 替换为帮助页中的工作空间 "
         "API Key）：\n\n"

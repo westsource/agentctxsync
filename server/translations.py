@@ -249,7 +249,7 @@ TRANSLATIONS = {
         "plan_unlimited": "无限版",
 
         # Feedback
-        "nav_feedback": "问题反馈",
+        "nav_feedback": "提交反馈",
         "feedback_title": "问题反馈",
         "feedback_subtitle": "提交问题或建议，我们会尽快处理",
         "feedback_submit_title": "提交反馈",
@@ -679,7 +679,7 @@ TRANSLATIONS = {
         "plan_unlimited": "Unlimited",
 
         # Feedback
-        "nav_feedback": "Feedback",
+        "nav_feedback": "Submit Feedback",
         "feedback_title": "Feedback",
         "feedback_subtitle": "Submit an issue or suggestion and we'll handle it soon",
         "feedback_submit_title": "Submit Feedback",

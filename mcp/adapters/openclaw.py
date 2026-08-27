@@ -1,247 +1,491 @@
 """
-OpenClaw adapter (EXPERIMENTAL -- needs validation against a real store).
+OpenClaw adapter.
 
-Local store: ~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite
-(SQLite, runtime sessions) with JSONL transcripts archived under
-~/.openclaw/agents/<agentId>/sessions/.
+Local store (OpenClaw 2026.7.x): ~/.openclaw/agents/<agentId>/sessions/
+  - sessions.json            -- session index: {session_key: {sessionId,
+                                sessionFile, sessionStartedAt, updatedAt, ...}}
+  - <sessionId>.jsonl        -- per-session transcript (JSONL v3):
+                                session header, model_change / custom events,
+                                and message lines {"type":"message",
+                                "message":{"role","content","timestamp",...}}
 
-OpenClaw's exact SQLite schema is not publicly documented; this adapter
-probes the schema at init time (sqlite_master) and maps the first table
-whose columns look like sessions/messages. If probing fails, pass explicit
-overrides (table_sessions, table_messages, col_map) to the constructor.
-OpenClaw also ships an official MCP bridge (`openclaw mcp serve`) which may
-be a better integration point in the future.
+The gateway owns this store and reloads the index on change (mtime-based
+cache), so sessions written here appear in the TUI and `sessions.list`
+without a gateway restart. Writes are shaped exactly like the gateway's
+own persistence: one index entry plus a transcript file with a chained
+parentId message graph.
+
+Write caveat: a RUNNING gateway may overwrite sessions.json when it
+persists its own in-memory state, clobbering index entries this adapter
+added while the gateway was up. Pulls are safe to repeat (dedupe), so
+prefer syncing when OpenClaw is closed, or re-pull after a gateway
+session write.
+
+id scheme: the session key (e.g. "agent:main:main") is the local id;
+canonical ids are bare (no prefix, new scheme).
 """
 
+import json
 import os
 import re
-import sqlite3
+import secrets
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import Adapter, local_id_lenient, validate_local_id
+from .base import Adapter, validate_local_id
 
-_SESSION_TABLE_RE = re.compile(r"(session|thread|conversation)", re.I)
-_MESSAGE_TABLE_RE = re.compile(r"(message|transcript|part)", re.I)
-_SESSION_COL_RE = re.compile(r"(title|model|started_at|created_at|updated_at|id)", re.I)
-_MESSAGE_COL_RE = re.compile(r"(content|role|timestamp|created_at|time|id)", re.I)
+_INDEX_NAME = "sessions.json"
+_WATERMARK_NAME = ".hermes-sync-watermark"
+_FOREIGN_NAME = ".hermes-sync-foreign-ids.json"
+_MAX_TITLE_LEN = 80
+_MS_EPOCH = 1e12
+
+
+def _content_to_text(content) -> str:
+    """Normalize OpenClaw message content (str or block list) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if (isinstance(block, dict) and block.get("type") == "text"
+                    and block.get("text")):
+                parts.append(block["text"])
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
+
+
+def _iso_ts(ts: float) -> str:
+    """ISO-8601 UTC with 'Z' suffix and ms precision (gateway format)."""
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return (dt.strftime("%Y-%m-%dT%H:%M:%S.") +
+            f"{int((ts - int(ts)) * 1000):03d}Z")
+
+
+
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+#: session-key <rest> shapes that indicate a pooled (server-originated)
+#: session rather than a locally-created OpenClaw session: hermes timestamp
+#: ids (20260801_201638_8ab26b), reasonix rx-* ids, and foreign uuids.
+#: Locally-created keys are short slugs ("main", "test1", "tui-<uuid>").
+_POOL_ID_RE = re.compile(
+    r"^(\d{8}_\d{6}_\w+|rx-\S+|"
+    r"(?<!tui-)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12})$"
+)
+
+
+def _sanitize_text(text) -> str:
+    """Strip lone surrogates / invalid code points from server content.
+
+    Tool output on the server can carry binary-ish bytes that arrive here
+    as surrogate code points; json.dumps(ensure_ascii=False) passes them
+    through and the UTF-8 file write then fails or produces a corrupt
+    line, which the reader skips -- so the message is never deduped and
+    every pull re-appends it. Replacing invalid bytes keeps writes safe.
+    """
+    if isinstance(text, str) and _SURROGATE_RE.search(text):
+        return _SURROGATE_RE.sub("\ufffd", text)
+    return text
 
 
 class OpenClawAdapter(Adapter):
-    """OpenClaw sqlite adapter (canonical ids prefixed ``openclaw:``)."""
+    """OpenClaw gateway session-store adapter (jsonl transcripts + index)."""
 
     agent_type = "openclaw"
 
-    def __init__(self, db_path: Path | str | None = None,
-                 table_sessions: str | None = None,
-                 table_messages: str | None = None,
-                 col_map: dict[str, str | None] | None = None):
-        self.db_path = Path(db_path) if db_path else self.discover()
-        self.table_sessions = table_sessions
-        self.table_messages = table_messages
-        self.col_map = col_map
-        if self.db_path and self.db_path.exists():
-            self._probe()
+    def __init__(self, store_dir: Path | str | None = None):
+        self.sessions_dir = Path(store_dir) if store_dir else self.discover()
 
-    def _foreign_ids_file(self) -> Path | None:
-        if self.db_path:
-            return self.db_path.with_name(
-                self.db_path.name + ".hermes-sync-foreign-ids.json")
-        return None
-
-    def _watermark_file(self) -> Path | None:
-        if self.db_path:
-            return self.db_path.with_name(
-                self.db_path.name + ".hermes-sync-watermark")
-        return None
-
+    # ------------------------------------------------------------------
+    # discovery
+    # ------------------------------------------------------------------
     def discover(self) -> Path | None:
         root = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
         agents_dir = root / "agents"
         if not agents_dir.is_dir():
             return None
-        candidates = sorted(agents_dir.glob("*/agent/openclaw-agent.sqlite"),
-                            key=lambda p: p.stat().st_mtime, reverse=True)
-        return candidates[0] if candidates else None
+        candidates = sorted(
+            agents_dir.glob("*/sessions/sessions.json"),
+            key=lambda p: p.stat().st_mtime, reverse=True)
+        return candidates[0].parent if candidates else None
+
+    @property
+    def _index_path(self) -> Path:
+        return self.sessions_dir / _INDEX_NAME
 
     # ------------------------------------------------------------------
-    # schema probing
+    # sidecars
     # ------------------------------------------------------------------
-    def _probe(self):
-        conn = sqlite3.connect(str(self.db_path))
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'")]
-        conn.close()
-        sessions = [t for t in tables if _SESSION_TABLE_RE.search(t)]
-        messages = [t for t in tables if _MESSAGE_TABLE_RE.search(t)]
-        if self.table_sessions is None and sessions:
-            self.table_sessions = sessions[0]
-        if self.table_messages is None and messages:
-            self.table_messages = messages[0]
-        if self.col_map is None:
-            self.col_map = {}
-        if not self.table_sessions or not self.table_messages:
-            raise ValueError(
-                "Could not probe OpenClaw schema; pass table_sessions/"
-                "table_messages/col_map explicitly. Tables found: "
-                + ", ".join(tables))
+    def _watermark_file(self) -> Path | None:
+        if self.sessions_dir:
+            return self.sessions_dir / _WATERMARK_NAME
+        return None
 
-    def _conn(self):
-        if not self.db_path or not self.db_path.exists():
-            raise FileNotFoundError(f"Local DB not found: {self.db_path}")
-        conn = sqlite3.connect(str(self.db_path), timeout=30)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _cols(self, c, table: str) -> list[str]:
-        return [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
-
-    @staticmethod
-    def _map(row: dict, col_map: dict) -> dict:
-        out = {}
-        for k, v in row.items():
-            canon = col_map.get(k, k)
-            if v is not None:
-                out[canon] = v
-        return out
+    def _foreign_ids_file(self) -> Path | None:
+        if self.sessions_dir:
+            return self.sessions_dir / _FOREIGN_NAME
+        return None
 
     # ------------------------------------------------------------------
-    # reading
+    # index
+    # ------------------------------------------------------------------
+    def _load_index(self) -> dict:
+        if not self.sessions_dir or not self._index_path.exists():
+            return {}
+        try:
+            data = json.loads(self._index_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save_index(self, index: dict):
+        tmp = self._index_path.with_name(
+            self._index_path.name + ".tmp")
+        tmp.write_text(json.dumps(index, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        os.replace(tmp, self._index_path)
+
+    # ------------------------------------------------------------------
+    # transcripts
+    # ------------------------------------------------------------------
+    def _entry_file(self, entry: dict | None) -> Path | None:
+        if not entry:
+            return None
+        sf = entry.get("sessionFile")
+        if sf:
+            p = Path(sf)
+            if not p.is_absolute():
+                p = self.sessions_dir / p
+            if p.exists():
+                return p
+        sid = entry.get("sessionId")
+        if sid:
+            p = self.sessions_dir / f"{sid}.jsonl"
+            if p.exists():
+                return p
+        return None
+
+    def _iter_messages(self, path: Path):
+        """Yield (line_id, role, content, timestamp_seconds) per message."""
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        for line in lines:
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "message":
+                continue
+            m = obj.get("message")
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            content = m.get("content")
+            ts = m.get("timestamp")
+            if not isinstance(ts, (int, float)):
+                continue
+            if ts > _MS_EPOCH:  # ms -> seconds
+                ts = ts / 1000.0
+            yield obj.get("id"), role, _content_to_text(content), ts
+
+    def _tail_id(self, path: Path | None) -> str | None:
+        """Last event id in a transcript (parent for appended lines)."""
+        if path is None:
+            return None
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in reversed(lines):
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict) and obj.get("id"):
+                return obj["id"]
+        return None
+
+    def _workspace_cwd(self) -> str:
+        root = Path(os.environ.get("OPENCLAW_HOME",
+                                   Path.home() / ".openclaw"))
+        ws = root / "workspace"
+        return str(ws) if ws.is_dir() else ""
+
+    # ------------------------------------------------------------------
+    # reading (local -> canonical)
     # ------------------------------------------------------------------
     def read_sessions(self, limit: int | None = None) -> list[dict]:
-        conn = self._conn()
-        c = conn.cursor()
-        s_cols = self._cols(c, self.table_sessions)
-        m_cols = self._cols(c, self.table_messages)
-        sid_col = "id" if "id" in s_cols else s_cols[0]
-        ts_col = next((x for x in ("started_at", "created_at", "updated_at")
-                       if x in s_cols), None)
-        mid_col = "session_id" if "session_id" in m_cols else \
-            next((x for x in m_cols if "session" in x.lower()), None)
-        sessions = []
-        sql = f"SELECT * FROM {self.table_sessions} ORDER BY {ts_col or sid_col} DESC"
+        index = self._load_index()
+        ordered = sorted(index.items(),
+                         key=lambda kv: kv[1].get("updatedAt") or 0,
+                         reverse=True)
         if limit:
-            sql += f" LIMIT {int(limit)}"
-        for row in c.execute(sql):
-            s = dict(row)
-            sid = str(s[sid_col])
-            m_sql = f"SELECT * FROM {self.table_messages}"
-            params: tuple = ()
-            if mid_col:
-                m_sql += f" WHERE {mid_col} = ?"
-                params = (sid,)
-            m_sql += " ORDER BY " + next(
-                (x for x in ("timestamp", "created_at", "time") if x in m_cols),
-                m_cols[0])
-            msgs = []
-            for mrow in c.execute(m_sql, params):
-                m = self._map(dict(mrow), self.col_map)
-                m["session_id"] = sid
-                if not isinstance(m.get("timestamp"), (int, float)):
-                    m["timestamp"] = time.time()
-                msgs.append(m)
-            s = self._map(s, self.col_map)
-            s["id"] = sid
-            if ts_col and s.get(ts_col) is not None:
-                s["started_at"] = s.pop(ts_col)
-            s.setdefault("started_at", time.time())
-            s["messages"] = msgs
-            s["message_count"] = len(msgs)
+            ordered = ordered[:limit]
+        foreign = self._foreign_ids()
+        cwd = self._workspace_cwd()
+        sessions = []
+        for key, entry in ordered:
+            path = self._entry_file(entry)
+            if path is None:
+                continue
+            msgs = list(self._iter_messages(path))
+            if not msgs:
+                continue
+            started = (entry.get("sessionStartedAt") or 0) / 1000.0
+            if started <= 0:
+                started = min((m[3] for m in msgs if m[3] is not None),
+                              default=0.0) or time.time()
+            # Canonical id priority:
+            #  1. openclaw:server_id recorded in meta (when the gateway has
+            #     not rewritten the index since the pull);
+            #  2. key-derived server id: a RUNNING gateway normalizes keys
+            #     back to "agent:<agentId>:<rest>" and strips adapter-written
+            #     meta, so meta alone cannot be trusted. A native key whose
+            #     <rest> looks like a pool id (hermes timestamps, reasonix
+            #     rx-*, foreign uuids) round-trips to that server id; a
+            #     locally-created session (main/testN/tui-*) keeps its
+            #     transcript UUID;
+            #  3. the local key when the foreign registry owns it;
+            #  4. transcript UUID as the final fallback.
+            meta = entry.get("meta") or {}
+            server_id = meta.get("openclaw:server_id")
+            sid = None
+            if server_id:
+                sid = server_id
+            elif key.startswith("agent:"):
+                rest = key.split(":", 2)[2]
+                if _POOL_ID_RE.match(rest):
+                    sid = rest
+            if sid is None:
+                if key in foreign:
+                    sid = key
+                else:
+                    sid = entry.get("sessionId") or key
+            owner = foreign.get(sid)
+            s = {
+                "id": sid,
+                "started_at": started,
+                "model": entry.get("model"),
+                "cwd": cwd or None,
+                "agent_type": owner or "openclaw",
+                "meta": {"openclaw:session_key": key,
+                         "openclaw:session_id": entry.get("sessionId"),
+                         **({"openclaw:server_id": server_id}
+                            if server_id else {})},
+                "messages": [
+                    {"session_id": sid, "role": role,
+                     "content": content, "timestamp": ts}
+                    for _lid, role, content, ts in msgs],
+            }
+            title = next((m[2] for m in msgs
+                          if m[1] == "user" and m[2]), None)
+            if title:
+                s["title"] = title.strip().replace("\n", " ")[:_MAX_TITLE_LEN]
+            s["message_count"] = len(s["messages"])
             sessions.append(self.canonicalize(s))
-        conn.close()
         return sessions
 
     # ------------------------------------------------------------------
-    # writing (best-effort INSERT; fails loudly on schema mismatch)
+    # writing (canonical -> local)
     # ------------------------------------------------------------------
     def write_sessions(self, sessions: list[dict]) -> dict:
-        conn = self._conn()
-        try:
-            return self._write(conn, sessions)
-        finally:
-            conn.close()
-
-    def _write(self, conn, sessions: list[dict]) -> dict:
-        c = conn.cursor()
-        s_cols = self._cols(c, self.table_sessions)
-        m_cols = self._cols(c, self.table_messages)
-        imported = updated = new_messages = duplicates = 0
+        stats = {"imported": 0, "updated": 0,
+                 "new_messages": 0, "duplicates": 0}
+        if not sessions or not self.sessions_dir:
+            return stats
+        index = self._load_index()
+        cwd = self._workspace_cwd()
         for session in sessions:
-            s = dict(session)
-            s["id"] = local_id_lenient(self.agent_type, s["id"])
-            if session.get("agent_type") != "openclaw":
-                self._remember_foreign(s["id"], session.get("agent_type"))
-            sid = str(s["id"])
-            if not validate_local_id(sid):
-                continue  # untrusted remote id: skip
-            msgs = s.pop("messages", [])
-            s_data = {k: v for k, v in s.items()
-                      if k in s_cols and v is not None}
-            c.execute(f"SELECT id FROM {self.table_sessions} WHERE id = ?",
-                      (sid,))
-            if c.fetchone():
-                updated += 1
+            server_id = str(session.get("id") or "")
+            s = self.localize(session)
+            key = str(s["id"])
+            if not validate_local_id(key):
+                continue
+            # Remember the server-side id so read_sessions can round-trip
+            # back to the SAME server row. Without it, a session pulled
+            # from the pool (id like "20260801_...") would be re-pushed
+            # under its transcript UUID and fork into a duplicate on the
+            # server.
+            meta = dict(s.get("meta") or {})
+            if server_id and server_id != key:
+                meta["openclaw:server_id"] = server_id
+            s["meta"] = meta
+            # OpenClaw's own sessions round-trip under the transcript UUID,
+            # but they live locally under their session key ("agent:main:x").
+            # Map back to the existing key so re-pulls update the original
+            # entry instead of importing a duplicate. A running gateway also
+            # normalizes pooled keys to the "agent:<agentId>:<id>" form, so
+            # a bare id from the server must map to that prefixed key too.
+            meta_key = meta.get("openclaw:session_key")
+            if meta_key in index:
+                key = meta_key
+            elif key not in index and ("agent:main:" + key) in index:
+                key = "agent:main:" + key
+            agent = s.get("agent_type")
+            if agent not in (None, "openclaw"):
+                self._remember_foreign(server_id or key, agent)
+            msgs = s.get("messages") or []
+            entry = index.get(key)
+            if entry is None:
+                stats["imported"] += 1
+                sid = str(uuid.uuid4())
+                entry = {
+                    "sessionId": sid,
+                    "sessionFile": str(self.sessions_dir / f"{sid}.jsonl"),
+                    "sessionStartedAt": int((s.get("started_at") or
+                                             time.time()) * 1000),
+                    "agentHarnessId": "openclaw",
+                }
+                path = self.sessions_dir / f"{sid}.jsonl"
+                written, parent = self._write_new_transcript(
+                    path, sid, cwd, s, msgs)
+                stats["new_messages"] += written
             else:
-                cols = ", ".join(s_data)
-                ph = ", ".join(["?"] * len(s_data))
-                c.execute(
-                    f"INSERT INTO {self.table_sessions} ({cols}) "
-                    f"VALUES ({ph})", list(s_data.values()))
-                imported += 1
-            mid_col = "session_id" if "session_id" in m_cols else \
-                next((x for x in m_cols if "session" in x.lower()), None)
-            for m in msgs:
-                m_data = {k: v for k, v in m.items()
-                          if k in m_cols and v is not None}
-                if mid_col:
-                    m_data[mid_col] = sid
-                role = m_data.get("role")
-                ts = m_data.get("timestamp")
-                if role is not None and ts is not None:
-                    q = f"SELECT 1 FROM {self.table_messages} WHERE role = ? AND timestamp = ?"
-                    params = (role, ts)
-                    if mid_col:
-                        q = f"SELECT 1 FROM {self.table_messages} WHERE {mid_col} = ? AND role = ? AND timestamp = ?"
-                        params = (sid, role, ts)
-                    c.execute(q, params)
-                    if c.fetchone():
-                        duplicates += 1
-                        continue
-                if not m_data:
-                    continue
-                cols = ", ".join(m_data)
-                ph = ", ".join(["?"] * len(m_data))
-                c.execute(
-                    f"INSERT INTO {self.table_messages} ({cols}) "
-                    f"VALUES ({ph})", list(m_data.values()))
-                new_messages += 1
-        conn.commit()
-        return {"imported": imported, "updated": updated,
-                "new_messages": new_messages, "duplicates": duplicates}
+                stats["updated"] += 1
+                path = self._entry_file(entry)
+                parent = self._tail_id(path)
+                if path is None:  # index entry but transcript vanished
+                    sid = str(uuid.uuid4())
+                    path = self.sessions_dir / f"{sid}.jsonl"
+                    entry["sessionId"] = sid
+                    entry["sessionFile"] = str(path)
+                    written, parent = self._write_new_transcript(
+                        path, sid, cwd, s, msgs)
+                    stats["new_messages"] += written
+                else:
+                    parent = self._append_messages(path, parent, msgs,
+                                                   stats)
+            now_ms = int(time.time() * 1000)
+            entry["updatedAt"] = now_ms
+            entry["lastInteractionAt"] = now_ms
+            entry["lastActivityAt"] = now_ms
+            entry.setdefault("sessionStartedAt",
+                             int((s.get("started_at") or
+                                  time.time()) * 1000))
+            if s.get("model"):
+                entry["model"] = s["model"]
+            if meta:
+                entry["meta"] = meta
+            index[key] = entry
+        self._save_index(index)
+        return stats
+    def _write_new_transcript(self, path: Path, sid: str, cwd: str,
+                              session: dict, msgs: list) -> tuple[int, str]:
+        """Create a fresh transcript file; returns (written, last id)."""
+        now = time.time()
+        started = session.get("started_at") or now
+        model = session.get("model") or "unknown"
+        mc_id = secrets.token_hex(4)
+        lines = [
+            {"type": "session", "version": 3, "id": sid,
+             "timestamp": _iso_ts(started), "cwd": cwd},
+            {"type": "model_change", "id": mc_id,
+             "parentId": None, "timestamp": _iso_ts(started),
+             "provider": "openclaw", "modelId": model},
+            {"type": "thinking_level_change",
+             "id": secrets.token_hex(4), "parentId": mc_id,
+             "timestamp": _iso_ts(started), "thinkingLevel": "off"},
+        ]
+        parent = lines[-1]["id"]
+        for m in msgs:
+            parent = self._message_line(lines, parent, m,
+                                        m.get("timestamp") or now)
+        path.write_text("".join(json.dumps(x) + "\n" for x in lines),
+                        encoding="utf-8")
+        return len(msgs), parent
+
+    def _append_messages(self, path: Path, parent: str | None,
+                         msgs: list, stats: dict) -> str | None:
+        """Append non-duplicate messages to an existing transcript."""
+        known = set()
+        for _lid, role, content, ts in self._iter_messages(path):
+            if role is not None and ts is not None:
+                known.add((role, int(round(ts * 1000))))
+        lines = []
+        for m in msgs:
+            role = m.get("role")
+            content = m.get("content")
+            ts = m.get("timestamp")
+            if ts is None:
+                ts = time.time()
+            if role is None or content is None:
+                continue
+            if (role, int(round(float(ts) * 1000))) in known:
+                stats["duplicates"] += 1
+                continue
+            known.add((role, int(round(float(ts) * 1000))))
+            lines.append(m)
+        if not lines:
+            return parent
+        tail = parent
+        payload = []
+        for m in lines:
+            tail = self._message_line(payload, tail, m, m["timestamp"])
+        with path.open("a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(x) + "\n" for x in payload))
+        stats["new_messages"] += len(lines)
+        return tail
+
+    @staticmethod
+    def _message_line(lines: list, parent: str | None, m: dict,
+                      ts: float) -> str:
+        """Append one message event; returns its id (new parent)."""
+        mid = secrets.token_hex(4)
+        content = _sanitize_text(m.get("content"))
+        ts_ms = int(round(float(ts) * 1000))
+        lines.append({
+            "type": "message", "id": mid, "parentId": parent,
+            "timestamp": _iso_ts(float(ts)),
+            "message": {
+                "role": m.get("role"), "content": content,
+                "timestamp": ts_ms,
+            },
+        })
+        return mid
 
     # ------------------------------------------------------------------
     # status
     # ------------------------------------------------------------------
     def status(self) -> dict:
-        if not self.db_path or not self.db_path.exists():
-            return {"store": str(self.db_path), "error": "not found"}
-        conn = self._conn()
-        c = conn.cursor()
+        if not self.sessions_dir or not self._index_path.exists():
+            return {"store": str(self.sessions_dir), "error": "not found"}
+        index = self._load_index()
+        messages = 0
+        last = None
+        for entry in index.values():
+            path = self._entry_file(entry)
+            if path is None:
+                continue
+            for _lid, _role, _content, ts in self._iter_messages(path):
+                messages += 1
+                if ts is not None:
+                    last = max(last, ts) if last is not None else ts
+        return {"store": str(self.sessions_dir),
+                "sessions": len(index), "messages": messages,
+                "last_started_at": last}
+
+    def session_mtime(self, local_id: str) -> float | None:
+        entry = self._load_index().get(local_id)
+        path = self._entry_file(entry)
+        if path is None:
+            return None
         try:
-            c.execute(f"SELECT COUNT(*) FROM {self.table_sessions}")
-            sessions = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM {self.table_messages}")
-            messages = c.fetchone()[0]
-        except sqlite3.OperationalError:
-            sessions = messages = -1
-        conn.close()
-        return {"store": str(self.db_path), "sessions": sessions,
-                "messages": messages}
+            return path.stat().st_mtime
+        except OSError:
+            return None
 
 
 # registry alias (mcp/adapters/__init__.py looks up ``module.Adapter``)
 Adapter = OpenClawAdapter
-
 
 if __name__ == "__main__":
     a = OpenClawAdapter()
