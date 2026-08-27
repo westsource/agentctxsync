@@ -66,8 +66,8 @@ def _search(user_id, q: str, page: int):
 
         # Message content hits (exclude tool messages)
         c.execute("""
-            SELECT m.session_id, m.workspace_id, m.role, m.timestamp, m.content,
-                   s.title, s.agent_type, w.name AS workspace_name
+            SELECT m.id, m.session_id, m.workspace_id, m.role, m.timestamp,
+                   m.content, s.title, s.agent_type, w.name AS workspace_name
             FROM messages m
             JOIN sessions s ON s.id = m.session_id AND s.workspace_id = m.workspace_id
             JOIN workspaces w ON s.workspace_id = w.id

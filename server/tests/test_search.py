@@ -54,7 +54,7 @@ def _run_search(user_id, q, page=1):
         [{"id": "s1", "workspace_id": 1, "title": "t", "agent_type": "hermes",
           "message_count": 1, "workspace_name": "W", "synced_at": 1.0}],  # sessions
         {"total": 1},  # session count
-        [{"session_id": "s1", "workspace_id": 1, "role": "user",
+        [{"id": 42, "session_id": "s1", "workspace_id": 1, "role": "user",
           "timestamp": 1.0, "content": "abc", "title": "t",
           "agent_type": "hermes", "workspace_name": "W"}],  # messages
         {"total": 1},  # message count
@@ -106,6 +106,16 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(m_total, 1)
         self.assertIn("sync_label", sessions[0])
         self.assertIn("abc", messages[0]["snippet"])
+
+    def test_message_hits_carry_id(self):
+        """Message hits must expose m.id so results can deep-link (?focus=)."""
+        cursor, (_, messages, _, _) = _run_search(1, "abc")
+        self.assertIn("id", messages[0])
+        self.assertEqual(messages[0]["id"], 42)
+        # the route's message links use the id
+        import re
+        msg_sql = cursor.executed[2][0]
+        self.assertIn("m.id", msg_sql)
 
     def test_page_clamped_in_route(self):
         """Negative/non-numeric page falls back to 1."""
