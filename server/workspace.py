@@ -480,18 +480,45 @@ async def web_session_messages(ws_id: int, sid: str, request: Request):
             esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where += " AND content ILIKE '%%' || %s || '%%' ESCAPE '\\'"
             params.append(esc)
+        # Deep-link from global search (?focus=<message id>): resolve the page
+        # that contains the target message so the client-side scroll/highlight
+        # can find its data-mid element.
+        focus_page = None
+        focus = request.query_params.get("focus")
+        if focus:
+            try:
+                focus_id = int(focus)
+            except ValueError:
+                focus_id = None
+            if focus_id is not None:
+                c.execute("SELECT timestamp FROM messages "
+                          "WHERE id = %s AND session_id = %s AND workspace_id = %s "
+                          "AND COALESCE(hidden,0) = 0", (focus_id, sid, ws_id))
+                frow = c.fetchone()
+                if frow:
+                    ts = frow["timestamp"]
+                    c.execute("""SELECT COUNT(*) AS pos FROM messages
+                                 WHERE session_id = %s AND workspace_id = %s
+                                   AND COALESCE(hidden,0) = 0
+                                   AND (timestamp < %s OR (timestamp = %s AND id <= %s))""",
+                              (sid, ws_id, ts, ts, focus_id))
+                    pos = c.fetchone()["pos"]
+                    focus_page = max(1, (pos + size - 1) // size)
         c.execute(f"SELECT COUNT(*) AS cnt FROM messages WHERE {where}", params)
         total = c.fetchone()["cnt"]
         pages = max(1, (total + size - 1) // size)
         # Default to the LATEST page (newest messages), per the confirmed design
-        # ("默认从最新看起"); an explicit ?page= still navigates anywhere.
-        if page_param is None:
-            page = pages
-        else:
+        # ("默认从最新看起"); an explicit ?page= still navigates anywhere, and a
+        # ?focus= deep link jumps to the page containing the target message.
+        if page_param is not None:
             try:
                 page = max(1, int(page_param))
             except ValueError:
                 page = pages
+        elif focus_page is not None:
+            page = focus_page
+        else:
+            page = pages
         if page > pages:
             page = pages
         c.execute(

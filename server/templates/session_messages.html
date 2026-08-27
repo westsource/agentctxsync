@@ -123,7 +123,7 @@
     {% for m in messages %}
       {% if m.role == 'user' %}
       <!-- 用户消息：右对齐，渐变头像 + 浅紫气泡 + 气泡内时间 -->
-      <div class="flex justify-end gap-3">
+      <div class="flex justify-end gap-3" data-mid="{{ m.id }}">
         <div class="max-w-[85%] min-w-0">
           <div class="relative bg-[#F2F0FA] rounded-2xl rounded-tr-md px-4 py-2.5 group">
             {% if m.meta and m.meta.subagent %}
@@ -158,7 +158,7 @@
       </div>
       {% elif m.role == 'assistant' %}
       <!-- Agent 消息：左对齐，四色图标头像 + Agent 名 + 白气泡 + 时间 -->
-      <div class="flex justify-start gap-3">
+      <div class="flex justify-start gap-3" data-mid="{{ m.id }}">
         <div class="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0 mt-0.5 {{ agent_color(session.agent_type) }}">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
         </div>
@@ -330,5 +330,19 @@ function flashCopied(btn) {
   btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
   setTimeout(function () { btn.innerHTML = orig; }, 1500);
 }
+(function () {
+  // Deep-link from global search: /web/workspace/<ws>/session/<sid>?focus=<mid>
+  // scrolls the target message into view and flashes a highlight ring.
+  var params = new URLSearchParams(window.location.search);
+  var focus = params.get('focus');
+  if (!focus) return;
+  var el = document.querySelector('[data-mid="' + focus + '"]');
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.style.boxShadow = '0 0 0 3px rgba(110,86,207,0.5)';
+  el.style.borderRadius = '14px';
+  el.style.transition = 'box-shadow 0.8s ease';
+  setTimeout(function () { el.style.boxShadow = ''; }, 4000);
+})();
 </script>
 {% endblock %}

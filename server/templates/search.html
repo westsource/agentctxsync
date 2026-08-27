@@ -83,7 +83,7 @@
     </div>
     <div class="divide-y divide-gray-50">
       {% for m in messages %}
-      <a href="/web/workspace/{{ m.workspace_id }}/session/{{ m.session_id }}"
+      <a href="/web/workspace/{{ m.workspace_id }}/session/{{ m.session_id }}?focus={{ m.id }}"
          class="block px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
         <div class="flex items-center gap-2 text-xs text-gray-400 mb-1.5">
           <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ m.workspace_name }}</span>
