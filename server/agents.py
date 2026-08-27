@@ -47,7 +47,7 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-hermes</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "找到 Hermes 的 Python 解释器（Windows 下通常为）："},
                 {"code": "C:\\Users\\<用户名>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "在终端中注册 MCP Server（将 <code>&lt;PYTHON&gt;</code> 替换为第 2 步路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
@@ -56,7 +56,7 @@ AGENTS = {
                 {"text": "重启 Hermes（新会话生效），MCP 工具在启动时自动加载。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-hermes</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Find the Hermes Python interpreter (Windows usually):"},
                 {"code": "C:\\Users\\<you>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "Register the MCP server in a terminal (replace <code>&lt;PYTHON&gt;</code> with the path from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
@@ -120,7 +120,7 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-workbuddy</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "打开 WorkBuddy，进入「专家 · 技能 · 连接器」，点击「添加自定义连接器」，新建一个自定义 MCP server（类型选 <b>stdio</b>）。"},
                 {"text": "在连接器的 <code>mcpServers</code> 配置中加入 <code>hermes-sync</code>，完整配置示例如下（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步解压目录，<code>&lt;KEY&gt;</code> 替换为下方工作空间 API Key）："},
                 {"code": "<REGISTER>"},
@@ -128,7 +128,7 @@ AGENTS = {
                 {"text": "重启 WorkBuddy（新会话生效）。注意：适配器写入的会话需要重启 WorkBuddy 后才会出现在会话列表（启动时 MIGRATE 扫描识别）。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-workbuddy</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Open WorkBuddy → \"Experts · Skills · Connectors\", click \"Add Custom Connector\" to create a custom MCP server (type: <b>stdio</b>)."},
                 {"text": "Add <code>hermes-sync</code> under <code>mcpServers</code> in the connector config. Full example below (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter, <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1, <code>&lt;KEY&gt;</code> with the workspace API key below):"},
                 {"code": "<REGISTER>"},
@@ -177,14 +177,14 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-deepseek-harness</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "确认已安装 DeepSeek Harness（<code>codex --version</code>，若基于 codex CLI）。"},
                 {"text": "编辑 <code>~/.codex/config.toml</code>，添加 <code>[mcp_servers.hermes-sync]</code> 配置（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
                 {"text": "重启 harness（新会话生效）。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-deepseek-harness</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Make sure DeepSeek Harness is installed (<code>codex --version</code> if it is built on the codex CLI)."},
                 {"text": "Edit <code>~/.codex/config.toml</code> and add <code>[mcp_servers.hermes-sync]</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
                 {"code": "<REGISTER>"},
@@ -204,7 +204,7 @@ AGENTS = {
         },
         "register": {
             "zh": (
-                "# 编辑 ~/.config/opencode/opencode.json（或项目根 opencode.json）\n"
+                "# 编辑 ~/.config/opencode/opencode.jsonc（或项目根 opencode.jsonc）\n"
                 '{\n'
                 '  "mcp": {\n'
                 '    "hermes-sync": {\n'
@@ -221,7 +221,7 @@ AGENTS = {
                 '}'
             ),
             "en": (
-                "# Edit ~/.config/opencode/opencode.json (or project opencode.json)\n"
+                "# Edit ~/.config/opencode/opencode.jsonc (or project opencode.jsonc)\n"
                 '{\n'
                 '  "mcp": {\n'
                 '    "hermes-sync": {\n'
@@ -242,22 +242,22 @@ AGENTS = {
         "env_agent": True,
         "uninstall": {
             "zh": (
-                "# 移除：删除 opencode.json 中 mcp 下的 hermes-sync 配置块（~/.config/opencode/opencode.json 或项目根 opencode.json）"
+                "# 移除：删除 opencode.jsonc 中 mcp 下的 hermes-sync 配置块（~/.config/opencode/opencode.jsonc 或项目根 opencode.jsonc）"
             ),
             "en": (
-                "# Remove: delete the hermes-sync block under mcp in opencode.json (~/.config/opencode/opencode.json or project-root opencode.json)"
+                "# Remove: delete the hermes-sync block under mcp in opencode.jsonc (~/.config/opencode/opencode.jsonc or project-root opencode.jsonc)"
             ),
         },
         "install": {
             "zh": [
-                {"text": "注：仅支持 OpenCode CLI，OpenCode 桌面版暂不支持。将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
-                {"text": "编辑 <code>~/.config/opencode/opencode.json</code>（或项目根目录 <code>opencode.json</code>），在 <code>mcp</code> 字段添加 hermes-sync（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"text": "注：仅支持 OpenCode CLI，OpenCode 桌面版暂不支持。将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-opencode</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "编辑 <code>~/.config/opencode/opencode.jsonc</code>（或项目根目录 <code>opencode.jsonc</code>），在 <code>mcp</code> 字段添加 hermes-sync（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
                 {"text": "重启 opencode（CLI）。"},
             ],
             "en": [
-                {"text": "Note: OpenCode CLI only; the desktop app is not supported. Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
-                {"text": "Edit <code>~/.config/opencode/opencode.json</code> (or the project-root <code>opencode.json</code>) and add hermes-sync under <code>mcp</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"text": "Note: OpenCode CLI only; the desktop app is not supported. Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-opencode</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Edit <code>~/.config/opencode/opencode.jsonc</code> (or the project-root <code>opencode.jsonc</code>) and add hermes-sync under <code>mcp</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
                 {"code": "<REGISTER>"},
                 {"text": "Restart opencode (CLI)."},
             ],
@@ -333,14 +333,14 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-reasonix</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "在 Reasonix 设置 → MCP与工具 → 添加服务器 → JSON 中粘贴以下配置（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为解压目录）："},
                 {"code": "<REGISTER>"},
                 {"text": "重启 Reasonix——插件随桌面自动启动（auto_start），启动后约 8 秒执行增量拉取，之后每 300 秒自动双向同步。"},
                 {"text": "若重启后不自动同步：检查插件配置的 env 三要素（HERMES_SYNC_AGENT / HERMES_SYNC_SERVER / HERMES_SYNC_API_KEY）是否完整——缺任一项都会静默失败。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-reasonix</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "In Reasonix Settings → MCP & Tools → Add Server → JSON, paste the config below (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the unzip folder):"},
                 {"code": "<REGISTER>"},
                 {"text": "Restart Reasonix — the plugin auto-starts with the desktop (auto_start), runs an incremental pull ~8s after startup, then syncs both ways every 300s."},
@@ -351,12 +351,12 @@ AGENTS = {
     "openclaw": {
         "label": "OpenClaw",
         "desc": {
-            "zh": "OpenClaw 个人 AI 助手（openclaw.ai），会话存于 ~/.openclaw/agents/<id>/。",
-            "en": "OpenClaw personal AI assistant (openclaw.ai); sessions under ~/.openclaw/agents/<id>/.",
+            "zh": "OpenClaw 个人 AI 助手（openclaw.ai），会话存于 ~/.openclaw/agents/<id>/sessions/（sessions.json 索引 + jsonl 转录）。",
+            "en": "OpenClaw personal AI assistant (openclaw.ai); sessions under ~/.openclaw/agents/<id>/sessions/ (sessions.json index + jsonl transcripts).",
         },
         "store": {
-            "zh": "本地存储：~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite",
-            "en": "Local store: ~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite",
+            "zh": "本地存储：~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+            "en": "Local store: ~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
         },
         "register": {
             "zh": (
@@ -370,7 +370,8 @@ AGENTS = {
                 '        "env": {\n'
                 '          "HERMES_SYNC_AGENT": "openclaw",\n'
                 '          "HERMES_SYNC_API_KEY": "<KEY>",\n'
-                '          "HERMES_SYNC_SERVER": "<SERVER>"\n'
+                '          "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '          "HERMES_SYNC_AUTO_SYNC": "1"\n'
                 '        }\n'
                 '      }\n'
                 '    }\n'
@@ -388,7 +389,8 @@ AGENTS = {
                 '        "env": {\n'
                 '          "HERMES_SYNC_AGENT": "openclaw",\n'
                 '          "HERMES_SYNC_API_KEY": "<KEY>",\n'
-                '          "HERMES_SYNC_SERVER": "<SERVER>"\n'
+                '          "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '          "HERMES_SYNC_AUTO_SYNC": "1"\n'
                 '        }\n'
                 '      }\n'
                 '    }\n'
@@ -408,16 +410,24 @@ AGENTS = {
         },
         "install": {
             "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\hermes-sync-mcp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-openclaw</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "在 openclaw 配置的 <code>mcp.servers</code> 中注册（stdio；字段以官方文档 docs.openclaw.ai/cli/mcp 为准）："},
                 {"code": "<REGISTER>"},
-                {"text": "重启 openclaw（新会话生效）。"},
+                {"text": "启动常驻自动同步进程（OpenClaw 只在使用 MCP 工具时才拉起 server.py，内置的后台同步不会自行运行）："},
+                {"code": "start \"\" /min \"<PYTHON>\" -u \"<EXTRACT_DIR>/mcp/auto-sync.py\""},
+                {"text": "或用压缩包内的部署脚本一键安装（PowerShell 或 Git Bash，与 <code>mcp/</code> 同级解压）："},
+                {"code": "$env:HERMES_SYNC_AGENT = \"openclaw\"\n$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n.\\scripts\\deploy-local-mcp.ps1"},
+                {"text": "重启 openclaw（新会话生效）；auto-sync 每 300 秒自动双向同步一次。"},
             ],
             "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\hermes-sync-mcp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-openclaw</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Register under <code>mcp.servers</code> in the openclaw config (stdio; fields per docs.openclaw.ai/cli/mcp):"},
                 {"code": "<REGISTER>"},
-                {"text": "Restart openclaw (new sessions pick it up)."},
+                {"text": "Start the standalone auto-sync process (OpenClaw only spawns server.py when the agent calls an MCP tool, so the built-in background sync never runs on its own):"},
+                {"code": "start \"\" /min \"<PYTHON>\" -u \"<EXTRACT_DIR>/mcp/auto-sync.py\""},
+                {"text": "Or install everything in one shot with the deploy script from this archive (extract next to <code>mcp/</code>):"},
+                {"code": "$env:HERMES_SYNC_AGENT = \"openclaw\"\n$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n.\\scripts\\deploy-local-mcp.ps1"},
+                {"text": "Restart openclaw (new sessions pick it up); auto-sync then syncs both ways every 300 seconds."},
             ],
         },
     },

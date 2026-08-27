@@ -80,13 +80,24 @@ def main():
     run(f"rm -rf {REMOTE}/mcp")
     run(f"mkdir -p {REMOTE}/mcp/adapters")
     mcp = os.path.join(REPO, "mcp")
-    for name in ("server.py", "updater.py", "run.bat", "run.sh"):
-        sftp.put(os.path.join(mcp, name), f"{REMOTE}/mcp/{name}")
+    for name in ("server.py", "updater.py", "run.bat", "run.sh",
+                 "auto-sync.py"):
+        src = os.path.join(mcp, name)
+        if os.path.exists(src):
+            sftp.put(src, f"{REMOTE}/mcp/{name}")
     for name in os.listdir(os.path.join(mcp, "adapters")):
         if name.endswith(".py"):
             sftp.put(os.path.join(mcp, "adapters", name),
                      f"{REMOTE}/mcp/adapters/{name}")
-    print("uploaded mcp/ package")
+    # one-shot deploy scripts ship inside the client zip; the server reads
+    # them from <remote-root>/../scripts (client_update._client_archive_files)
+    run(f"mkdir -p {REMOTE}/../scripts")
+    scripts = os.path.join(REPO, "scripts")
+    for name in ("deploy-local-mcp.ps1", "deploy-local-mcp.sh"):
+        src = os.path.join(scripts, name)
+        if os.path.exists(src):
+            sftp.put(src, f"{REMOTE}/../scripts/{name}")
+    print("uploaded mcp/ package + auto-sync.py + deploy scripts")
 
     # 4. restart service (init_db runs the idempotent ALTER TABLE migration)
     out, code = run(f"systemctl restart {SERVICE} && sleep 4 && systemctl is-active {SERVICE}")
