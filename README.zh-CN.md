@@ -62,6 +62,8 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 
 ![全部会话 — 跨工作区统一列表，支持搜索与筛选](docs/screenshots/03-all-sessions.png)
 
+> **全局搜索** — 跨工作空间全文搜索会话标题与消息内容,仅限自己的工作空间(admin 同),支持深链跳转到具体消息([docs/SEARCH.md](docs/SEARCH.md))。
+
 ![工作区详情 — 会话列表、项目与同步设备](docs/screenshots/04-workspace.png)
 
 ![会话查看器 — Markdown 渲染与代码块](docs/screenshots/05-session-viewer.png)
@@ -133,6 +135,7 @@ bash scripts/deploy-local-mcp.sh
 - [docs/server-deployment.md](docs/server-deployment.md) — 部署、运维、备份、配额 SQL
 - [docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md) — 各 Agent 的存储、id 与写入约束
 - [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md) — 新增 Agent 适配器
+- [docs/SEARCH.md](docs/SEARCH.md) — 全局搜索（跨工作空间、租户隔离、消息定位）
 
 ## 贡献
 

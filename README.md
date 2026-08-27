@@ -62,6 +62,8 @@ Each Agent deploys its own client and points at the same Workspace, and they syn
 
 ![All sessions — unified cross-workspace list with search and filters](docs/screenshots/03-all-sessions.png)
 
+> **Global search** — cross-workspace full-text search over session titles and message content, scoped to your own workspaces (admins included), with deep-links that jump to the exact message ([docs/SEARCH.md](docs/SEARCH.md)).
+
 ![Workspace detail — session list, projects and sync devices](docs/screenshots/04-workspace.png)
 
 ![Session viewer — Markdown rendering with code blocks](docs/screenshots/05-session-viewer.png)
@@ -133,6 +135,7 @@ Each Agent deploys its own instance (one `HERMES_SYNC_AGENT` value + independent
 - [docs/server-deployment.md](docs/server-deployment.md) — deployment, operations, backup, quota SQL
 - [docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md) — per-agent storage, ids and write constraints
 - [docs/ADDING_AGENT.md](docs/ADDING_AGENT.md) — adding a new Agent adapter
+- [docs/SEARCH.md](docs/SEARCH.md) — global search (cross-workspace, tenant-isolated, message deep-link)
 
 ## Contributing
 
