@@ -52,6 +52,8 @@ AGENTS = {
                 {"code": "C:\\Users\\<用户名>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "在终端中注册 MCP Server（将 <code>&lt;PYTHON&gt;</code> 替换为第 2 步路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
+                {"text": "也可以不用上面的命令，直接编辑配置文件 <code>%LOCALAPPDATA%\\hermes\\config.yaml</code>，在 <code>mcp_servers:</code> 下添加 <code>hermes-sync</code> 配置块（<code>&lt;PYTHON&gt;</code> 替换为第 2 步路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录；<code>HERMES_SYNC_AGENT</code> 可不写——hermes 为默认，但建议显式声明更稳妥）："},
+                {"code": "mcp_servers:\n  hermes-sync:\n    command: \"<PYTHON>\"\n    args:\n      - \"<EXTRACT_DIR>/mcp/server.py\"\n    env:\n      HERMES_SYNC_AGENT: \"hermes\"\n      HERMES_SYNC_API_KEY: \"<KEY>\"\n      HERMES_SYNC_SERVER: \"<SERVER>\"\n    enabled: true"},
                 {"text": "提示 <code>Enable all 4 tools? [Y/n/select]:</code> 时输入 <code>Y</code> 并回车。"},
                 {"text": "重启 Hermes（新会话生效），MCP 工具在启动时自动加载。"},
             ],
@@ -60,8 +62,9 @@ AGENTS = {
                 {"text": "Find the Hermes Python interpreter (Windows usually):"},
                 {"code": "C:\\Users\\<you>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "Register the MCP server in a terminal (replace <code>&lt;PYTHON&gt;</code> with the path from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
-                {"code": "<REGISTER>"},
-                {"text": "When prompted <code>Enable all 4 tools? [Y/n/select]:</code>, type <code>Y</code> and press Enter."},
+                {"text": "Alternatively, skip the command above and edit the config file <code>%LOCALAPPDATA%\\hermes\\config.yaml</code> directly, adding a <code>hermes-sync</code> block under <code>mcp_servers:</code> (replace <code>&lt;PYTHON&gt;</code> with the step-2 path and <code>&lt;EXTRACT_DIR&gt;</code> with the step-1 folder; <code>HERMES_SYNC_AGENT</code> may be omitted - hermes is the default, but declaring it explicitly is safer):"},
+                {"code": "mcp_servers:\n  hermes-sync:\n    command: \"<PYTHON>\"\n    args:\n      - \"<EXTRACT_DIR>/mcp/server.py\"\n    env:\n      HERMES_SYNC_AGENT: \"hermes\"\n      HERMES_SYNC_API_KEY: \"<KEY>\"\n      HERMES_SYNC_SERVER: \"<SERVER>\"\n    enabled: true"},
+                {"text": "When prompted <code>Enable all 4 tools? [Y/n/select]:</code>, type <code>Y</code> and press Enter (this prompt only appears on first load)."},
                 {"text": "Restart Hermes (start a new session) - MCP tools load at startup."},
             ],
         },
@@ -428,6 +431,146 @@ AGENTS = {
                 {"text": "Or install everything in one shot with the deploy script from this archive (extract next to <code>mcp/</code>):"},
                 {"code": "$env:HERMES_SYNC_AGENT = \"openclaw\"\n$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n.\\scripts\\deploy-local-mcp.ps1"},
                 {"text": "Restart openclaw (new sessions pick it up); auto-sync then syncs both ways every 300 seconds."},
+            ],
+        },
+    },
+    "pi": {
+        "label": "Pi",
+        "desc": {
+            "zh": "Pi（earendil-works/pi，原 badlogic/pi-mono）终端编码 Agent，会话为 ~/.pi/agent/sessions/ 下的 JSONL v3 转录（每会话一个文件，按 cwd 编码分目录）。",
+            "en": "Pi (earendil-works/pi, formerly badlogic/pi-mono) terminal coding agent; sessions are JSONL v3 transcripts under ~/.pi/agent/sessions/ (one file per session, grouped by encoded cwd).",
+        },
+        "store": {
+            "zh": "本地存储：~/.pi/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env PI_CODING_AGENT_DIR 可覆盖）",
+            "en": "Local store: ~/.pi/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; PI_CODING_AGENT_DIR overrides)",
+        },
+        "register": {
+            "zh": (
+                "# 在 pi 的 MCP 配置中注册（stdio；字段以官方文档 pi.dev/docs 为准）\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "pi",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+            "en": (
+                "# Register under pi's MCP config (stdio; fields per the official docs at pi.dev/docs)\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "pi",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+        },
+        "verify": "pi 会话中调用 hermes_sync_status",
+        "env_agent": True,
+        "uninstall": {
+            "zh": (
+                "# 移除：删除 pi MCP 配置中的 hermes-sync server 块（字段以官方文档 pi.dev/docs 为准）"
+            ),
+            "en": (
+                "# Remove: delete the hermes-sync server block in pi's MCP config (fields per pi.dev/docs)"
+            ),
+        },
+        "install": {
+            "zh": [
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-pi</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "在 pi 的 MCP 配置中注册 hermes-sync（stdio；字段以官方文档 pi.dev/docs 为准；<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"code": "<REGISTER>"},
+                {"text": "重启 pi（新会话生效），MCP 工具随会话加载；启动约 8 秒后执行增量拉取，之后每 300 秒自动双向同步。"},
+            ],
+            "en": [
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-pi</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Register hermes-sync under pi's MCP config (stdio; fields per pi.dev/docs; replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"code": "<REGISTER>"},
+                {"text": "Restart pi (new sessions pick it up) - MCP tools load with the session; an incremental pull runs ~8s after startup, then it syncs both ways every 300s."},
+            ],
+        },
+    },
+    "omp": {
+        "label": "Oh My Pi",
+        "desc": {
+            "zh": "Oh My Pi（can1357/oh-my-pi，Pi 的 fork，「IDE 直连」编码 Agent），会话为 ~/.omp/agent/sessions/ 下的 JSONL v3 转录（与 pi 同构）。",
+            "en": "Oh My Pi (can1357/oh-my-pi, a fork of Pi, \"the IDE wired in\" coding agent); sessions are JSONL v3 transcripts under ~/.omp/agent/sessions/ (same layout as pi).",
+        },
+        "store": {
+            "zh": "本地存储：~/.omp/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env OMP_CODING_AGENT_DIR 可覆盖）",
+            "en": "Local store: ~/.omp/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; OMP_CODING_AGENT_DIR overrides)",
+        },
+        "register": {
+            "zh": (
+                "# 在 omp 的 MCP 配置中注册（stdio；字段以官方文档 omp.sh/docs 为准）\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "type": "stdio",\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "omp",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+            "en": (
+                "# Register under omp's MCP config (stdio; fields per the official docs at omp.sh/docs)\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "type": "stdio",\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "omp",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+        },
+        "verify": "omp 会话中调用 hermes_sync_status",
+        "env_agent": True,
+        "uninstall": {
+            "zh": (
+                "# 移除：删除 omp MCP 配置中的 hermes-sync server 块（字段以官方文档 omp.sh/docs 为准）"
+            ),
+            "en": (
+                "# Remove: delete the hermes-sync server block in omp's MCP config (fields per omp.sh/docs)"
+            ),
+        },
+        "install": {
+            "zh": [
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-omp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "在 omp 的 MCP 配置中注册 hermes-sync（stdio；字段以官方文档 omp.sh/docs 为准；<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"code": "<REGISTER>"},
+                {"text": "重启 omp（新会话生效），MCP 工具随会话加载；启动约 8 秒后执行增量拉取，之后每 300 秒自动双向同步。"},
+            ],
+            "en": [
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-omp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Register hermes-sync under omp's MCP config (stdio; fields per omp.sh/docs; replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"code": "<REGISTER>"},
+                {"text": "Restart omp (new sessions pick it up) - MCP tools load with the session; an incremental pull runs ~8s after startup, then it syncs both ways every 300s."},
             ],
         },
     },

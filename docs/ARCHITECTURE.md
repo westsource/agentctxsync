@@ -116,6 +116,7 @@
 | `admin.py` | 管理域：用户/全局空间管理（仅管理员） | `/web/admin/*`、`/api/admin/*` |
 | `client_update.py` | 客户端分发：zip 构建（运行时改写默认服务器/Agent + manifest 哈希）、下载端点 | `/api/client/manifest`、`/api/client/download` |
 | `web_help.py` | 接入帮助域：帮助页、客户端包下载（由 `agents.py` 注册表 + `client_update.py` 驱动） | `/web/help`、`/web/help-hermes`（301）、`/web/download/mcp-client` |
+| `search.py` | 全局搜索域：跨工作空间 + 租户隔离的会话/消息搜索，结果定位到具体消息（二期） | `/web/search` |
 
 中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_password_change`（auth），
 与单文件时代一致；`/web/*` 页面在强制改密期间仅放行
@@ -136,7 +137,48 @@
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode storage/ 多文件（`ses_/msg_/prt_` id；外来会话首次写入分配新 `ses_` id 并持久化 canonical→local idmap，后续 pull 复用同一本地 id 保持去重稳定） |
-| `adapters/openclaw.py` | OpenClaw sqlite（EXPERIMENTAL：启动时探测 schema 映射会话/消息表；官方 MCP bridge 是未来更优接入点） |
+| `adapters/openclaw.py` | OpenClaw 网关会话库（`sessions.json` 索引 + JSONL v3 transcript；`openclaw:server_id` 元数据保往返 id 稳定；运行中网关会覆写索引——建议关闭 OpenClaw 后同步） |
+
+- **目录布局**：
+  ```
+  mcp/
+  ├── server.py            # MCP 入口：工具面 + 后台任务 + 单写者锁
+  ├── updater.py           # 自动更新：manifest 比对、zip 校验、原子替换
+  ├── auto-sync.py          # OpenClaw 常驻同步循环（独立进程，见 openclaw 节）
+  ├── run.bat / run.sh     # 本地运行入口（按 HERMES_SYNC_AGENT 选择适配器）
+  ├── .hermes-sync-version # 自动更新版本记录（客户端侧车）
+  ├── adapters/
+  │   ├── base.py          # 适配器抽象 + canonical 模型 + AGENT_PREFIXES
+  │   ├── __init__.py      # _ADAPTER_MODULES 注册表（惰性加载，缺模块不拖垮整体）
+  │   ├── _template.py     # 新适配器骨架（从它复制）
+  │   └── <agent>.py       # 每 agent 一个实现
+  └── tests/               # fixture 往返单测（读/写/幂等/前缀）
+  ```
+
+- **工具面**（`server.py`，宿主 agent 以 MCP tool 调用）：`sync_status` / `sync_pull` /
+  `sync_push` / `sync_full` / `project_push` / `project_pull`（及 `hermes_sync_*` 兼容别名）。
+- **适配器接口**（`adapters/base.py::Adapter`，接入步骤见
+  [ADDING_AGENT.md](ADDING_AGENT.md)）：四个方法 `discover()` / `read_sessions(limit)` /
+  `write_sessions(sessions)` / `status()`。canonical 模型：会话必填 `id`（带前缀）+
+  `started_at`，通用可选列见 `CANONICAL_SESSION_FIELDS`；消息必填
+  `session_id`/`role`/`content`/`timestamp`，可选 `reasoning`/`tool_*`/`display_*`/
+  `compacted`/`meta`。**特有字段一律进 `meta` 且键带 agent 前缀**（`<agent>:foo`）防跨
+  agent 冲突；去重键统一为 `(session_id, role, timestamp)` 三元组（客户端与服务端同规则，
+  详见「消息身份与幂等去重」）。
+- **后台任务**（`server.py`）：启动 8s 增量拉取 → bootstrap push（首次配对）→ 每 300s
+  周期同步（push → pull → projects push/pull）→ 自动更新（启动 60s 后、每小时）；单写者锁 +
+  更新锁（双实例安全），详见「增量同步与水位线」与「客户端自动更新」。
+- **OpenClaw 常驻同步**（`mcp/auto-sync.py`）：OpenClaw 惰性拉起 MCP server（仅当 agent
+  调用工具时），进程内 `HERMES_SYNC_AUTO_SYNC=1` 不会自行触发——独立循环进程按固定间隔
+  （默认 300s、最小 60s）跑同一 `server.full_sync`（pull→push、字段级合并、水位线+去重），
+  与 MCP server 共享单写者锁；`deploy-local-mcp.sh/.ps1` 对 openclaw 额外安装该循环
+  （Windows 计划任务）。
+- **部署模型**：每个 agent 独立部署一份实例（`HERMES_SYNC_AGENT=<name>` 选择适配器 +
+  该 agent 的 API Key / 服务器地址），全部连到同一 workspace 即互相同步；服务端
+  `client_update.py` 按 agent 打包分发（构建时重写默认服务器/agent 的 zip，manifest sha256
+  对实际发货字节计算），可分发白名单 `PUBLIC_AGENTS`。
+- **各 agent 本地存储一览**（数据目录 / canonical id / 写入约束）见
+  [SUPPORTED_AGENTS.md](SUPPORTED_AGENTS.md)，新 agent 接入步骤见 [ADDING_AGENT.md](ADDING_AGENT.md)。
 
 ## 多租户模型
 
@@ -423,7 +465,9 @@ User (admin / user)
 - 重推不得重置 hidden（客户端仍持有该会话时不得让它复活）——push 的
   `sd.pop("hidden")` 保证。
 
-### 一次性迁移脚本（scripts/）
+### scripts/ 目录脚本（迁移 / 部署 / 测试）
+
+**一次性迁移**：
 
 | 脚本 | 用途 |
 |---|---|
@@ -432,6 +476,287 @@ User (admin / user)
 | `migrate-fold-subagents.py` | 软隐藏已同步的子代理孤儿会话 |
 | `migrate-local-to-server.py` | 本地 hermes state.db → 远端服务器（首次上云） |
 | `import_doubao.py` | 豆包云端会话导入（豆包无本地稳定存储） |
+
+**部署 / 运维**：
+
+| 脚本 | 用途 |
+|---|---|
+| `deploy-server.sh` | 服务端一键部署（目标机 `/opt/agentctxsync`，模块化 `server/` 全量拷贝） |
+| `deploy-remote.py` | 远端发布辅助：备份 → SSH 上传 server 模块与 `mcp/` 客户端 → 重启服务 → 验证（health + agent_type 探测；`DEPLOY_SSH_HOST` 指定目标） |
+| `deploy-local-mcp.sh` | 本地 MCP 客户端部署（bash；按 agent 写入 `config.yaml` 的 `mcp_servers`；openclaw 额外安装 `auto-sync.py` 常驻循环 + Windows 计划任务） |
+| `deploy-local-mcp.ps1` | 同上 PowerShell 版（多 agent，注释含 openclaw 注册示例） |
+
+**端到端测试**：
+
+| 脚本 | 用途 |
+|---|---|
+| `e2e_multagent.py` | 多 agent 交叉同步 e2e：codex 推 → 服务端 → opencode 拉及反向，验证 id 稳定与重推幂等 |
+## 已支持 Agent 接入方案（适配器实现细节）
+
+> 每个 agent 一个适配器（`mcp/adapters/<name>.py`，`_ADAPTER_MODULES` 注册、惰性加载），
+> 全部共用 `base.py` 的 canonical 模型、`(session_id, role, timestamp)` 三元组去重、水位线、
+> 外来会话 owner 注册表与 `validate_local_id` 路径穿越防护。canonical id 全部裸 id，归属在
+> `agent_type` / `profile_name` 列（前缀仅识别历史 id）。本节记录各家存储的**不可变事实与
+> 写入红线**，改行为前先读对应适配器；quick 表见 [SUPPORTED_AGENTS.md](SUPPORTED_AGENTS.md)。
+
+### hermes（Hermes 桌面端，多档案）
+
+- **存储布局**：`%LOCALAPPDATA%\hermes\`（POSIX `~/.hermes`），每档案一个 `state.db`
+  （SQLite）：default 档案 `state.db`，命名档案 `profiles/<name>/state.db`（magic/coder/
+  …）；另有每档案 `projects.db`（项目 + project_folders）。列 1:1 映射，无字段改写。
+- **多档案发现**：`discover()`/`read_sessions()` 扫描**全部**档案并合并（default 永远第一）。
+  原因：Hermes 通过进程内 ContextVar 切档案、不写入子进程——单档案适配器永远只能读到
+  default。命名档案的会话在 canonical 里带 `profile_name` 字段（default 为空）。
+- **子代理折叠**：读取时沿 `parent_session_id` 链折叠（支持子代理套子代理），子消息改挂
+  根会话 + `meta.subagent`，子行从 push 输出剔除；批次内找不到父的会话保持原样（不丢
+  数据）。详见「子代理会话折叠」。
+- **写入路由**：pull 按 `profile_name` 路由到对应档案的 state.db；本机不存在的档案跳过；
+  外来 agent 会话落 default 档案、canonical id 原样往返（hermes 无 agent_type 列，靠
+  `.hermes-sync-foreign.json` owner 注册表在 push 时补标签）。写入约束 = SQLite 事务。
+- **项目同步**：projects.db 同样按档案聚合读、按 `profile` 路由写，应用服务端 remap；
+  目标档案目录不存在时创建。
+
+### deepseek-harness（DeepSeek Harness / codex 格式）
+
+- **存储布局**：`~/.codex/`（`CODEX_HOME` 可覆盖）下 `sessions/`，每会话一个
+  `rollout-<ts>-<id>.jsonl`；0.142+ 按 `sessions/YYYY/MM/DD/` 分区，旧版扁平；`.zst`
+  压缩文件跳过（无解压依赖）；标题在 `session_index.jsonl`（append-only 索引，last-wins）。
+- **读取**：会话元数据取 `session_meta`（0.142+）/ 旧版 `{"meta":…}` 首行；conversation
+  行取 `response_item`（或裸 payload）；`event_msg`/`turn_context` 生命周期事件跳过
+  （turn_context 只贡献 model/cwd）；`compacted` 摘要保留为 assistant 消息；
+  `reasoning` 跳过（内部思考不进池）；`function_call`/`custom_tool_call` 及 output 映射为
+  `tool` 角色 + `tool_name`/`tool_call_id`（Web 折叠卡片渲染）；`developer` 角色归入
+  `system`；标题从 `session_index.jsonl` 回填。
+- **时间戳消歧 `_unique_ts`**：同毫秒大量条目 → 同三元组会在拉推往返静默塌缩；碰撞
+  时间戳确定性 +1ms 上调至空闲（同文件恒等映射）。**新 JSONL 类适配器（pi/omp）必读**。
+- **外来会话 id 映射**：harness 桌面 backfill 只索引 UUID 形 rollout id——非 UUID 外来
+  id（如 hermes 时间戳 id）写为映射 UUID（`.hermes-sync-idmap.json` 持久化，重拉复用
+  同一本地 id 保持去重稳定）；UUID 形外来 id（workbuddy）直通。
+- **写入**：新文件按当前时间落入 `YYYY/MM/DD` 分区（`session_meta` 头 + rollout 行）；
+  已有文件按 id 定位（`_existing_path` 递归扫文件名中的 id）追加；标题变更追加到
+  `session_index.jsonl`。写入约束 = append-only（服务端是去重权威，本地重复靠
+  `(role, timestamp)` 集合拦截）。
+
+### opencode（opencode CLI/桌面）
+
+- **存储布局**：`opencode.db`（SQLite）位于 `$XDG_DATA_HOME/opencode/`（Windows
+  `%LOCALAPPDATA%\opencode\`；候选路径按序探测，最具体的优先）；`session`/`message`/
+  `part` 三表，id 为 `ses_`/`msg_`/`prt_` + 12 位 hex 毫秒时间戳 + 14 位 base62 随机。
+- **读取**：`session` 行 → 会话（毫秒→秒）；`message.data` JSON 解析 role
+  （`agent-switched`/`model-switched`/`compaction`/`step` 跳过，`shell` → `tool`）；
+  `part` 行聚合 text/reasoning/tool 引用（tool 以 `[tool:name] input` 文本并入 content）；
+  tokens 进 `meta["opencode:tokens"]`；`project_id` 进 `meta["opencode:projectID"]`。
+- **写入红线**：`session.model` 列必须写 `{id, providerID}` JSON（opencode 的
+  `Model.Ref` JSON-parses 该列，裸字符串或缺 providerID 会整个会话列表报错，providerID
+  缺省 `unknown`）；`project_id` NOT NULL 且 FK——写前按 `cwd` 最长前缀匹配
+  `project`/`project_directory` 解析归属项目（`_resolve_project_for_directory`），兜底
+  `global`；`slug` 唯一性模拟桌面端（`-N` 后缀）；外来 id 经 idmap 分配新 `ses_` id。
+  写入 = 直接 SQLite INSERT/UPDATE（autocommit），连接显式关闭（Windows 未关闭句柄会
+  锁库）。
+- **边界**：正在运行的 opencode 实例有内存缓存，写入后 UI 立即可见性不保证——建议宿主
+  实例空闲/退出后同步。
+
+### reasonix（DeepSeek-Reasonix）
+
+- **存储布局**：`%APPDATA%\reasonix\sessions\`（`REASONIX_HOME` 覆盖；POSIX
+  `~/.reasonix/sessions`）；每会话 `<id>.jsonl`（id = 文件主干，自由格式）；sidecar：
+  `<id>.events.jsonl`（权威事件日志）、`<id>.jsonl.meta`、`<id>.goal-state.json`、
+  `<id>.ckpt/`、`<id>.jsonl.lock` / `<id>.jsonl.lease.json`（锁）。
+- **读取红线**：`_session_paths` 只收 `*.jsonl`（排除 `.events.jsonl`）；运行中会话
+  （`.jsonl.lock` 存在）**跳过**——宿主关闭后再同步。消息行 `{"role","content",
+  "tool_calls","tool_call_id","name"}` 直映射；transcript 无可靠时间戳 → 稳定单调合成值
+  `started_at + i/10` 保持去重键唯一；无标题时以 local_id 兜底（外来会话剔除该兜底，
+  避免 push 覆盖服务器真实标题）。
+- **写入**：append-only；写入前检查 lock 文件（存在则跳过该会话）；**内容级兜底去重**——
+  reasonix 桌面会剥离时间戳、前置 system prompt 重写 transcript，重读的时间戳与服务器
+  真实值不再匹配，仅靠三元组会无限重 append：同 `(role, content)` 视为同一消息（空
+  content 豁免——连续空 tool 结果合法不同）；`tool_calls` 归一化为 reasonix 期望的
+  list 结构。
+
+### openclaw（OpenClaw，网关会话库）
+
+- **存储布局**（OpenClaw 2026.7.x）：`~/.openclaw/agents/<agentId>/sessions/`
+  （`OPENCLAW_HOME` 覆盖；多 agent 取最新 mtime 的 `sessions.json`）：
+  - `sessions.json` —— 会话索引 `{session_key: {sessionId, sessionFile,
+    sessionStartedAt, updatedAt, ...}}`；
+  - `<sessionId>.jsonl` —— 每会话 transcript（JSONL v3：session header +
+    `model_change` / `thinking_level_change` / `message` 事件，message 以
+    `parentId` 链式串接）。
+  网关以 mtime 缓存持有该存储、变更即重载——**适配器写入的会话无需重启即可在 TUI 与
+  `sessions.list` 出现**（此前 SQLite 探测版适配器已废弃，见 git 历史）。
+- **id 方案**：本地 id = session key（如 `agent:main:main`）；canonical id 优先级：
+  `meta.openclaw:server_id`（pull 时记录）→ key 派生池 id（`_POOL_ID_RE`：hermes
+  时间戳 id / reasonix `rx-*` / 外来 UUID）→ foreign 注册表 → transcript UUID。
+  `openclaw:server_id` 保证拉推往返命中同一服务器行（否则池内会话会按 transcript
+  UUID 重新推送、在服务器上分叉成重复）。
+- **读取**：索引按 `updatedAt` 排序；消息取 `type=="message"` 行（content 块归一为
+  文本；时间戳 ms→s）；标题 = 首条 user 消息（截 80 字符）。
+- **写入**：索引条目（`_save_index` tmp + `os.replace` 原子替换）+ transcript
+  （新会话写 header + 链式消息；已有会话按 `(role, round(ts*1000))` 去重追加、
+  `_tail_id` 续 parentId）；服务器内容可能携带二进制字节 → `_sanitize_text` 剔除
+  孤立代理项（否则 UTF-8 写出失败、消息永不参与去重、每次 pull 重 append）。
+- **写入红线**：**运行中的网关持久化内存状态时会覆写 `sessions.json`**，抹掉适配器在
+  网关运行期间加入的索引条目——pull 可重复（去重安全），但优先在 OpenClaw 关闭时同步，
+  或网关写会话后重拉一次。
+- **常驻同步**：OpenClaw 惰性拉起 MCP server（仅当 agent 调用工具时），注册里的
+  `HERMES_SYNC_AUTO_SYNC=1` 不会自行触发——`mcp/auto-sync.py` 独立进程按固定间隔
+  （默认 300s、最小 60s）跑同一 `server.full_sync`（pull→push、字段级合并、水位线+
+  去重），与 MCP server 共享单写者锁，保证会话自动上云；部署脚本自动安装该循环。
+- **部署**：服务端帮助页 `server/agents.py` 的 openclaw 条目已发布（register/
+  install/uninstall 片段，`mcp.servers` stdio 注册），下载包经 `client_update.py`
+  分发。
+
+### workbuddy（WorkBuddy 桌面端，双向）
+
+- **存储布局**：`~/.workbuddy-ai/`（`WORKBUDDY_HOME` 覆盖；旧版 `~/.workbuddy`，同时
+  存在时**优先 `.workbuddy-ai`**——写入 legacy 目录会让 WorkBuddy 启动 MIGRATE 看到零
+  本地会话）：
+  - 消息：`projects/<slug>/<conversationId>.jsonl`（slug = cwd 压平驱动器/分隔符，
+    `F:\OpenCode\agentctxsync` → `f-OpenCode-agentctxsync`，盘符根 → 单字母）；
+  - 元数据：`workbuddy.db`（SQLite `sessions` 表，毫秒时间戳）；
+  - `edge-sync-mapping-v2.db`：WorkBuddy 自管映射，**绝不触碰**。
+- **事件映射**（JSONL 每行一个事件，与 WorkBuddy 5.3.13 逐字段核对）：
+  `message`→user/assistant；`reasoning`→assistant + reasoning；`function_call`→assistant
+  + tool_name/call_id/参数；`function_call_result`→tool；`ai-title`→标题；
+  `file-history-snapshot`→跳过。时间戳 ms↔s 换算保证三元组往返精确。
+- **读取**：会话可能存在于多个 cwd slug 目录（项目移动/pull 周期写入的副本）——
+  `_session_copies` 按 id 并集合并，`(role, timestamp)` 首文件优先、其余追加，防陈旧
+  cwd 指针遗落新消息（2026-08-25 split-session 事故的修复）。
+- **写入红线**：
+  1. **重启后才可见**：WorkBuddy 运行时写入的会话，UI 要等重启（启动 MIGRATE 扫描注册
+     `convmsg:<userId>` 映射）才显示；云端只同步元数据/标题，消息内容不上云。
+  2. **cwd 目录必须存在**：否则 WorkBuddy 打不开（"工作目录可能已被重命名或删除"）；
+     外来会话的远端 cwd 不存在时回退 `~/hermes-sync-foreign` 并建目录。
+  3. **本地会话 preserve_cwd**：本机自建会话 UPDATE 时不改 cwd（peer 提供的 cwd 不得
+     把读取路径指到陈旧副本）；外来会话以 pull 的 cwd 为准。
+  4. `_ensure_schema` 镜像 WorkBuddy 5.3.13 的 `sessions` 表 + drizzle 迁移标记，确保
+     下次启动被识别（drizzle 迁移在表已存在时跳过）。
+  5. user_id 解析链：env `WORKBUDDY_USER_ID` → `settings.json claw.legacyOwnerUid` →
+     首个现有会话的 user_id → 兜底 `hermes-sync`。
+
+
+## pi / oh-my-pi 接入方案（调研与决策记录 2026.08.28.1）
+
+> 状态：**已实现（2026.08.28）**——适配器 `mcp/adapters/pi.py`（PiAdapter + OmpAdapter，
+> `_ADAPTER_MODULES` 注册 `pi`/`omp` 指向同一模块，工厂按 `HERMES_SYNC_AGENT` 选择实例）、
+> 服务端注册（`server/agents.py` 帮助页条目 + `PUBLIC_AGENTS` 分发白名单）、页面（landing
+> 胶囊、全部会话/工作空间 agent 过滤、徽标颜色）与测试（`mcp/tests/test_pi.py`，11 用例 +
+> 本机真实 omp 库冒烟）。以下为原始调研与设计，仍具参考价值。结论先行：pi 与 omp 可以低成本接入，且
+> **一个适配器即可覆盖两者**——omp 是 pi 的 fork，会话存储同源同构（同一 JSONL 事件格式、
+> 同一目录编码、同一文件命名），差异只在数据根目录与少量增量扩展字段。服务端**聊天级特性
+> 可完整承载（零改动）**；pi/omp 特有的树/分支/压缩结构语义只能降级为线性视图 + `meta`
+> 原样保存，要「完整」渲染需另行扩展服务端（见文末）。
+
+### 调研事实：pi / oh-my-pi 的本地存储
+
+- **身份**：pi = `earendil-works/pi`（原 `badlogic/pi-mono`，Mario Zechner，TS monorepo）；
+  omp = `can1357/oh-my-pi`（"Coding agent with the IDE wired in"，README 自述 fork of pi，
+  Rust 核心 + TS 壳，npm `@oh-my-pi/pi-coding-agent`）。本机实测 omp 18.0.4。
+- **数据根目录**：pi `~/.pi/agent`（Windows `%USERPROFILE%\.pi\agent`；env
+  `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` 可覆盖，见 pi `config.ts`）；
+  omp `~/.omp/agent`（本机实测 `C:\Users\X1\.omp\agent`）。
+- **会话文件布局**：`<根>/sessions/<encoded-cwd>/<timestamp>_<uuidv7>.jsonl`，每会话一个
+  文件、JSONL 事件流、`version:3`。cwd 编码与 pi 源码 `getDefaultSessionDirPath` 逐字一致：
+  `--` + cwd 去前导 `/` + `/`、`\`、`:` 全部替换为 `-` + `--`
+  （`E:\OpenCode\agentctxsync` → `--E--OpenCode-agentctxsync--`）。
+- **文件命名**：ISO 时间戳 `:`/`.`→`-` + `_` + uuidv7 会话 id + `.jsonl`（pi 源码
+  `newSession`；本地 omp 文件 `2026-08-28T01-04-14-489Z_01a045e5-…jsonl` 吻合）。
+- **事件条目**：header `{"type":"session","version":3,"id","timestamp","cwd"}`；message
+  条目 `{"type":"message","id":8位hex,"parentId","timestamp","message":{role,content,
+  attribution,timestamp}}`（thinking 块在 content 内）；`model_change` / `custom`（如
+  tool 执行）/ `compaction` / `branch_summary` / `label` / `session_info` 等；条目以
+  `parentId` 构成**树**，leaf 指针指向当前分支。
+- **写入约束**：append-only；首个 assistant 消息到达时以 `O_EXCL`（wx）建文件并一次性写入
+  全部条目，之后追加；迁移（v1→v2→v3）会整体重写文件。v1 无 `id/parentId`、v2 用
+  `firstKeptEntryIndex`。
+
+### 会话数据库一致性（pi vs omp）
+
+| 维度 | pi | omp | 结论 |
+|------|----|----|------|
+| 会话目录 | `~/.pi/agent/sessions/` | `~/.omp/agent/sessions/` | 同构，仅根目录不同 |
+| cwd 编码 / 文件命名 / uuidv7 / 8-hex 消息 id | — | 逐字一致 | **完全一致** |
+| header 字段 | `session/version/id/timestamp/cwd` | 多 `title`/`titleSource` | omp 增量 |
+| 首条记录 | `session` header | `title` 记录在前 | **方向不兼容**：pi 的 loader 要求首条即 header，直接读 omp 文件会被拒 |
+| 标题事件 | `session_info`（name） | `title_change` + 前置 `title` | 字段不同 |
+| `model_change` | `{provider, modelId}` | `{model, resolvedModelIsFallback}` | 字段不同 |
+| 外围库 | 无 SQLite（settings/auth/models 均为 JSON） | `agent/history.db`（命令历史+标题）、`agent.db`（agent 注册表）、`models.db`、`blobs/`、`N.bash.log` 工具日志 | omp 独有 |
+
+结论：核心会话流**同源同构、条目级兼容**（omp 是 pi 的 fork，message/custom 条目逐字段
+一致）；omp 的扩展（title 记录、model_change 字段、外围 SQLite/日志）不影响适配器读取，
+但 pi 程序自身读不了 omp 文件（首条非 header）。**对 agentctxsync 无影响**——适配器直接
+解析文件，不依赖宿主程序互读。
+
+### 服务端承载能力（canonical 模型逐项核对）
+
+**一等公民列、零改动完整承载**：
+
+| pi/omp 特性 | 落点 |
+|---|---|
+| header `cwd` | `sessions.cwd`（参与字段级乐观并发） |
+| header `parentSession`（跨会话 fork） | `sessions.parent_session_id` |
+| 标题（`session_info` / `title_change`） | `sessions.title` + 字段级并发 |
+| 模型（`model_change` 现值） | `sessions.model`（切换历史 → meta） |
+| 文本内容 | `messages.content` |
+| thinking 块 | `messages.reasoning`（契约强制映射） |
+| 工具调用 / 结果 | `tool` 角色 + `tool_call_id`/`tool_name`/`tool_calls` |
+| 时间戳 | `messages.timestamp`（排序 + 三元组去重） |
+| compaction 摘要 | `messages.compacted` + 摘要 assistant 消息（deepseek_harness 同款降级） |
+
+**只能进 `meta`（原样保存、无语义/无 UI 渲染）**：条目树拓扑（`parentId`/leaf/分支）、
+`thinking_level_change`、`label`、`custom` 条目（扩展状态、tool 执行记录）、omp 的
+`title`/`title_change` 历史、消息级 8-hex 条目 id。
+
+**服务端模型不承载、需适配器降级或扩展**：
+
+1. **会话内分支树**：消息按 `timestamp` 线性存储 + `(session_id, role, timestamp)` 去重，
+   分支（rewind 后另起路径）合并为线性时间线，旧分支消息仍可见；`parentId` 拓扑进 meta
+   无渲染。语义失真。
+2. **compaction 语义**：pi 的 compaction 是独立条目（`summary` + `firstKeptEntryId`，
+   "当前上下文 = 摘要 + 保留路径"）。服务端只有消息级 `compacted` 标记，无路径重建逻辑。
+3. **多模态 content**：`content` 为 TEXT 列，ImageContent 等结构化块需序列化/降级。
+4. **去重冲突风险（适配器必做）**：分支重问场景下两条不同内容的消息可能共享
+   `(role, 同一毫秒)` → 三元组去重折叠丢失。必须对碰撞时间戳做确定性 +1ms 修补
+   （复用 `deepseek_harness.py::_unique_ts` 模式）。
+
+### 适配器实现方案（mcp/adapters/pi.py，一个适配器覆盖 pi + omp）
+
+- **注册**：`_ADAPTER_MODULES` 注册 `"pi"` / `"omp"` 指向同一模块（惰性加载已支持）；
+  canonical id 用**裸 id**（uuidv7 直通），归属走 `agent_type` 列（pi / omp）——与现行
+  裸 id 方案、hermes 多档案同思路；`AGENT_PREFIXES` 无需新增（该表仅用于识别历史前缀 id，
+  见「会话身份与档案路由」）。
+- `discover()`：返回存在会话目录的根列表——pi 根与 omp 根各自独立适配器实例时各自返回；
+  单实例实现则同时扫描两个根（POSIX `~/.pi`、`~/.omp`；Windows `%USERPROFILE%`；env 覆盖
+  `PI_CODING_AGENT_DIR` 等）。
+- `read_sessions(limit)`：递归扫 `sessions/*/`（`--…--` 目录即编码后的 cwd，可直接解码进
+  `cwd` 字段）；header → 会话（`started_at` = header.timestamp）；message 条目 → canonical
+  （thinking 块 → `reasoning`；tool 相关 custom/消息 → `tool` 角色 + `tool_name`/
+  `tool_call_id`；文本合并进 `content`）；`session_info`/`title_change` → `title`；
+  `compaction` → 摘要消息 + `compacted` 标记；`custom`/`label`/`thinking_level_change`/
+  条目 id/parentId → `meta`（`pi:` 前缀键）。v1/v2 文件按 pi 的迁移规则就地升级后再解析。
+- `write_sessions(sessions)`：对本地存在的会话文件**追加** message 条目（8-hex id、
+  `parentId` = 当前 leaf、ISO 时间戳、`message` 结构按 pi 格式）；新会话按 pi 规则建文件
+  （header + 首条消息）；标题写入按目标目录分支——pi 用 `session_info` 条目、omp 用
+  `title_change` 条目；返回 `{"imported","updated","new_messages","duplicates"}`。
+- `status()`：本地会话/消息总数（两个根合计）。
+- **边界**：运行中的 pi/omp 实例正在写文件（条目不可变、append 安全，与 opencode 同模式）；
+  omp 子代理会话与顶层会话同目录树（按需过滤或保留，`meta.subagent` 标记）；omp 的
+  `agent.db` 注册表与本适配器无关（直接读文件）。
+- **测试**：`mcp/tests/test_pi.py` fixture 造 pi 格式 + omp 扩展格式（title 首记录、
+  model_change 差异、compaction、分支 parentId）各 2~3 个样例，覆盖往返、幂等、前缀、
+  时间戳消歧（复用 deepseek_harness 测试模式）。
+
+### 服务端扩展路径（若需完整树/分支/压缩渲染）
+
+按 [ADDING_AGENT.md](ADDING_AGENT.md) 边界清单，这属于第 1/4 类「需评估后才可能改动」：
+
+- `messages` 增加 `parent_id` / `entry_type` 列（或把分支拓扑 meta 语义化）——协议
+  `/push` `/pull` 不变，schema 增列；
+- Web 查看器增加分支视图（按 leaf 路径渲染）与压缩标记展示；
+- 去重键不受影响（仍按三元组），但分支内同 `(role, ts)` 仍需适配器消歧。
+
+> 决策（已执行）：**按降级方案接入**（零服务端改动，风险集中在适配器时间戳消歧）；
+> 实现时采用文件序线性化 + `_unique_ts` 确定性消歧；分支/压缩 UI 作为独立需求另行评估。
 
 ## API 参考
 
