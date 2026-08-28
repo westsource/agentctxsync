@@ -325,6 +325,11 @@ TRANSLATIONS = {
         "help_verify": "验证：",
         "help_uninstall": "移除旧版（如需重新安装或清理）：",
         "help_store": "本地存储：",
+        "help_config": "配置文件：",
+        "help_openclaw_oneshot": "一键安装（推荐）：下载安装脚本以配置开机自启常驻同步",
+        "help_openclaw_oneshot_d": "OpenClaw 对内置 MCP server 惰性启动，需独立的 auto-sync 常驻进程才能自动同步。下载并运行下方安装脚本（与上方下载的客户端 <code>mcp/</code> 同级解压），即可一键注册开机自启，无需手动启动进程。",
+        "help_openclaw_oneshot_ps": "PowerShell 安装脚本",
+        "help_openclaw_oneshot_sh": "Git Bash 安装脚本",
 
         # Session Messages
         "msg_export": "导出 Markdown",
@@ -766,6 +771,11 @@ TRANSLATIONS = {
         "help_verify": "Verify: ",
         "help_uninstall": "Remove old version (e.g. before reinstalling or cleaning up):",
         "help_store": "Local store: ",
+        "help_config": "Config file: ",
+        "help_openclaw_oneshot": "One-click install (recommended): download the installer to set up boot-time auto-sync",
+        "help_openclaw_oneshot_d": "OpenClaw spawns bundled MCP servers lazily, so it needs a standalone auto-sync process. Download and run the installer below (extract next to the <code>mcp/</code> client from the download above) to register boot-time autostart in one shot — no manual process start needed.",
+        "help_openclaw_oneshot_ps": "PowerShell installer",
+        "help_openclaw_oneshot_sh": "Git Bash installer",
 
         # Session Messages
         "msg_export": "Export Markdown",

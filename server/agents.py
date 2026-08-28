@@ -26,8 +26,12 @@ AGENTS = {
             "en": "Hermes desktop AI agent, connected via MCP stdio (default, no HERMES_SYNC_AGENT needed).",
         },
         "store": {
-            "zh": "本地存储：%LOCALAPPDATA%\\hermes\\state.db",
-            "en": "Local store: %LOCALAPPDATA%\\hermes\\state.db",
+            "zh": "%LOCALAPPDATA%\\hermes\\state.db",
+            "en": "%LOCALAPPDATA%\\hermes\\state.db",
+        },
+        "config": {
+            "zh": "%LOCALAPPDATA%\\hermes\\config.yaml",
+            "en": "%LOCALAPPDATA%\\hermes\\config.yaml",
         },
         "register": {
             "zh": (
@@ -76,8 +80,12 @@ AGENTS = {
             "en": "Tencent WorkBuddy desktop agent (5.3.x); sessions in ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db.",
         },
         "store": {
-            "zh": "本地存储：~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
-            "en": "Local store: ~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
+            "zh": "~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
+            "en": "~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
+        },
+        "config": {
+            "zh": "应用内「专家·技能·连接器」（添加自定义连接器，无独立配置文件）",
+            "en": "in-app \"Experts · Skills · Connectors\" (add a custom connector; no standalone config file)",
         },
         "register": {
             "zh": (
@@ -147,8 +155,12 @@ AGENTS = {
             "en": "DeepSeek Harness (codex rollout format); sessions live in ~/.codex/sessions/*.jsonl.",
         },
         "store": {
-            "zh": "本地存储：~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
-            "en": "Local store: ~/.codex/sessions/ (rollout-<timestamp>-<uuid>.jsonl)",
+            "zh": "~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
+            "en": "~/.codex/sessions/ (rollout-<timestamp>-<uuid>.jsonl)",
+        },
+        "config": {
+            "zh": "~/.codex/config.toml",
+            "en": "~/.codex/config.toml",
         },
         "register": {
             "zh": (
@@ -202,8 +214,12 @@ AGENTS = {
             "en": "OpenCode **CLI only** (desktop app not supported); sessions stored in the shared opencode.db SQLite.",
         },
         "store": {
-            "zh": "本地存储：$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；仅支持 CLI，桌面版不支持）",
-            "en": "Local store: $XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; CLI-only, desktop not supported)",
+            "zh": "$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；仅支持 CLI，桌面版不支持）",
+            "en": "$XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; CLI-only, desktop not supported)",
+        },
+        "config": {
+            "zh": "~/.config/opencode/opencode.jsonc（或项目根 opencode.jsonc）",
+            "en": "~/.config/opencode/opencode.jsonc (or project-root opencode.jsonc)",
         },
         "register": {
             "zh": (
@@ -273,8 +289,12 @@ AGENTS = {
             "en": "Reasonix (DeepSeek-Reasonix) terminal agent; sessions in %APPDATA%\\reasonix\\sessions\\*.jsonl.",
         },
         "store": {
-            "zh": "本地存储：%APPDATA%\\reasonix\\sessions\\（<id>.jsonl + 事件日志）",
-            "en": "Local store: %APPDATA%\\reasonix\\sessions\\ (<id>.jsonl + event log)",
+            "zh": "%APPDATA%\\reasonix\\sessions\\（<id>.jsonl + 事件日志）",
+            "en": "%APPDATA%\\reasonix\\sessions\\ (<id>.jsonl + event log)",
+        },
+        "config": {
+            "zh": "桌面版「设置→MCP与工具」（UI，添加服务器 JSON）；CLI：config.toml 的 [[plugins]] 块",
+            "en": "desktop \"Settings → MCP & Tools\" (UI, add-server JSON); CLI: config.toml [[plugins]] block",
         },
         "register": {
             "zh": (
@@ -358,8 +378,12 @@ AGENTS = {
             "en": "OpenClaw personal AI assistant (openclaw.ai); sessions under ~/.openclaw/agents/<id>/sessions/ (sessions.json index + jsonl transcripts).",
         },
         "store": {
-            "zh": "本地存储：~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
-            "en": "Local store: ~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+            "zh": "~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+            "en": "~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+        },
+        "config": {
+            "zh": "~/.openclaw/openclaw.json（`openclaw config path` 可打印本机确切路径）",
+            "en": "~/.openclaw/openclaw.json (`openclaw config path` prints the exact path)",
         },
         "register": {
             "zh": (
@@ -441,8 +465,12 @@ AGENTS = {
             "en": "Pi (earendil-works/pi, formerly badlogic/pi-mono) terminal coding agent; sessions are JSONL v3 transcripts under ~/.pi/agent/sessions/ (one file per session, grouped by encoded cwd).",
         },
         "store": {
-            "zh": "本地存储：~/.pi/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env PI_CODING_AGENT_DIR 可覆盖）",
-            "en": "Local store: ~/.pi/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; PI_CODING_AGENT_DIR overrides)",
+            "zh": "~/.pi/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env PI_CODING_AGENT_DIR 可覆盖）",
+            "en": "~/.pi/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; PI_CODING_AGENT_DIR overrides)",
+        },
+        "config": {
+            "zh": "MCP server 配置（stdio；字段与路径以官方文档 pi.dev/docs 为准）",
+            "en": "MCP server config (stdio; fields and path per the official docs at pi.dev/docs)",
         },
         "register": {
             "zh": (
@@ -510,8 +538,12 @@ AGENTS = {
             "en": "Oh My Pi (can1357/oh-my-pi, a fork of Pi, \"the IDE wired in\" coding agent); sessions are JSONL v3 transcripts under ~/.omp/agent/sessions/ (same layout as pi).",
         },
         "store": {
-            "zh": "本地存储：~/.omp/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env OMP_CODING_AGENT_DIR 可覆盖）",
-            "en": "Local store: ~/.omp/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; OMP_CODING_AGENT_DIR overrides)",
+            "zh": "~/.omp/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env OMP_CODING_AGENT_DIR 可覆盖）",
+            "en": "~/.omp/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; OMP_CODING_AGENT_DIR overrides)",
+        },
+        "config": {
+            "zh": "~/.omp/agent/mcp.json（在 mcpServers 下注册；主配置为 ~/.omp/agent/config.yml）",
+            "en": "~/.omp/agent/mcp.json (register under \"mcpServers\"; main config is ~/.omp/agent/config.yml)",
         },
         "register": {
             "zh": (

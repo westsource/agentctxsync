@@ -273,9 +273,24 @@ def _load_push_fingerprint() -> dict:
         return {}
     try:
         data = json.loads(PUSH_FINGERPRINT_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
     except (OSError, ValueError):
         return {}
+    # Server-bound (mirrors the pull watermark): a fingerprint recorded
+    # against a DIFFERENT sync server must not suppress a re-push, or
+    # sessions pushed to an old server/workspace are silently skipped on
+    # the new one. Old flat-dict files (predating identity recording) are
+    # treated stale whenever an identity is known -> one full re-push (the
+    # server dedupes, so this only costs bandwidth, never duplicates).
+    if "server" in data:
+        if SYNC_SERVER and data.get("server") != SYNC_SERVER:
+            return {}
+        sessions = data.get("sessions")
+        return sessions if isinstance(sessions, dict) else {}
+    if SYNC_SERVER:
+        return {}  # legacy flat dict + known identity: stale -> full re-push
+    return data
 
 
 def _save_push_fingerprint(fp: dict):
@@ -283,8 +298,10 @@ def _save_push_fingerprint(fp: dict):
         return
     try:
         PUSH_FINGERPRINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PUSH_FINGERPRINT_PATH.write_text(json.dumps(fp, ensure_ascii=False),
-                                         encoding="utf-8")
+        PUSH_FINGERPRINT_PATH.write_text(
+            json.dumps({"server": SYNC_SERVER or None, "sessions": fp},
+                       ensure_ascii=False),
+            encoding="utf-8")
     except OSError:
         pass
 

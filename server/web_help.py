@@ -1,4 +1,4 @@
-"""Onboarding help domain: help page + client package download."""
+import os
 import psycopg2.extras
 
 from fastapi import APIRouter, HTTPException, Request
@@ -39,6 +39,7 @@ async def web_help(request: Request):
                  "store": a["store"][agent_lang], "verify": a["verify"],
                  "uninstall": a.get("uninstall", {}).get(agent_lang, ""),
                  "downloadable": key in PUBLIC_AGENTS,
+                 "config": a.get("config", {}).get(agent_lang, ""),
                  # register template with a __WS_KEY__ placeholder that the
                  # help page fills in client-side with the selected
                  # workspace's API key (wizard step 2).
@@ -95,6 +96,37 @@ async def web_download_mcp_client(request: Request, ws_id: int = 0, agent: str =
         content=data,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="agentctxsync-mcp-client-{agent}.zip"'},
+    )
+
+# One-shot local install scripts (deploy-local-mcp.ps1/.sh), served for the
+# OpenClaw help card so customers get the instant installer without digging
+# through the client zip. Filenames are whitelisted (no path traversal). The
+# script copies the client mcp/ package into place and registers boot-time
+# autostart of the standalone auto-sync loop, so no manual process start is
+# needed.
+_DEPLOY_SCRIPTS = ("deploy-local-mcp.ps1", "deploy-local-mcp.sh")
+
+
+@router.get("/web/download/deploy-script")
+async def web_download_deploy_script(request: Request,
+                                     file: str = "deploy-local-mcp.ps1"):
+    try:
+        user = get_current_user(request)
+    except Exception:
+        return RedirectResponse(url="/web/login")
+    if file not in _DEPLOY_SCRIPTS:
+        raise HTTPException(status_code=404, detail="Unknown deploy script")
+    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "scripts")
+    path = os.path.join(scripts_dir, file)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Deploy script not found")
+    with open(path, "rb") as f:
+        data = f.read()
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file}"'},
     )
 
 
