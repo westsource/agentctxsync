@@ -99,15 +99,27 @@ def _ship_bytes(arcname: str, src: str, default_server: str,
 
 
 def _client_manifest_files(default_server: str, agent: str = "hermes"):
-    """[{path, sha256, size}] for every shipped file, hashed over the
-    bytes actually placed in the archive (server.py defaults rewritten)."""
+    """[{path, sha256, size}] for every client-managed mcp/ file, hashed
+    over the bytes actually placed in the archive (server.py defaults
+    rewritten).
+
+    Only mcp/ files are listed: the client updater verifies and installs
+    exactly the files it manages, looking each up in the zip as
+    ``mcp/<path>`` (see mcp/updater.py verify_archive). The one-shot deploy
+    scripts (scripts/*) still ship inside the zip for fresh installs, but
+    the client neither verifies nor installs them — listing them here makes
+    verify_archive look for ``mcp/scripts/...`` (absent in the zip) and fail
+    every auto-update with a hash mismatch.
+    """
     manifest = []
     for arcname, src in _client_archive_files():
+        if not arcname.startswith("mcp/"):
+            continue
         try:
             data = _ship_bytes(arcname, src, default_server, agent)
         except OSError:
             continue
-        rel = arcname[len("mcp/"):] if arcname.startswith("mcp/") else arcname
+        rel = arcname[len("mcp/"):]
         manifest.append({"path": rel, "sha256": hashlib.sha256(data).hexdigest(),
                          "size": len(data)})
     return manifest
