@@ -22,11 +22,15 @@ router = APIRouter()
 # opencode have been validated end-to-end (auto-start, pull, push dedupe,
 # titles). openclaw was validated 2026-08 against the real gateway store
 # (sessions.json + jsonl transcripts) and ships the standalone auto-sync.py
-# because OpenClaw spawns MCP servers lazily. The other agent adapters stay
-# in AGENTS (registry) for development, but their MCP client distribution
-# and help-page onboarding are taken offline until validated. Re-enable an
-# agent by adding its key here.
-PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw")
+# because OpenClaw spawns MCP servers lazily. pi/omp (2026.08.28) share one
+# JSONL v3 session format (pi = earendil-works/pi, omp = its fork
+# can1357/oh-my-pi); both validated via fixture round-trip tests
+# (mcp/tests/test_pi.py). The other agent adapters stay in AGENTS (registry)
+# for development, but their MCP client distribution and help-page onboarding
+# are taken offline until validated. Re-enable an agent by adding its key
+# here.
+PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw",
+                 "pi", "omp")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
@@ -40,7 +44,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.08.27.3"
+CLIENT_VERSION = "2026.08.28.1"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""

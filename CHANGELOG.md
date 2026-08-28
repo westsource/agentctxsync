@@ -1,7 +1,45 @@
 # Changelog
 
-本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，
-版本号采用日期格式 `YYYY.MM.DD.N`（与客户端自动更新版本号一致）。
+## [2026.08.28.1] - 2026-08-28
+
+### Added（pi / oh-my-pi 支持）
+- **新 Agent：Pi 与 Oh My Pi**（`mcp/adapters/pi.py`，一个模块两个注册键）。
+  pi（earendil-works/pi）与 omp（can1357/oh-my-pi，fork）共用同一 JSONL v3 会话格式
+  （`<agent_dir>/sessions/<encoded-cwd>/<时间戳>_<uuidv7>.jsonl`，cwd 编码与 pi 源码
+  `getDefaultSessionDirPath` 逐字一致），适配器按 `HERMES_SYNC_AGENT` 选择
+  PiAdapter / OmpAdapter（数据根 `~/.pi/agent` / `~/.omp/agent`，env
+  `PI_CODING_AGENT_DIR` / `OMP_CODING_AGENT_DIR` 可覆盖）。
+- **读取**：message 条目 → canonical（thinking 块 → `reasoning`、tool 块 → `tool` 角色）；
+  omp 扩展（`title` 首记录、`title_change`、header `title`、`model_change.model`）全部兼容；
+  `compaction`/`branch_summary` → 摘要 assistant 消息（`meta.pi:entry_type`）；
+  同毫秒戳条目确定性 +1ms 消歧（复用 deepseek-harness `_unique_ts` 模式），分支消息按
+  文件序线性化。
+- **写入**：append-only；header 首行（pi 兼容）+ `parentId` 链式 8-hex 消息 id；
+  标题按目标库写入——pi 根 `session_info`、omp 根 `title_change`；
+  `(role, 毫秒戳)` 本地去重，服务端保持去重权威；外来会话 owner 注册 +
+  `validate_file_id` 路径穿越防护。
+- **服务端**：`server/agents.py` 注册 pi/omp 帮助页条目（register/install/uninstall），
+  `PUBLIC_AGENTS` 加入分发白名单（帮助页完整流程 + 客户端 zip 下载），客户端版本
+  bump 至 `2026.08.28.1`（`server/client_update.py` + `mcp/updater.py`）。
+- **帮助页（hermes 接入）**：新增「配置文件方式」说明——可在 `%LOCALAPPDATA%\hermes\config.yaml`
+  的 `mcp_servers:` 下直接写 `hermes-sync` 配置块（`<YOUR_API_KEY>` / `HERMES_SYNC_SERVER` 自动注入，
+  `HERMES_SYNC_AGENT` 显式声明为 `hermes`）；安装步骤中的代码块改为独立展示、不再占用步骤序号。
+- **测试**：`mcp/tests/test_pi.py` 11 用例（pi/omp 双格式读、往返、幂等、追加、外来
+  会话、时间戳消歧、compaction、cwd 编码）；本机真实 omp 库冒烟（29 会话 / 6762 消息）。
+
+### Changed（客户端版本）
+- 客户端自动更新版本 `2026.08.27.3` → `2026.08.28.1`（含新适配器分发）。
+### Fixed（服务端推送计数，本地实测发现）
+- **push 新消息统计对大会话少计**：`server/sync.py` 消息批量插入用
+  `execute_values(..., page_size=500)`，而 psycopg2 内部始终按 `page_size` 分页、
+  游标只暴露**最后一批**的 RETURNING 行——`inserted = set(c.fetchall())` 对超过
+  100 条新消息的会话（page_size 缺省即 100）只计入最后一批：`new_messages` 与
+  `sync_state.messages_synced` 少计，且重试循环把已入库的早批行误判为重复
+  （`duplicates` 虚高）。数据本身无丢失（重试 SELECT 兜底）。修复：手动分页 +
+  显式传入一致 `page_size`，逐页 `fetchall` 并集。本地实测：清空一个 1654 消息会话
+  后重推，报告精确 1654（修复前 ≤100）；服务端测试 117 例全绿。
+
+## [2026.08.25.2] - 2026-08-25
 
 ## [2026.08.25.2] - 2026-08-25
 

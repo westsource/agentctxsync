@@ -10,7 +10,7 @@
 
 **Continue exactly where you left off — on any device, with any AI agent.**
 
-Agent Context Sync keeps Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy and every machine you work on in sync through one shared conversation pool — no more copy-pasting history. Start a conversation on one device and continue it on another, or hand it from one agent to the next. Every conversation is backed up to a server you control, so your history stays safe even if a device is lost or damaged.
+Agent Context Sync keeps Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy, Pi, Oh My Pi and every machine you work on in sync through one shared conversation pool — no more copy-pasting history. Start a conversation on one device and continue it on another, or hand it from one agent to the next. Every conversation is backed up to a server you control, so your history stays safe even if a device is lost or damaged.
 
 ## The problems it solves
 
@@ -28,7 +28,7 @@ Two things this tool buys you — and builds toward a third in the summary below
 Your conversations live in a single shared pool, so the session you started on one device is already waiting when you sit down at another — no matter which agent it belongs to.
 
 - **Any device**: a new device pulls your complete history on first pairing — no copy-pasting, no re-explaining background
-- **Any agent**: Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw and WorkBuddy all read and write the same pool, so you can hand a thread from one agent to another
+- **Any agent**: Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy, Pi and Oh My Pi all read and write the same pool, so you can hand a thread from one agent to another
 - **Wherever it lives**: sub-agents fold into their parent session (with a badge), and profiles + projects sync across machines without contamination
 
 ### 2. Server-side backup — your conversations can't be lost
@@ -52,7 +52,7 @@ Every session is pushed to your self-hosted server, so a single-machine crash, a
 
 ## Supported Agents
 
-Covers the AI agents you actually use — **Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy**.
+Covers the AI agents you actually use — **Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy, Pi, Oh My Pi**.
 
 Each Agent deploys its own client and points at the same Workspace, and they sync with each other. The per-agent storage layout, canonical ids and write constraints are in [docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md); adding a new Agent only requires implementing one adapter ([docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)) — zero server or sync-engine changes.
 
@@ -102,7 +102,7 @@ After deployment:
 **Method B (manual)**:
 
 ```bash
-# Choose an agent (hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy), default hermes
+# Choose an agent (hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy | pi | omp), default hermes
 export HERMES_SYNC_AGENT=deepseek-harness
 
 # Set the workspace API key (format ws_xxx)

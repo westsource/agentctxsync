@@ -93,14 +93,22 @@
         </summary>
         <div class="mt-3 space-y-3">
           <ol class="space-y-3 text-sm text-gray-700">
+            {% set ns = namespace(step=0) %}
             {% for step in agent.install %}
+            {% if step.code %}
+            {# Code blocks render as standalone (unnumbered) blocks #}
+            <div class="pl-9">
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ step.code }}</code></pre>
+            </div>
+            {% else %}
+            {% set ns.step = ns.step + 1 %}
             <li class="flex gap-3">
-              <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ loop.index }}</span>
+              <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ ns.step }}</span>
               <span class="min-w-0 flex-1">
                 {% if step.text %}<span>{{ step.text | safe }}</span>{% endif %}
-                {% if step.code %}<pre class="mt-2 px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ step.code }}</code></pre>{% endif %}
               </span>
             </li>
+            {% endif %}
             {% endfor %}
           </ol>
           <div>

@@ -49,7 +49,16 @@ async def web_help(request: Request):
         for step in a["install"][agent_lang]:
             s = dict(step)
             if "code" in s and s["code"] == "<REGISTER>":
+                # The register command's KEY/SERVER are derived from the
+                # register template.
                 s["code"] = a["register"][agent_lang] \
+                    .replace("<KEY>", "<YOUR_API_KEY>") \
+                    .replace("<SERVER>", server_url)
+            elif "code" in s:
+                # Other code blocks (e.g. the hermes config-file YAML) also
+                # carry KEY/SERVER placeholders: substitute the server URL
+                # and leave <YOUR_API_KEY> for the user to fill in.
+                s["code"] = s["code"] \
                     .replace("<KEY>", "<YOUR_API_KEY>") \
                     .replace("<SERVER>", server_url)
             steps.append(s)

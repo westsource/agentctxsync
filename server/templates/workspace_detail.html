@@ -127,7 +127,7 @@
     </div>
     <!-- Agent 胶囊筛选 -->
     <div class="flex flex-wrap items-center justify-between gap-3 mt-3.5">
-      {% set agent_options = [('all', t.ws_agent_all), ('hermes', 'Hermes'), ('deepseek-harness', 'DeepSeek Harness'), ('opencode', 'OpenCode'), ('reasonix', 'Reasonix'), ('openclaw', 'OpenClaw')] %}
+      {% set agent_options = [('all', t.ws_agent_all), ('hermes', 'Hermes'), ('deepseek-harness', 'DeepSeek Harness'), ('opencode', 'OpenCode'), ('reasonix', 'Reasonix'), ('openclaw', 'OpenClaw'), ('pi', 'Pi'), ('omp', 'Oh My Pi')] %}
       <div class="flex flex-wrap items-center gap-1.5">
         {% for val, label in agent_options %}
         <a href="/web/workspace/{{ ws.id }}?agent={{ val }}&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}"

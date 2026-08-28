@@ -10,7 +10,7 @@
 
 **在任意设备、任意 AI Agent 之间，无缝接着上次继续。**
 
-Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy 等 AI Agent，以及你手头所有设备，共享同一个会话池并自动同步——不用再复制粘贴历史。在 A 设备开始的对话，到 B 设备直接接着聊，也能从一个 Agent 无缝交接给另一个。每条会话都会备份到你自己掌控的服务器上——设备丢了、坏了，历史也随时找得回。
+Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy、Pi、Oh My Pi 等 AI Agent，以及你手头所有设备，共享同一个会话池并自动同步——不用再复制粘贴历史。在 A 设备开始的对话，到 B 设备直接接着聊，也能从一个 Agent 无缝交接给另一个。每条会话都会备份到你自己掌控的服务器上——设备丢了、坏了，历史也随时找得回。
 
 ## 解决的问题
 
@@ -28,7 +28,7 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 你的会话都活在同一个共享会话池里：在一台设备开始的对话，坐到另一台设备上时已经在等着你——无论它属于哪个 Agent。
 
 - **任意设备**：新设备在首次配对时自动拉取你的完整历史——无需复制粘贴、无需重新交代背景
-- **任意 Agent**：Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw 与 WorkBuddy 读写同一个会话池，你可以把一个话题在不同 Agent 之间无缝交接
+- **任意 Agent**：Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy、Pi 与 Oh My Pi 读写同一个会话池，你可以把一个话题在不同 Agent 之间无缝交接
 - **在哪儿都能续**：子代理折叠进父会话（带徽章），多档案与项目跨机器同步且互不串扰
 
 ### 2. 服务端备份——会话数据不丢失
@@ -52,7 +52,7 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 
 ## 支持的 Agent
 
-覆盖你真正在用的 AI Agent——**Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy**。
+覆盖你真正在用的 AI Agent——**Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy、Pi、Oh My Pi**。
 
 每个 Agent 部署各自的客户端、连到同一个 Workspace 即可相互同步。各 Agent 的本地存储位置、id 规范与写入约束等技术细节见 [docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md)；新增一个 Agent 只需实现一个适配器（[docs/ADDING_AGENT.md](docs/ADDING_AGENT.md)），服务端与同步引擎零改动。
 
@@ -102,7 +102,7 @@ bash ../scripts/deploy-server.sh
 **方式 B（手动）**：
 
 ```bash
-# 选择 agent（hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy），默认 hermes
+# 选择 agent（hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy | pi | omp），默认 hermes
 export HERMES_SYNC_AGENT=deepseek-harness
 
 # 设置 workspace api key（格式 ws_xxx）
