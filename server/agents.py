@@ -26,8 +26,12 @@ AGENTS = {
             "en": "Hermes desktop AI agent, connected via MCP stdio (default, no HERMES_SYNC_AGENT needed).",
         },
         "store": {
-            "zh": "本地存储：%LOCALAPPDATA%\\hermes\\state.db",
-            "en": "Local store: %LOCALAPPDATA%\\hermes\\state.db",
+            "zh": "%LOCALAPPDATA%\\hermes\\state.db",
+            "en": "%LOCALAPPDATA%\\hermes\\state.db",
+        },
+        "config": {
+            "zh": "%LOCALAPPDATA%\\hermes\\config.yaml",
+            "en": "%LOCALAPPDATA%\\hermes\\config.yaml",
         },
         "register": {
             "zh": (
@@ -52,6 +56,8 @@ AGENTS = {
                 {"code": "C:\\Users\\<用户名>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "在终端中注册 MCP Server（将 <code>&lt;PYTHON&gt;</code> 替换为第 2 步路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
                 {"code": "<REGISTER>"},
+                {"text": "也可以不用上面的命令，直接编辑配置文件 <code>%LOCALAPPDATA%\\hermes\\config.yaml</code>，在 <code>mcp_servers:</code> 下添加 <code>hermes-sync</code> 配置块（<code>&lt;PYTHON&gt;</code> 替换为第 2 步路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录；<code>HERMES_SYNC_AGENT</code> 可不写——hermes 为默认，但建议显式声明更稳妥）："},
+                {"code": "mcp_servers:\n  hermes-sync:\n    command: \"<PYTHON>\"\n    args:\n      - \"<EXTRACT_DIR>/mcp/server.py\"\n    env:\n      HERMES_SYNC_AGENT: \"hermes\"\n      HERMES_SYNC_API_KEY: \"<KEY>\"\n      HERMES_SYNC_SERVER: \"<SERVER>\"\n    enabled: true"},
                 {"text": "提示 <code>Enable all 4 tools? [Y/n/select]:</code> 时输入 <code>Y</code> 并回车。"},
                 {"text": "重启 Hermes（新会话生效），MCP 工具在启动时自动加载。"},
             ],
@@ -60,8 +66,9 @@ AGENTS = {
                 {"text": "Find the Hermes Python interpreter (Windows usually):"},
                 {"code": "C:\\Users\\<you>\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe"},
                 {"text": "Register the MCP server in a terminal (replace <code>&lt;PYTHON&gt;</code> with the path from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
-                {"code": "<REGISTER>"},
-                {"text": "When prompted <code>Enable all 4 tools? [Y/n/select]:</code>, type <code>Y</code> and press Enter."},
+                {"text": "Alternatively, skip the command above and edit the config file <code>%LOCALAPPDATA%\\hermes\\config.yaml</code> directly, adding a <code>hermes-sync</code> block under <code>mcp_servers:</code> (replace <code>&lt;PYTHON&gt;</code> with the step-2 path and <code>&lt;EXTRACT_DIR&gt;</code> with the step-1 folder; <code>HERMES_SYNC_AGENT</code> may be omitted - hermes is the default, but declaring it explicitly is safer):"},
+                {"code": "mcp_servers:\n  hermes-sync:\n    command: \"<PYTHON>\"\n    args:\n      - \"<EXTRACT_DIR>/mcp/server.py\"\n    env:\n      HERMES_SYNC_AGENT: \"hermes\"\n      HERMES_SYNC_API_KEY: \"<KEY>\"\n      HERMES_SYNC_SERVER: \"<SERVER>\"\n    enabled: true"},
+                {"text": "When prompted <code>Enable all 4 tools? [Y/n/select]:</code>, type <code>Y</code> and press Enter (this prompt only appears on first load)."},
                 {"text": "Restart Hermes (start a new session) - MCP tools load at startup."},
             ],
         },
@@ -73,8 +80,12 @@ AGENTS = {
             "en": "Tencent WorkBuddy desktop agent (5.3.x); sessions in ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db.",
         },
         "store": {
-            "zh": "本地存储：~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
-            "en": "Local store: ~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
+            "zh": "~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
+            "en": "~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
+        },
+        "config": {
+            "zh": "应用内「专家·技能·连接器」（添加自定义连接器，无独立配置文件）",
+            "en": "in-app \"Experts · Skills · Connectors\" (add a custom connector; no standalone config file)",
         },
         "register": {
             "zh": (
@@ -144,8 +155,12 @@ AGENTS = {
             "en": "DeepSeek Harness (codex rollout format); sessions live in ~/.codex/sessions/*.jsonl.",
         },
         "store": {
-            "zh": "本地存储：~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
-            "en": "Local store: ~/.codex/sessions/ (rollout-<timestamp>-<uuid>.jsonl)",
+            "zh": "~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
+            "en": "~/.codex/sessions/ (rollout-<timestamp>-<uuid>.jsonl)",
+        },
+        "config": {
+            "zh": "~/.codex/config.toml",
+            "en": "~/.codex/config.toml",
         },
         "register": {
             "zh": (
@@ -199,8 +214,12 @@ AGENTS = {
             "en": "OpenCode **CLI only** (desktop app not supported); sessions stored in the shared opencode.db SQLite.",
         },
         "store": {
-            "zh": "本地存储：$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；仅支持 CLI，桌面版不支持）",
-            "en": "Local store: $XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; CLI-only, desktop not supported)",
+            "zh": "$XDG_DATA_HOME/opencode/opencode.db（session/message/part 表；仅支持 CLI，桌面版不支持）",
+            "en": "$XDG_DATA_HOME/opencode/opencode.db (session/message/part tables; CLI-only, desktop not supported)",
+        },
+        "config": {
+            "zh": "~/.config/opencode/opencode.jsonc（或项目根 opencode.jsonc）",
+            "en": "~/.config/opencode/opencode.jsonc (or project-root opencode.jsonc)",
         },
         "register": {
             "zh": (
@@ -270,8 +289,12 @@ AGENTS = {
             "en": "Reasonix (DeepSeek-Reasonix) terminal agent; sessions in %APPDATA%\\reasonix\\sessions\\*.jsonl.",
         },
         "store": {
-            "zh": "本地存储：%APPDATA%\\reasonix\\sessions\\（<id>.jsonl + 事件日志）",
-            "en": "Local store: %APPDATA%\\reasonix\\sessions\\ (<id>.jsonl + event log)",
+            "zh": "%APPDATA%\\reasonix\\sessions\\（<id>.jsonl + 事件日志）",
+            "en": "%APPDATA%\\reasonix\\sessions\\ (<id>.jsonl + event log)",
+        },
+        "config": {
+            "zh": "桌面版「设置→MCP与工具」（UI，添加服务器 JSON）；CLI：config.toml 的 [[plugins]] 块",
+            "en": "desktop \"Settings → MCP & Tools\" (UI, add-server JSON); CLI: config.toml [[plugins]] block",
         },
         "register": {
             "zh": (
@@ -355,8 +378,12 @@ AGENTS = {
             "en": "OpenClaw personal AI assistant (openclaw.ai); sessions under ~/.openclaw/agents/<id>/sessions/ (sessions.json index + jsonl transcripts).",
         },
         "store": {
-            "zh": "本地存储：~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
-            "en": "Local store: ~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+            "zh": "~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+            "en": "~/.openclaw/agents/<agentId>/sessions/sessions.json + <sessionId>.jsonl",
+        },
+        "config": {
+            "zh": "~/.openclaw/openclaw.json（`openclaw config path` 可打印本机确切路径）",
+            "en": "~/.openclaw/openclaw.json (`openclaw config path` prints the exact path)",
         },
         "register": {
             "zh": (
@@ -428,6 +455,81 @@ AGENTS = {
                 {"text": "Or install everything in one shot with the deploy script from this archive (extract next to <code>mcp/</code>):"},
                 {"code": "$env:HERMES_SYNC_AGENT = \"openclaw\"\n$env:HERMES_SYNC_SERVER = \"<SERVER>\"\n$env:HERMES_SYNC_API_KEY = \"<YOUR_API_KEY>\"\n.\\scripts\\deploy-local-mcp.ps1"},
                 {"text": "Restart openclaw (new sessions pick it up); auto-sync then syncs both ways every 300 seconds."},
+            ],
+        },
+    },
+    "omp": {
+        "label": "Oh My Pi",
+        "desc": {
+            "zh": "Oh My Pi（can1357/oh-my-pi，Pi 的 fork，「IDE 直连」编码 Agent），会话为 ~/.omp/agent/sessions/ 下的 JSONL v3 转录（与 pi 同构）。",
+            "en": "Oh My Pi (can1357/oh-my-pi, a fork of Pi, \"the IDE wired in\" coding agent); sessions are JSONL v3 transcripts under ~/.omp/agent/sessions/ (same layout as pi).",
+        },
+        "store": {
+            "zh": "~/.omp/agent/sessions/（<encoded-cwd>/<时间戳>_<uuidv7>.jsonl；env OMP_CODING_AGENT_DIR 可覆盖）",
+            "en": "~/.omp/agent/sessions/ (<encoded-cwd>/<timestamp>_<uuidv7>.jsonl; OMP_CODING_AGENT_DIR overrides)",
+        },
+        "config": {
+            "zh": "~/.omp/agent/mcp.json（在 mcpServers 下注册；主配置为 ~/.omp/agent/config.yml）",
+            "en": "~/.omp/agent/mcp.json (register under \"mcpServers\"; main config is ~/.omp/agent/config.yml)",
+        },
+        "register": {
+            "zh": (
+                "# 在 omp 的 MCP 配置中注册（stdio；字段以官方文档 omp.sh/docs 为准）\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "type": "stdio",\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "omp",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+            "en": (
+                "# Register under omp's MCP config (stdio; fields per the official docs at omp.sh/docs)\n"
+                '{\n'
+                '  "mcpServers": {\n'
+                '    "hermes-sync": {\n'
+                '      "type": "stdio",\n'
+                '      "command": "<PYTHON>",\n'
+                '      "args": ["<EXTRACT_DIR>/mcp/server.py"],\n'
+                '      "env": {\n'
+                '        "HERMES_SYNC_AGENT": "omp",\n'
+                '        "HERMES_SYNC_SERVER": "<SERVER>",\n'
+                '        "HERMES_SYNC_API_KEY": "<KEY>"\n'
+                '      }\n'
+                '    }\n'
+                '  }\n'
+                '}'
+            ),
+        },
+        "verify": "omp 会话中调用 hermes_sync_status",
+        "env_agent": True,
+        "uninstall": {
+            "zh": (
+                "# 移除：删除 omp MCP 配置中的 hermes-sync server 块（字段以官方文档 omp.sh/docs 为准）"
+            ),
+            "en": (
+                "# Remove: delete the hermes-sync server block in omp's MCP config (fields per omp.sh/docs)"
+            ),
+        },
+        "install": {
+            "zh": [
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-omp</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "在 omp 的 MCP 配置中注册 hermes-sync（stdio；字段以官方文档 omp.sh/docs 为准；<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"code": "<REGISTER>"},
+                {"text": "重启 omp（新会话生效），MCP 工具随会话加载；启动约 8 秒后执行增量拉取，之后每 300 秒自动双向同步。"},
+            ],
+            "en": [
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-omp</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Register hermes-sync under omp's MCP config (stdio; fields per omp.sh/docs; replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"code": "<REGISTER>"},
+                {"text": "Restart omp (new sessions pick it up) - MCP tools load with the session; an incremental pull runs ~8s after startup, then it syncs both ways every 300s."},
             ],
         },
     },

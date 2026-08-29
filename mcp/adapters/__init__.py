@@ -32,6 +32,7 @@ _ADAPTER_MODULES = {
     "reasonix": "reasonix",
     "openclaw": "openclaw",
     "workbuddy": "workbuddy",
+    "omp": "omp",
 }
 
 _adapter_cache: dict[str, type[Adapter]] = {}

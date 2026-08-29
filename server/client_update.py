@@ -22,11 +22,13 @@ router = APIRouter()
 # opencode have been validated end-to-end (auto-start, pull, push dedupe,
 # titles). openclaw was validated 2026-08 against the real gateway store
 # (sessions.json + jsonl transcripts) and ships the standalone auto-sync.py
-# because OpenClaw spawns MCP servers lazily. The other agent adapters stay
-# in AGENTS (registry) for development, but their MCP client distribution
-# and help-page onboarding are taken offline until validated. Re-enable an
-# agent by adding its key here.
-PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw")
+# because OpenClaw spawns MCP servers lazily. omp (Oh My Pi, fork of pi) uses
+# a JSONL v3 session format and was validated via fixture round-trip tests.
+# The other agent adapters stay in AGENTS (registry) for development, but
+# their MCP client distribution and help-page onboarding are taken offline
+# until validated. Re-enable an agent by adding its key here.
+PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw",
+                 "omp")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
@@ -40,7 +42,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.08.27.3"
+CLIENT_VERSION = "2026.08.28.1"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -95,15 +97,27 @@ def _ship_bytes(arcname: str, src: str, default_server: str,
 
 
 def _client_manifest_files(default_server: str, agent: str = "hermes"):
-    """[{path, sha256, size}] for every shipped file, hashed over the
-    bytes actually placed in the archive (server.py defaults rewritten)."""
+    """[{path, sha256, size}] for every client-managed mcp/ file, hashed
+    over the bytes actually placed in the archive (server.py defaults
+    rewritten).
+
+    Only mcp/ files are listed: the client updater verifies and installs
+    exactly the files it manages, looking each up in the zip as
+    ``mcp/<path>`` (see mcp/updater.py verify_archive). The one-shot deploy
+    scripts (scripts/*) still ship inside the zip for fresh installs, but
+    the client neither verifies nor installs them — listing them here makes
+    verify_archive look for ``mcp/scripts/...`` (absent in the zip) and fail
+    every auto-update with a hash mismatch.
+    """
     manifest = []
     for arcname, src in _client_archive_files():
+        if not arcname.startswith("mcp/"):
+            continue
         try:
             data = _ship_bytes(arcname, src, default_server, agent)
         except OSError:
             continue
-        rel = arcname[len("mcp/"):] if arcname.startswith("mcp/") else arcname
+        rel = arcname[len("mcp/"):]
         manifest.append({"path": rel, "sha256": hashlib.sha256(data).hexdigest(),
                          "size": len(data)})
     return manifest

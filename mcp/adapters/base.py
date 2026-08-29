@@ -78,6 +78,7 @@ AGENT_PREFIXES = {
     "reasonix": "reasonix:",
     "openclaw": "openclaw:",
     "workbuddy": "workbuddy:",
+    "omp": None,
 }
 
 CANONICAL_SESSION_FIELDS = (

@@ -521,8 +521,21 @@ def push_sync(body, ws):
                 rows = [[md.get(k) for k in cols] for md in new_msgs]
                 insert_sql = (f"INSERT INTO messages ({', '.join(cols)}) VALUES %s "
                               "ON CONFLICT DO NOTHING RETURNING session_id, id")
-                execute_values(c, insert_sql, rows, page_size=500)
-                inserted = set(c.fetchall())
+                # execute_values ALWAYS paginates internally (default
+                # page_size=100) and the cursor only exposes the LAST
+                # internal page's RETURNING rows. A bare fetchall() therefore
+                # undercounts -- and the retry loop below treats rows absent
+                # from ``inserted`` as conflicted -- for every session with
+                # more than 100 new messages. Page manually and pass a
+                # MATCHED page_size so each execute_values call is one
+                # statement whose RETURNING rows are fully captured.
+                _PAGE = 500
+                inserted = []
+                for _i in range(0, len(rows), _PAGE):
+                    execute_values(c, insert_sql, rows[_i:_i + _PAGE],
+                                   page_size=_PAGE)
+                    inserted.extend(c.fetchall())
+                inserted = set(inserted)
                 imp_m += len(inserted)
                 # Rows skipped by ON CONFLICT: either a concurrent push stole
                 # the in-memory-allocated id, or the (session_id, role,

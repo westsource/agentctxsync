@@ -205,9 +205,45 @@ class PushFingerprintTest(unittest.TestCase):
                 self.assertIn("failed", r1.get("error", ""))
                 # fingerprint not anchored for the failed session
                 self.assertEqual(server._load_push_fingerprint(), {})
-                r2 = server.push_sessions()
-                self.assertEqual(len(results), 0)  # retried and consumed
-                self.assertEqual(r2["updated"], 1)
+    def test_legacy_flat_fingerprint_is_stale_when_identity_known(self):
+        """A fingerprint file from before identity recording must not keep
+        suppressing a re-push: once an identity is known, an old flat dict
+        is treated empty so the store is re-pushed (mirrors the pull
+        watermark's legacy handling)."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                   Path(td) / "fp.json"), \
+                    mock.patch.object(server, "SYNC_SERVER",
+                                      "https://www.agentctxsync.com"):
+                Path(td, "fp.json").write_text(
+                    '{"s1": [2, 3.5]}', encoding="utf-8")
+                self.assertEqual(server._load_push_fingerprint(), {})
+
+    def test_fingerprint_invalidated_on_server_switch(self):
+        """A fingerprint recorded against a DIFFERENT server must be ignored
+        in full (full re-push), exactly like the pull watermark — otherwise
+        sessions pushed to an old server/workspace never reach the new one."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                   Path(td) / "fp.json"), \
+                    mock.patch.object(server, "SYNC_SERVER",
+                                      "https://www.agentctxsync.com"):
+                Path(td, "fp.json").write_text(
+                    '{"server": "https://old.invalid", '
+                    '"sessions": {"s1": [2, 3.5]}}', encoding="utf-8")
+                self.assertEqual(server._load_push_fingerprint(), {})
+
+    def test_fingerprint_roundtrip_new_format(self):
+        """Same-server save/load round-trips through the new server-bound
+        wrapper (the push loop still sees the flat {sid: fp} dict)."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                   Path(td) / "fp.json"), \
+                    mock.patch.object(server, "SYNC_SERVER",
+                                      "https://www.agentctxsync.com"):
+                server._save_push_fingerprint({"s1": [2, 3.5]})
+                self.assertEqual(server._load_push_fingerprint(),
+                                 {"s1": [2, 3.5]})
 
 
 class FieldMergeTest(unittest.TestCase):

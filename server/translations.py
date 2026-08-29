@@ -325,6 +325,11 @@ TRANSLATIONS = {
         "help_verify": "验证：",
         "help_uninstall": "移除旧版（如需重新安装或清理）：",
         "help_store": "本地存储：",
+        "help_config": "配置文件：",
+        "help_openclaw_oneshot": "一键安装（推荐）：下载安装脚本以配置开机自启常驻同步",
+        "help_openclaw_oneshot_d": "OpenClaw 对内置 MCP server 惰性启动，需独立的 auto-sync 常驻进程才能自动同步。下载并运行下方安装脚本（与上方下载的客户端 <code>mcp/</code> 同级解压），即可一键注册开机自启，无需手动启动进程。",
+        "help_openclaw_oneshot_ps": "PowerShell 安装脚本",
+        "help_openclaw_oneshot_sh": "Git Bash 安装脚本",
 
         # Session Messages
         "msg_export": "导出 Markdown",
@@ -419,7 +424,7 @@ TRANSLATIONS = {
         "lp_eng6_t": "单写者锁",
         "lp_eng6_d": "双实例只允许一个进程运行后台同步，避免本地存储竞争；写锁冲突自动重试，绝不长时间占用。",
         "lp_agents_title": "主流 Agent 开箱即用",
-        "lp_agents_sub": "Hermes、WorkBuddy、DeepSeek Harness、OpenCode、Reasonix、OpenClaw 六大 Agent 全部支持；每个 Agent 独立部署一个客户端实例，接入同一工作区即互相同步。",
+        "lp_agents_sub": "Hermes、WorkBuddy、DeepSeek Harness、OpenCode、Reasonix、OpenClaw、Oh My Pi 七大 Agent 全部支持；每个 Agent 独立部署一个客户端实例，接入同一工作区即互相同步。",
         "lp_more_agents": "持续增加中",
         "lp_agent_workbuddy_tag": "最新接入",
         "lp_start_title": "三分钟接入",
@@ -766,6 +771,11 @@ TRANSLATIONS = {
         "help_verify": "Verify: ",
         "help_uninstall": "Remove old version (e.g. before reinstalling or cleaning up):",
         "help_store": "Local store: ",
+        "help_config": "Config file: ",
+        "help_openclaw_oneshot": "One-click install (recommended): download the installer to set up boot-time auto-sync",
+        "help_openclaw_oneshot_d": "OpenClaw spawns bundled MCP servers lazily, so it needs a standalone auto-sync process. Download and run the installer below (extract next to the <code>mcp/</code> client from the download above) to register boot-time autostart in one shot — no manual process start needed.",
+        "help_openclaw_oneshot_ps": "PowerShell installer",
+        "help_openclaw_oneshot_sh": "Git Bash installer",
 
         # Session Messages
         "msg_export": "Export Markdown",
@@ -860,7 +870,7 @@ TRANSLATIONS = {
         "lp_eng6_t": "Single-writer lock",
         "lp_eng6_d": "With dual instances only one process runs background sync, avoiding local-store contention; write-lock conflicts retry instead of blocking.",
         "lp_agents_title": "Top agents work out of the box",
-        "lp_agents_sub": "All six agents — Hermes, WorkBuddy, DeepSeek Harness, OpenCode, Reasonix, OpenClaw — are supported. Deploy one client per agent; point them at the same workspace and they sync with each other.",
+        "lp_agents_sub": "All seven agents — Hermes, WorkBuddy, DeepSeek Harness, OpenCode, Reasonix, OpenClaw, Oh My Pi — are supported. Deploy one client per agent; point them at the same workspace and they sync with each other.",
         "lp_more_agents": "more coming",
         "lp_agent_workbuddy_tag": "NEW",
         "lp_start_title": "Up and running in 3 minutes",
