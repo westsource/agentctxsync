@@ -63,7 +63,7 @@ AUTO_UPDATE = os.environ.get("HERMES_SYNC_AUTO_UPDATE", "1") != "0"
 UPDATE_INTERVAL = int(os.environ.get("HERMES_SYNC_UPDATE_INTERVAL", "3600"))
 MCP_DIR = Path(__file__).resolve().parent
 VERSION_FILE = MCP_DIR / updater.VERSION_FILE_NAME
-AGENT = os.environ.get("HERMES_SYNC_AGENT", "opencode")
+AGENT = os.environ.get("HERMES_SYNC_AGENT", "hermes")
 if AGENT not in available_agents():
     sys.stderr.write(
         f"[hermes-sync] Unknown agent {AGENT!r}; "

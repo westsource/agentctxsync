@@ -90,7 +90,7 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 1. 按 `scripts/deploy-local-mcp.sh` 部署一份独立实例：
    `export HERMES_SYNC_AGENT=<name>` + 该 agent 的 API Key / 服务器地址
 2. 服务端帮助页与 `/web/download/mcp-client` 由 agent 注册表驱动，自动生成该 agent
-   的下载包（含预填 API Key 的 README）——无需改服务端代码
+   的下载包（README 内含 `<YOUR_API_KEY>` 占位符，需替换为帮助页对应工作区的 Key）——无需改服务端代码
 3. 在 README 的 agent 支持表格补一行
 
 ## 端到端验证清单

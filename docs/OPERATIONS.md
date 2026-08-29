@@ -110,7 +110,7 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 **Seamless migration (recommended — keep the old server online until all clients have updated)**:
 1. Deploy the new server (with the new default address) and bump `CLIENT_VERSION`
 2. Keep the old server online (clients still need to pull updates from the old address)
-3. Wait for each client to finish auto-updating (checked 15 seconds after startup / every 1 hour)
+3. Wait for each client to finish auto-updating (checked 1 minute after startup / every 1 hour)
 4. Clients connect to the new server automatically after the Agent is restarted
 5. Once no client is still connected to the old server, take the old server offline
 
@@ -135,7 +135,8 @@ The full tool list lives in the README; details of the background engine:
 - One automatic **incremental** pull at startup (delayed 8 seconds to avoid the host agent's startup/read peak; local `.hermes-sync-watermark` watermark + 5-minute clock tolerance); if the remote is empty, local data is pushed automatically (first-pairing bootstrap for new devices)
 - Periodic auto-sync (default 300 seconds)
 - **Watermark bound to the server identity**: pointing the client at a different server automatically triggers a full re-pull (see Server Migration)
-- **Batching**: pulls page in small batches (15 sessions per request); pushes split by session-count + message-count dual limits — large syncs never time out
+- **Batching**: pulls page in small batches (15 sessions per request); pushes split by session-count + message-count + byte-size (default 8 MB) limits — large syncs never time out; a single oversized session rides alone in its own chunk, and a failed chunk (413 / quota / timeout) no longer aborts the rest of the push cycle
+- **Push-side watermark (session fingerprint)**: each session records a push fingerprint `(message_count, max_timestamp[, file mtime])` in a sidecar next to the field-meta file; periodic push skips sessions whose fingerprint is unchanged (the fingerprint updates only after a successful push), so a large store no longer re-uploads everything every cycle. Agents without field-meta fall back to full push (previous behavior). mtime is provided by the adapter where available (workbuddy implements it, so a pull that touched a copy also invalidates its fingerprint)
 - **Pull write retry**: when the local store is locked by the host agent, the pull write retries a few times (each attempt fails fast with a 5 s busy_timeout)
 - Single-writer lock: with two `serve` instances, only one process runs background sync, avoiding local storage races; auto-update uses a separate update lock
 - Message dedup is based on the `(session_id, role, timestamp)` triple, idempotent across devices
