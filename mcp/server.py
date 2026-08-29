@@ -41,8 +41,8 @@ SDK_V2 = not hasattr(Server, "list_tools")
 
 from adapters import get_adapter, available_agents
 from adapters.base import (AGENT_PREFIXES, PROJECT_USER_EDIT_FIELDS,
-                           USER_EDIT_FIELDS, align_path_to_local,
-                           build_path_map)
+                           USER_EDIT_FIELDS, _path_key,
+                           align_path_to_local, build_path_map)
 import updater
 
 
@@ -273,9 +273,24 @@ def _load_push_fingerprint() -> dict:
         return {}
     try:
         data = json.loads(PUSH_FINGERPRINT_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
     except (OSError, ValueError):
         return {}
+    # Server-bound (mirrors the pull watermark): a fingerprint recorded
+    # against a DIFFERENT sync server must not suppress a re-push, or
+    # sessions pushed to an old server/workspace are silently skipped on
+    # the new one. Old flat-dict files (predating identity recording) are
+    # treated stale whenever an identity is known -> one full re-push (the
+    # server dedupes, so this only costs bandwidth, never duplicates).
+    if "server" in data:
+        if SYNC_SERVER and data.get("server") != SYNC_SERVER:
+            return {}
+        sessions = data.get("sessions")
+        return sessions if isinstance(sessions, dict) else {}
+    if SYNC_SERVER:
+        return {}  # legacy flat dict + known identity: stale -> full re-push
+    return data
 
 
 def _save_push_fingerprint(fp: dict):
@@ -283,8 +298,10 @@ def _save_push_fingerprint(fp: dict):
         return
     try:
         PUSH_FINGERPRINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        PUSH_FINGERPRINT_PATH.write_text(json.dumps(fp, ensure_ascii=False),
-                                         encoding="utf-8")
+        PUSH_FINGERPRINT_PATH.write_text(
+            json.dumps({"server": SYNC_SERVER or None, "sessions": fp},
+                       ensure_ascii=False),
+            encoding="utf-8")
     except OSError:
         pass
 
@@ -327,6 +344,23 @@ def _save_field_meta(meta: dict):
                                    encoding="utf-8")
     except OSError:
         pass
+_PATH_FIELDS = frozenset(("cwd", "git_repo_root", "primary_path"))
+
+
+def _field_dirty(field: str, local_val, sidecar_val) -> bool:
+    """Field-level dirty check for the optimistic-merge sidecars.
+
+    Path fields (cwd/git_repo_root/primary_path) compare case- and
+    separator-insensitively: Windows local stores spell the same directory
+    differently (E:\\a\\b vs E:/a/b, case-folded), and a spelling-only
+    difference must never look like a local edit -- it would make the pull
+    drop the field (falling back to the process cwd on write) and keep the
+    session permanently dirty. Everything else stays exact-match.
+    """
+    if field in _PATH_FIELDS and isinstance(local_val, str) \
+            and isinstance(sidecar_val, str):
+        return _path_key(local_val) != _path_key(sidecar_val)
+    return local_val != sidecar_val
 
 
 def _annotate_push_session(s, meta: dict):
@@ -343,7 +377,7 @@ def _annotate_push_session(s, meta: dict):
             if entry is None:
                 field_meta[k] = None            # base unknown -> server authority
                 out[k] = v
-            elif v == entry.get("val"):
+            elif not _field_dirty(k, v, entry.get("val")):
                 continue                         # not dirty: omit entirely
             else:
                 field_meta[k] = entry.get("base")  # dirty: push with known base
@@ -402,7 +436,7 @@ def _annotate_push_project(p, meta: dict) -> dict:
             entry = pm.get(k)
             if entry is None:
                 field_meta[k] = None            # base unknown -> server authority
-            elif v == entry.get("val"):
+            elif not _field_dirty(k, v, entry.get("val")):
                 continue                         # not dirty: omit
             else:
                 field_meta[k] = entry.get("base")  # dirty: known base
@@ -510,7 +544,8 @@ def pull_sessions(last_sync_at=None, limit=None):
             for f in USER_EDIT_FIELDS:
                 if f in s and isinstance(s.get(f), str):
                     entry = sm.get(f)
-                    if entry is not None and local.get(f) != entry.get("val"):
+                    if entry is not None and _field_dirty(
+                            f, local.get(f), entry.get("val")):
                         s.pop(f, None)   # locally edited since last sync
             # Align pull-side path fields (cwd/git_repo_root) to the local
             # separator spelling where a local path already exists with only
@@ -755,7 +790,8 @@ def pull_projects():
             for f in PROJECT_USER_EDIT_FIELDS:
                 if f in p and isinstance(p.get(f), str):
                     entry = sm.get(f)
-                    if entry is not None and local.get(f) != entry.get("val"):
+                    if entry is not None and _field_dirty(
+                            f, local.get(f), entry.get("val")):
                         p.pop(f, None)
             # Align remaining pull-side paths to the local separator spelling
             # where a local path already exists modulo separators, so a folder

@@ -40,3 +40,6 @@ output/
 # MCP client runtime artifacts (auto-update backup + version marker)
 mcp/.hermes-sync-version
 mcp/.bak-*
+
+# Local dev server logs
+server/server_local_run.*

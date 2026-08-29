@@ -1,12 +1,11 @@
-{# Shared agent color macros (single source of truth).
-
-   Palette (matches the "接入帮助" download pills):
-     hermes   -> purple   #6E56CF
-     workbuddy-> teal     #0D9488
-     deepseek-harness -> orange #F2994A
-     opencode -> slate    #64748B
-     reasonix -> blue     #4285F4
-     openclaw -> red      #EB5757
+{# Agent badge colors.
+   hermes / unknown -> purple  #6E56CF
+   deepseek-harness -> orange  #F2994A
+   opencode         -> slate   #64748B
+   reasonix         -> blue    #4285F4
+   openclaw         -> red     #EB5757
+   workbuddy        -> teal    #0D9488
+   omp              -> gold    #B45309  (bg #FEF3C7)
    Unknown/None -> hermes purple.
 #}
 {% macro agent_color(a) -%}
@@ -15,6 +14,7 @@
 {%- elif a == 'reasonix' -%}bg-[#E8F1FE] text-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
 {%- elif a == 'workbuddy' -%}bg-[#F0FDFA] text-[#0D9488]
+{%- elif a == 'omp' -%}bg-[#FEF3C7] text-[#B45309]
 {%- else -%}bg-[#EDE9FB] text-[#6E56CF]
 {%- endif -%}
 {%- endmacro %}
@@ -24,6 +24,7 @@
 {%- elif a == 'reasonix' -%}bg-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#EB5757]
 {%- elif a == 'workbuddy' -%}bg-[#0D9488]
+{%- elif a == 'omp' -%}bg-[#B45309]
 {%- else -%}bg-[#6E56CF]
 {%- endif -%}
 {%- endmacro %}

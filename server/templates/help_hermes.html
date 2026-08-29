@@ -9,7 +9,7 @@
   .code-copy:hover { background: rgba(255,255,255,.22); color: #fff; }
 </style>
 
-<div class="max-w-4xl" x-data="helpWizard()" x-init="init()">
+<div class="w-full" x-data="helpWizard()" x-init="init()">
   <!-- ========== 页头 + 步骤条 + 工作空间选择 ========== -->
   <div class="pt-6 pb-4">
     <!-- ========== 页头 ========== -->
@@ -71,8 +71,9 @@
           <p class="text-xs text-gray-400 mt-0.5 truncate">{{ agent.desc }}</p>
         </div>
       </div>
-      {% if agent.downloadable %}
       <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
+      {% if agent.config %}<p class="text-xs text-gray-400 mb-3">{{ t.help_config }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.config }}</code></p>{% endif %}
+      {% if agent.downloadable %}
       <div class="flex flex-wrap items-center gap-2 mb-3">
         {% if agent.downloadable %}
         <button type="button" @click.stop="download('{{ agent_key }}')"
@@ -86,6 +87,22 @@
         <span class="text-xs text-gray-400">{{ t.help_manual_note.replace('{0}', '<code class="text-gray-600 bg-[#F6F5FA] px-1 py-0.5 rounded border border-gray-100">' ~ agent_key ~ '</code>') | safe }}</span>
         {% endif %}
       </div>
+      {% if agent_key == "openclaw" %}
+      <div class="mt-3 rounded-xl bg-[#EDE9FB]/40 border border-[#6E56CF]/20 p-3">
+        <p class="text-sm font-medium text-[#6E56CF] mb-1">{{ t.help_openclaw_oneshot }}</p>
+        <p class="text-xs text-gray-500 mb-2">{{ t.help_openclaw_oneshot_d | safe }}</p>
+        <div class="flex flex-wrap gap-2">
+          <a href="/web/download/deploy-script?file=deploy-local-mcp.ps1" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#6E56CF]/30 text-[#6E56CF] text-xs font-medium rounded-lg hover:bg-[#EDE9FB]/60 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
+            {{ t.help_openclaw_oneshot_ps }}
+          </a>
+          <a href="/web/download/deploy-script?file=deploy-local-mcp.sh" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#6E56CF]/30 text-[#6E56CF] text-xs font-medium rounded-lg hover:bg-[#EDE9FB]/60 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
+            {{ t.help_openclaw_oneshot_sh }}
+          </a>
+        </div>
+      </div>
+      {% endif %}
       <details class="group">
         <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-[#6E56CF] hover:text-[#5B45B9] select-none">
           <svg class="w-4 h-4 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
@@ -93,14 +110,22 @@
         </summary>
         <div class="mt-3 space-y-3">
           <ol class="space-y-3 text-sm text-gray-700">
+            {% set ns = namespace(step=0) %}
             {% for step in agent.install %}
+            {% if step.code %}
+            {# Code blocks render as standalone (unnumbered) blocks #}
+            <div class="pl-9">
+              <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ step.code }}</code></pre>
+            </div>
+            {% else %}
+            {% set ns.step = ns.step + 1 %}
             <li class="flex gap-3">
-              <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ loop.index }}</span>
+              <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ ns.step }}</span>
               <span class="min-w-0 flex-1">
                 {% if step.text %}<span>{{ step.text | safe }}</span>{% endif %}
-                {% if step.code %}<pre class="mt-2 px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>{{ step.code }}</code></pre>{% endif %}
               </span>
             </li>
+            {% endif %}
             {% endfor %}
           </ol>
           <div>
