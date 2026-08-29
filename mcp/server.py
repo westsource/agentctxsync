@@ -1,7 +1,7 @@
 """
 Agent Context Sync MCP Server (multi-agent)
 - Adapter framework: HERMES_SYNC_AGENT selects the local store adapter
-  (hermes | deepseek-harness | opencode | reasonix | openclaw); every
+  (hermes | deepseek-harness | opencode | reasonix | openclaw | omp); every
   agent gets its own deployment (each instance manages one local store)
 - Auto-pull on startup (background); bootstrap push when remote is empty
 - Periodic sync every N minutes (HERMES_SYNC_INTERVAL)
