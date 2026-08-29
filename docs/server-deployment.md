@@ -55,54 +55,61 @@ YOUR_SERVER_IP
 
 **project_remap** — workspace_id, old_id, new_id (同名合并路由记录)
 
-**quota_config** — plan (PK), max_sessions (NULL=不限), allowed_agents (TEXT[]，NULL/空=全部放行)。种子：free=200、unlimited 无限制
+**quota_config** — plan (PK), max_sessions (NULL=不限), allowed_agents (TEXT[]，NULL/空=全部放行)。种子：free=300（存量 200 由 init_db 幂等提升）、unlimited 无限制
 
 **audit_log** — id, ts, event, user_id, workspace_id, device_id, code, detail（配额拒绝等事件审计）
 
 ## 5. 服务端文件结构
 
-> 2026-08 起服务端由单文件 `server.py` 按业务域拆分为 14 个模块，入口为 `main.py`
+> 2026-08 起服务端由单文件 `server.py` 按业务域拆分为 18 个模块，入口为 `main.py`
 > （旧 `server.py` 已废弃）。部署根目录由 `/opt/hermes-sync-mcp` 迁移至 `/opt/agentctxsync`。
 
 ```
 /opt/agentctxsync/
 ├── main.py               # 应用组装 (FastAPI + 路由挂载 + 启动入口)
 ├── config.py             # 环境变量与常量（启动时强制校验）
+├── captcha.py            # 注册数学验证码（自托管 SVG，进程内一次性挑战）
 ├── db.py                 # 连接池 / get_conn / init_db（幂等建表迁移）/ 配额策略查询
 ├── render.py             # Jinja2 渲染 / flash / 请求上下文 (ContextVar)
+├── requestlog.py         # 全站请求日志 + 每日访问统计（access_stats/access_device）
 ├── auth.py               # 认证域：JWT / 密码 / 依赖 / 登录注册路由
 ├── invites.py            # 邀请码管理域
 ├── workspace.py          # 工作空间域 (Web + REST)
-├── admin.py              # 管理域 (用户/空间管理)
+├── admin.py              # 管理域 (用户/空间管理/访问统计)
+├── search.py             # 全局搜索域（跨工作空间全文搜索）
 ├── sync.py               # 同步域 (/pull /push /status ...)
 ├── projects.py           # 项目同步域
 ├── client_update.py      # 客户端更新域 (打包/清单/下载，含 CLIENT_VERSION)
 ├── web_help.py           # 接入帮助域
+├── feedback.py           # 问题反馈域
 ├── agents.py             # Agent 注册表 (帮助页/下载包)
-├── translations.py       # 国际化翻译 (zh-CN / en, 324 键)
+├── translations.py       # 国际化翻译 (zh-CN / en, 411 键)
 ├── venv/                 # Python 3.12 虚拟环境
 ├── templates/
 │   ├── base.html         # 基础布局 + 侧边栏 + 语言切换
 │   ├── login.html        # 登录页
-│   ├── register.html     # 注册页 (邀请码可选)
+│   ├── register.html     # 注册页 (数学验证码 + 邀请码可选)
 │   ├── change_password.html  # 修改密码页
 │   ├── landing.html      # 落地页
 │   ├── dashboard.html    # 主仪表盘
 │   ├── all_sessions.html # 全部会话（跨工作空间统一列表）
+│   ├── search.html       # 全局搜索页（会话/消息双路命中）
 │   ├── workspace_detail.html  # 工作区详情 (会话列表/搜索/隐藏/项目)
 │   ├── session_messages.html  # 会话消息查看器 (搜索/隐藏)
 │   ├── trash_sessions.html    # 会话回收站
 │   ├── trash_messages.html    # 消息回收站
 │   ├── admin_users.html       # 用户管理
 │   ├── admin_workspaces.html  # 全局工作区管理
+│   ├── admin_access.html      # 访问统计页
+│   ├── admin_access_devices.html  # 设备访问明细页
 │   ├── admin_invites.html     # 邀请管理
 │   ├── help_hermes.html       # 接入帮助页
+│   ├── feedback.html          # 问题反馈页
 │   └── _macros.html           # 模板宏
 ├── static/
 │   ├── favicon.svg        # 网站图标
 │   ├── tailwind.js        # Tailwind CSS (本地)
-│   ├── alpine.min.js      # Alpine.js (本地)
-│   └── icon_preview.html  # 图标预览页
+│   └── alpine.min.js      # Alpine.js (本地)
 ├── mcp/                   # MCP 客户端分发包（/api/client/download 按此打包）
 │   ├── server.py / updater.py / run.bat / run.sh
 │   └── adapters/          # 各 Agent 本地存储适配器 (base/deepseek_harness/hermes/opencode/reasonix/openclaw/workbuddy)
@@ -214,7 +221,8 @@ python scripts/deploy-remote.py
 | GET | /web/login | 登录页 |
 | POST | /web/login | 登录提交 |
 | GET | /web/logout | 登出 |
-| GET | /web/register | 注册页 (邀请码可选，支持 ?code= 预填) |
+| GET | /web/register | 注册页 (数学验证码，邀请码可选，支持 ?code= 预填) |
+| GET | /web/captcha/new | 注册验证码 (自托管数学题 SVG) |
 | POST | /web/register | 注册提交 |
 | POST | /web/change-password | 修改密码 |
 | POST | /web/update-profile | 更新个人信息 |
@@ -230,12 +238,17 @@ python scripts/deploy-remote.py
 | POST | /web/workspace/{id}/session/{sid}/unhide | 恢复会话 |
 | POST | /web/workspace/{id}/session/{sid}/message/{mid}/hide | 隐藏消息 |
 | POST | /web/workspace/{id}/session/{sid}/message/{mid}/unhide | 恢复消息 |
+| POST | /web/workspace/{id}/session/{sid}/messages/unhide-all | 恢复会话全部消息 |
 | GET | /web/workspace/{id}/export | 导出整个工作区 (JSON.gz) |
 | POST | /web/workspace/{id}/import | 导入备份 (JSON/JSON.gz) |
 | GET | /web/workspace/{id}/delete | 删除工作区 |
 | POST | /web/workspace/{id}/regen-key | 重新生成 API Key |
+| GET | /web/search?q=&page= | 全局搜索（跨工作空间全文搜索 + 消息定位） |
 | GET | /web/help | 接入帮助页（旧入口 /web/help-hermes 301 跳转） |
 | GET | /web/download/mcp-client?ws_id={id}&agent=X | 下载 MCP 客户端 zip |
+| GET | /web/feedback | 问题反馈列表（管理员看全部，普通用户只看自己的） |
+| POST | /web/feedback/submit | 提交反馈 |
+| POST | /web/feedback/{id}/resolve | 切换反馈解决状态 |
 | GET | /web/invites | 邀请管理 (所有登录用户) |
 | POST | /web/invite/create | 创建邀请码 |
 | POST | /web/invite/{id}/revoke | 撤销邀请码 |
@@ -250,6 +263,8 @@ python scripts/deploy-remote.py
 | POST | /web/admin/user/{id}/edit | 提交用户编辑 |
 | GET | /web/admin/user/{id}/toggle | 启用/禁用用户 |
 | GET | /web/admin/workspaces | 全局工作区管理 |
+| GET | /web/admin/access | 访问统计（domain/IP 渠道，每日计数） |
+| GET | /web/admin/access/devices | 设备访问明细（按设备/agent 聚合，含版本） |
 | GET | /web/admin/invites | 邀请管理 (旧入口，跳转 /web/invites) |
 
 ### API 端点 (Bearer Token 认证)
@@ -289,8 +304,8 @@ python scripts/deploy-remote.py
 - **默认语言**: zh-CN
 - **切换方式**: 侧边栏语言切换按钮 / 登录页底部语言链接
 - **持久化**: `lang` 用户级偏好（存 DB，随账号跨设备，经 JWT claim 携带）；登录前由 cookie 决定（cookie 兼容）
-- **翻译键数**: 324 个 (zh-CN 和 en 完全对齐)
-- **覆盖范围**: 侧边栏、仪表盘、全部会话、工作区详情、会话查看器、回收站、用户管理、工作区管理、邀请管理、接入帮助页、登录/注册页、错误/成功消息
+- **翻译键数**: 411 个 (zh-CN 和 en 完全对齐)
+- **覆盖范围**: 侧边栏、仪表盘、全部会话、全局搜索页、工作区详情、会话查看器、回收站、用户管理、工作区管理、访问统计、邀请管理、接入帮助页、问题反馈、登录/注册页、错误/成功消息
 
 ## 10. 注意事项
 
@@ -307,9 +322,9 @@ python scripts/deploy-remote.py
 server 内置一套**通用配额执法机制**：策略存于数据库、执法在 server，两者通过数据库解耦，改动即时生效（server 每次 push 读取配置，无缓存、无重启）。
 
 - **users.plan** — `free` | `unlimited`（默认 `free`；存量用户自动补 `free`）
-- **invites.grant_plan** — 使用邀请码注册时授予的套餐（默认 `unlimited`，创建邀请码时可选；不用邀请码注册的新用户同样为默认 `unlimited`）
+- **invites.grant_plan** — 使用邀请码注册时授予的套餐（默认 `unlimited`，创建邀请码时可选；不用邀请码注册的新用户为 `free`）
 - **quota_config** — 按 plan 配置：
-  - `max_sessions`：该套餐用户的全局活跃会话数上限（NULL = 不限；默认 free = 200）
+  - `max_sessions`：该套餐用户的全局活跃会话数上限（NULL = 不限；默认 free = 300）
   - `allowed_agents`：允许同步的 Agent 类型白名单（NULL / 空数组 = 全部允许）
 - **audit_log** — 审计事件表（`quota_rejected` 由 server 写入；`plan_changed` 等运营操作由运营侧写入）
 

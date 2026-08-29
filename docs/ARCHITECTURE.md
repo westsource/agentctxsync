@@ -45,12 +45,12 @@
 |                | FastAPI Server (server/ 多模块 :8765)                       |  |
 |                |                                                          |  |
 |  |  Web UI (/web/*)          REST API (/api/*)       Sync API             |  |
-|  |  * 登录 / 注册(邀请可选)  * Auth (login/me)      * GET /health        |  |
+|  |  * 登录 / 注册(验证码+邀请) * Auth (login/me)     * GET /health        |  |
 |  |  * 信息概览 / 全部会话     * Workspace CRUD       * POST /pull          |  |
 |  |  * 工作空间 / 会话查看器   * Admin (users/ws)     * POST /push          |  |
 |  |  * 回收站 / 导出 / 导入    * Change Password      * GET /status/{dev}   |  |
 |  |  * 接入帮助 + 客户端下载   * register (管理员)    * GET /sessions      |  |
-|  |  * Admin (用户/空间/邀请)                        * GET /users          |  |
+|  |  * Admin (用户/空间/邀请/统计)                   * GET /users          |  |
 |  |                                                                        |  |
 |  |  Client Update API                                                      |  |
 |  |  * GET /api/client/manifest (版本对比+sha256)                           |  |
@@ -104,8 +104,10 @@
 |------|------|----------|
 | `main.py` | 应用装配：FastAPI 实例、静态文件、中间件、router 汇总、uvicorn 入口 | — |
 | `config.py` | 环境变量与派生常量（PG_DSN / 密钥 / PUBLIC_URL） | — |
+| `captcha.py` | 注册数学验证码（自托管 SVG、进程内一次性挑战、TTL） | `/web/captcha/new` |
 | `db.py` | psycopg2 连接池、`init_db` 幂等建表迁移、配额策略查询、工作空间查询辅助 | — |
 | `render.py` | Jinja2 渲染（executor 异步化）、flash 消息、请求作用域 ContextVar、中间件 | — |
+| `requestlog.py` | 请求日志中间件：全站 REQ 行 + 每日访问统计（`access_stats`/`access_device` 表，domain/IP 渠道、设备/agent/版本） | 全站中间件；`/web/admin/access`、`/web/admin/access/devices` |
 | `translations.py` | i18n 翻译表（zh-CN / en） | — |
 | `agents.py` | Agent 注册表（静态数据，驱动帮助页与客户端包生成） | — |
 | `auth.py` | 认证域：PBKDF2 密码、JWT 签发/校验、API key 依赖、登录/注册/改密/语言、强制改密中间件 | `/`、`/web/login`、`/web/register`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/api/auth/*` |
@@ -113,11 +115,13 @@
 | `sync.py` | 同步域：pull/push/status/sessions/users，配额执法与审计日志 | `/health`、`/pull`、`/push`、`/status/{device_id}`、`/sessions`、`/users` |
 | `projects.py` | 项目同步域：slug 同名合并、folders 增量合并、remap 路由 | `/api/projects/push`、`/api/projects/pull` |
 | `invites.py` | 邀请码域：邀请管理、创建/撤销 | `/web/invites`、`/web/invite/create`、`/web/invite/{id}/revoke` |
-| `admin.py` | 管理域：用户/全局空间管理（仅管理员） | `/web/admin/*`、`/api/admin/*` |
+| `admin.py` | 管理域：用户/全局空间管理/访问统计（仅管理员） | `/web/admin/*`、`/api/admin/*` |
+| `search.py` | 全局搜索域：跨工作空间全文搜索（pg_trgm GIN + ILIKE），会话/消息双路命中、分页、消息深链定位 | `/web/search` |
 | `client_update.py` | 客户端分发：zip 构建（运行时改写默认服务器/Agent + manifest 哈希）、下载端点 | `/api/client/manifest`、`/api/client/download` |
 | `web_help.py` | 接入帮助域：帮助页、客户端包下载（由 `agents.py` 注册表 + `client_update.py` 驱动） | `/web/help`、`/web/help-hermes`（301）、`/web/download/mcp-client` |
+| `feedback.py` | 问题反馈域：提交建议/缺陷，管理员列表与解决状态切换 | `/web/feedback`、`/web/feedback/submit`、`/web/feedback/{fid}/resolve` |
 
-中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_password_change`（auth），
+中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_password_change`（auth）→ `request_log_middleware`（requestlog，最外层，全站 REQ 日志），
 与单文件时代一致；`/web/*` 页面在强制改密期间仅放行
 `/web/login`、`/web/change-password`、`/web/logout`、`/web/register`、`/web/set-language`。
 
@@ -135,8 +139,8 @@
 | `adapters/deepseek_harness.py` | DeepSeek Harness（codex rollout 格式；非 UUID 外来 id 映射本地 UUID、毫秒戳冲突 +1ms 修补、`session_index.jsonl` 标题回填） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
-| `adapters/opencode.py` | opencode storage/ 多文件（`ses_/msg_/prt_` id；外来会话首次写入分配新 `ses_` id 并持久化 canonical→local idmap，后续 pull 复用同一本地 id 保持去重稳定） |
-| `adapters/openclaw.py` | OpenClaw sqlite（EXPERIMENTAL：启动时探测 schema 映射会话/消息表；官方 MCP bridge 是未来更优接入点） |
+| `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析、`model` 列写 `{id, providerID}` JSON）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
+| `adapters/openclaw.py` | OpenClaw 网关存储（`~/.openclaw/agents/<id>/sessions/sessions.json` 索引 + `<sessionId>.jsonl` 转写，canonical id 为转写 UUID、key 存 `meta.openclaw:session_key`）；写入按网关持久化形态（索引条目 + 链式 parentId 消息图），网关热重载索引（mtime）；运行中的网关可能覆写 `sessions.json`，建议关闭 OpenClaw 时同步或同步后重拉 |
 
 ## 多租户模型
 
@@ -302,6 +306,14 @@ User (admin / user)
   serve 实例、各 spawn 一个 MCP 进程，无锁会并发写同一本地库。
 - pull 稳健性：每页 15 条（大页实测超时）；「页面与上次相同则停止」（防旧服务端忽略 offset
   死循环）；本地库被宿主锁定时按 0/2/5/10s 退避重试（`busy_timeout=5s` 快速失败，不阻塞宿主读）。
+- **推送侧会话指纹（B5，客户端）**：每会话记录推送指纹 `(message_count, max_timestamp[, 文件 mtime])`
+  于与 field-meta 同目录的 `-push-fingerprint.json` sidecar；push 循环跳过指纹未变化的会话，
+  仅**成功推送后**更新指纹（失败不更新、下轮重试）。mtime 由 adapter 可选提供
+  （`base.Adapter.session_mtime`，workbuddy 已实现——取该会话所有副本的最新 mtime，pull 触及的
+  副本也会失效指纹）；无 field-meta 的 agent 回退全量推送（原行为）。
+- **push 分块字节上限（B4，客户端）**：`_chunk_sessions` 在会话数/消息数之外增加 `max_bytes`
+  （默认 8MB）上限，单会话超限单独成块；单块失败（413/配额/超时）不再中止整个推送循环，
+  记录错误继续，结束时汇总返回。
 - 拉取范围见「全池拉取契约」：agent 参数不参与过滤。
 
 ### 字段级乐观并发 + 惰性 bootstrap（Field-Level Optimistic Concurrency，决策记录）
@@ -411,7 +423,8 @@ User (admin / user)
 - 分发（`server/client_update.py`）：zip 内含**重写默认值后**的 `mcp/` 包——构建时把
   `SYNC_SERVER` 默认值改成服务端地址、`HERMES_SYNC_AGENT` 改成目标 agent；manifest 的 sha256
   必须对**实际发货字节**计算（否则客户端校验失败）。可分发 agent 白名单 `PUBLIC_AGENTS`
-  （hermes / workbuddy / reasonix 已端到端验证；其余在注册表中但分发与帮助页下线）。
+  （hermes / workbuddy / reasonix / opencode / openclaw 已端到端验证并上线帮助页分发；
+  deepseek-harness 在注册表中但分发与帮助页未启用）。
 - 客户端（`mcp/updater.py`）：manifest 比对版本 → 下载 → 按 manifest 逐文件 sha256 校验 →
   备份后原子替换、删除不再分发的文件；版本写入 `.hermes-sync-version`；**重启后生效**
   （日志 + 宿主通知）。启动 60s 后首次检查、之后每小时（避开宿主启动峰值）；独立更新锁。
@@ -506,8 +519,10 @@ GET  /api/admin/workspaces      # 所有 workspace（元数据，不含会话/�
 GET  /                             # 根路径：未登录 → 落地页；已登录 → 跳转 /web/
 GET  /web/                      # 信息概览
 GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：搜索/工作空间/Agent 筛选/分页）
+GET  /web/search?q=&page=       # 全局搜索（跨工作空间全文搜索，会话/消息双路命中；?focus=<mid> 定位到具体消息）
 GET  /web/login                 # 登录页面
-GET  /web/register              # 注册页面（邀请码可选，支持 ?code= 预填）
+GET  /web/captcha/new           # 注册验证码（自托管数学题 SVG，进程内一次性挑战）
+GET  /web/register              # 注册页面（自建数学验证码，邀请码可选，支持 ?code= 预填）
 GET  /web/logout                # 登出
 GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
 POST /web/change-password       # 修改密码
@@ -528,14 +543,20 @@ GET  /web/workspace/{id}/trash                        # 会话回收站（已删
 GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删除消息，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
+POST /web/workspace/{id}/session/{sid}/messages/unhide-all    # 从回收站批量恢复该会话全部消息
 GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
+GET  /web/feedback                             # 问题反馈列表（管理员看全部，普通用户只看自己的）
+POST /web/feedback/submit                      # 提交反馈（bug / feature / other）
+POST /web/feedback/{fid}/resolve               # 切换反馈解决状态（管理员）
 GET  /web/admin/users                             # 用户管理
 POST /web/admin/user/create                       # 创建用户
 GET  /web/admin/user/{uid}/edit                   # 编辑用户
 POST /web/admin/user/{uid}/edit                   # 提交用户编辑（显示名/密码/管理员）
 GET  /web/admin/user/{uid}/toggle                 # 启用/禁用用户
 GET  /web/admin/workspaces                        # 所有空间管理（元数据与开关，不含会话内容）
+GET  /web/admin/access                            # 访问统计（每日 domain/IP 渠道 × web/api 计数）
+GET  /web/admin/access/devices                    # 设备访问明细（按设备/agent 聚合，含 client_version）
 GET  /web/invites                                 # 邀请管理（所有登录用户；/web/admin/invites 旧入口 303 跳转至此）
 POST /web/invite/create                     # 创建邀请码（有效期/备注/授予套餐）
 POST /web/invite/{id}/revoke                # 撤销邀请码
