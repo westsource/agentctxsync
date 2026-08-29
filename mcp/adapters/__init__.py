@@ -32,7 +32,6 @@ _ADAPTER_MODULES = {
     "reasonix": "reasonix",
     "openclaw": "openclaw",
     "workbuddy": "workbuddy",
-    "pi": "pi",
     "omp": "omp",
 }
 

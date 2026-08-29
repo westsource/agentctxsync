@@ -528,7 +528,7 @@ User (admin / user)
   `tool` 角色 + `tool_name`/`tool_call_id`（Web 折叠卡片渲染）；`developer` 角色归入
   `system`；标题从 `session_index.jsonl` 回填。
 - **时间戳消歧 `_unique_ts`**：同毫秒大量条目 → 同三元组会在拉推往返静默塌缩；碰撞
-  时间戳确定性 +1ms 上调至空闲（同文件恒等映射）。**新 JSONL 类适配器（pi/omp）必读**。
+  时间戳确定性 +1ms 上调至空闲（同文件恒等映射）。**新 JSONL 类适配器（omp）必读**。
 - **外来会话 id 映射**：harness 桌面 backfill 只索引 UUID 形 rollout id——非 UUID 外来
   id（如 hermes 时间戳 id）写为映射 UUID（`.hermes-sync-idmap.json` 持久化，重拉复用
   同一本地 id 保持去重稳定）；UUID 形外来 id（workbuddy）直通。
@@ -635,17 +635,17 @@ User (admin / user)
      首个现有会话的 user_id → 兜底 `hermes-sync`。
 
 
-## pi / oh-my-pi 接入方案（调研与决策记录 2026.08.28.1）
+## oh-my-pi 接入方案（调研与决策记录 2026.08.28；pi 已随 2026-08-29 移除）
 
-> 状态：**已实现（2026.08.28）**——适配器 `mcp/adapters/pi.py`（PiAdapter + OmpAdapter，
-> `_ADAPTER_MODULES` 注册 `pi`/`omp` 指向同一模块，工厂按 `HERMES_SYNC_AGENT` 选择实例）、
-> 服务端注册（`server/agents.py` 帮助页条目 + `PUBLIC_AGENTS` 分发白名单）、页面（landing
-> 胶囊、全部会话/工作空间 agent 过滤、徽标颜色）与测试（`mcp/tests/test_pi.py`，11 用例 +
-> 本机真实 omp 库冒烟）。以下为原始调研与设计，仍具参考价值。结论先行：pi 与 omp 可以低成本接入，且
-> **一个适配器即可覆盖两者**——omp 是 pi 的 fork，会话存储同源同构（同一 JSONL 事件格式、
-> 同一目录编码、同一文件命名），差异只在数据根目录与少量增量扩展字段。服务端**聊天级特性
-> 可完整承载（零改动）**；pi/omp 特有的树/分支/压缩结构语义只能降级为线性视图 + `meta`
-> 原样保存，要「完整」渲染需另行扩展服务端（见文末）。
+> 状态：**已实现（2026.08.28）**——适配器 `mcp/adapters/omp.py`（OmpAdapter，
+> `_ADAPTER_MODULES` 注册 `omp`）、服务端注册（`server/agents.py` 帮助页条目 +
+> `PUBLIC_AGENTS` 分发白名单）、页面（landing 胶囊、全部会话/工作空间 agent 过滤、徽标
+> 颜色）与测试（`mcp/tests/test_omp.py`）。
+> **2026-08-29：pi 支持已移除，仅保留 omp（Oh My Pi）。** 以下为原始调研与设计，仍具参考
+> 价值。结论先行：omp 可以低成本接入；会话存储与 pi（其上游 fork）同源同构（同一 JSONL
+> 事件格式、同一目录编码、同一文件命名），服务端**聊天级特性可完整承载（零改动）**；
+> omp 特有的树/分支/压缩结构语义只能降级为线性视图 + `meta` 原样保存，要「完整」渲染需
+> 另行扩展服务端（见文末）。
 
 ### 调研事实：pi / oh-my-pi 的本地存储
 
@@ -719,10 +719,10 @@ User (admin / user)
    `(role, 同一毫秒)` → 三元组去重折叠丢失。必须对碰撞时间戳做确定性 +1ms 修补
    （复用 `deepseek_harness.py::_unique_ts` 模式）。
 
-### 适配器实现方案（mcp/adapters/pi.py，一个适配器覆盖 pi + omp）
+### 适配器实现方案（mcp/adapters/omp.py）
 
-- **注册**：`_ADAPTER_MODULES` 注册 `"pi"` / `"omp"` 指向同一模块（惰性加载已支持）；
-  canonical id 用**裸 id**（uuidv7 直通），归属走 `agent_type` 列（pi / omp）——与现行
+- **注册**：`_ADAPTER_MODULES` 注册 `"omp"`（惰性加载已支持）；
+  canonical id 用**裸 id**（uuidv7 直通），归属走 `agent_type` 列（omp）——与现行
   裸 id 方案、hermes 多档案同思路；`AGENT_PREFIXES` 无需新增（该表仅用于识别历史前缀 id，
   见「会话身份与档案路由」）。
 - `discover()`：返回存在会话目录的根列表——pi 根与 omp 根各自独立适配器实例时各自返回；
@@ -742,7 +742,7 @@ User (admin / user)
 - **边界**：运行中的 pi/omp 实例正在写文件（条目不可变、append 安全，与 opencode 同模式）；
   omp 子代理会话与顶层会话同目录树（按需过滤或保留，`meta.subagent` 标记）；omp 的
   `agent.db` 注册表与本适配器无关（直接读文件）。
-- **测试**：`mcp/tests/test_pi.py` fixture 造 pi 格式 + omp 扩展格式（title 首记录、
+- **测试**：`mcp/tests/test_omp.py` fixture 造 pi 格式 + omp 扩展格式（title 首记录、
   model_change 差异、compaction、分支 parentId）各 2~3 个样例，覆盖往返、幂等、前缀、
   时间戳消歧（复用 deepseek_harness 测试模式）。
 
