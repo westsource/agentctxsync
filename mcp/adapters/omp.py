@@ -92,7 +92,7 @@ def _encode_dir_name(cwd: str) -> str:
     if tmp_rel is not None:
         return _encode_relative("-tmp", tmp_rel)
     stripped = re.sub(r"^[/\\]", "", resolved)
-    return f"--{re.sub(r'[/\\:]', '-', stripped)}--"
+    return "--" + re.sub(r"[/\\:]", "-", stripped) + "--"
 
 
 def _encode_relative(prefix: str, relative: str) -> str:
