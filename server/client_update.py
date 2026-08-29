@@ -22,15 +22,13 @@ router = APIRouter()
 # opencode have been validated end-to-end (auto-start, pull, push dedupe,
 # titles). openclaw was validated 2026-08 against the real gateway store
 # (sessions.json + jsonl transcripts) and ships the standalone auto-sync.py
-# because OpenClaw spawns MCP servers lazily. pi/omp (2026.08.28) share one
-# JSONL v3 session format (pi = earendil-works/pi, omp = its fork
-# can1357/oh-my-pi); both validated via fixture round-trip tests
-# (mcp/tests/test_pi.py). The other agent adapters stay in AGENTS (registry)
-# for development, but their MCP client distribution and help-page onboarding
-# are taken offline until validated. Re-enable an agent by adding its key
-# here.
+# because OpenClaw spawns MCP servers lazily. omp (Oh My Pi, fork of pi) uses
+# a JSONL v3 session format and was validated via fixture round-trip tests.
+# The other agent adapters stay in AGENTS (registry) for development, but
+# their MCP client distribution and help-page onboarding are taken offline
+# until validated. Re-enable an agent by adding its key here.
 PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw",
-                 "pi", "omp")
+                 "omp")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)

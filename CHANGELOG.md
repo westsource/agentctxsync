@@ -1,4 +1,10 @@
-# Changelog
+## [2026.08.29] - 2026-08-29
+
+### Removed（pi 支持）
+- **移除 Agent Pi**（earendil-works/pi）：删除 `mcp/adapters/pi.py` 与其注册，`AGENTS` 注册表、
+  agent 过滤白名单、落地页/徽标颜色、README/翻译/文档中的 Pi 与 `pi` 一并移除。
+- **保留 Oh My Pi（omp）**：适配器为 `mcp/adapters/omp.py`，测试 `mcp/tests/test_pi.py` 改为
+  `mcp/tests/test_omp.py`（针对真实 omp 适配器的读写/幂等/外来 id/状态用例）。
 
 ## [2026.08.28.1] - 2026-08-28
 

@@ -78,7 +78,6 @@ AGENT_PREFIXES = {
     "reasonix": "reasonix:",
     "openclaw": "openclaw:",
     "workbuddy": "workbuddy:",
-    "pi": None,
     "omp": None,
 }
 
