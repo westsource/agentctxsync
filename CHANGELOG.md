@@ -1,3 +1,16 @@
+## [2026.09.05] - 2026-09-05
+
+### Fixed（mcp 客户端多实例加固）
+- **写工具与后台周期同步共用跨进程锁**：`sync_full`/`sync_pull`/`sync_push`/`project_push`/
+  `project_pull`（含 `hermes_sync_*` 别名）执行时统一抢占与后台循环相同的锁文件；等待预算默认
+  20s（`HERMES_SYNC_TOOL_LOCK_WAIT_S` 可调），超时返回 busy 提示而非与另一实例并发写库。
+- **standby 角色**：启动（+8s）抢锁失败的副本整生命周期只应答工具、不再每周期空转抢锁；
+  故障切换依赖宿主重新拉起副本时的新启动竞争（陈旧锁由 `_pid_alive` 自动偷取）。
+- **角色日志**：启动打印 `PID`/锁文件/等待预算，8s 后打印 `Primary (pid N)` 或
+  `Standby (pid N)`，mcp-stderr 可区分谁在跑后台同步；修复启动早期误报 standby 的时序问题。
+- **测试**：新增 12 个锁/角色单测（互斥/陈旧锁偷取/外部持锁 busy/同进程等待/门控），mcp 套件 125 项全绿。
+- 客户端版本 bump 至 `2026.09.05.1`（`mcp/updater.py` + `server/client_update.py`）。
+
 ## [2026.08.29] - 2026-08-29
 
 ### Removed（pi 支持）

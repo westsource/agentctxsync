@@ -24,7 +24,7 @@ import zipfile
 from pathlib import Path
 
 # Keep in sync with CLIENT_VERSION in server/client_update.py when releasing.
-CLIENT_VERSION = "2026.08.29.1"
+CLIENT_VERSION = "2026.09.05.1"
 
 VERSION_FILE_NAME = ".hermes-sync-version"
 
