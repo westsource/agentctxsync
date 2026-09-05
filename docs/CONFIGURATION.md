@@ -23,6 +23,7 @@ Reference for the environment variables used by the server and the local MCP cli
 | `HERMES_SYNC_AUTO_SYNC` | `1` | Background auto-sync switch (`0` disables; manual tool calls still work) |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | Client auto-update switch (`0` disables) |
 | `HERMES_SYNC_UPDATE_INTERVAL` | `3600` | Update check interval (seconds, default 1 hour) |
+| `HERMES_SYNC_TOOL_LOCK_WAIT_S` | `20` | Seconds a mutating sync tool waits for the cross-process sync lock before returning a "busy" hint (lock shared with the background cycle and across client copies) |
 
 ## Server vs client address priority
 

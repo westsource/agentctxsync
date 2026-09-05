@@ -148,11 +148,14 @@ The full tool list lives in the README; details of the background engine:
 
 **Root cause**: the SQLite 3.50.4 bundled with Hermes has a WAL-reset corruption bug (see the `hermes doctor` / errors.log warnings), so Hermes forcibly falls back to `journal_mode=DELETE` — in that mode **any write transaction blocks concurrent readers**. The MCP client's background sync (startup pull, periodic sync) writes directly to Hermes' `state.db`; while it holds the write lock, Hermes' own `session.resume` (reading `state.db`) keeps waiting and errors out after the desktop's 30-second RPC timeout (shown as `database is locked` in errors.log).
 
+**Hermes 0.21+ note**: after upgrading Hermes 0.20 → 0.21 the same `request timed out after 30s: session.resume` symptom can appear while hermes' own logs show **no** `database is locked` — the sync client is then not the blocker (its state.db writes are tiny and fail fast). Check the hermes backend logs for `event loop stalled … (GIL pressure)` / `ws write slow` and the desktop log for `Timed out connecting to Hermes backend after 60000ms`: the stall is inside Hermes itself, not sync lock contention.
+
 **Mitigations already in place in this client**:
 - The SQLite write connection's `busy_timeout` is shortened to 5 seconds: if the lock can't be acquired it fails immediately and defers to the next sync cycle — it never holds or waits on a lock for long
 - The startup auto-pull is delayed by 8 seconds to avoid the read peak of Hermes startup and session resume
 - Background pulls are **incremental** (local `.hermes-sync-watermark` watermark + 5-minute tolerance) instead of a full rescan every time
 - New `HERMES_SYNC_AUTO_SYNC=0` fully disables background auto-sync (manual tool calls still work), completely eliminating lock contention with Hermes
+- Mutating sync tools also take the cross-process lock (`HERMES_SYNC_TOOL_LOCK_WAIT_S`, default 20s): a manual tool call never writes concurrently with a background cycle or with another client copy
 
 **Recommendation (root fix)**: run `hermes update` to upgrade Hermes' bundled SQLite to 3.51.3+ (or `hermes doctor` to repair the embedded runtime); once WAL concurrency is restored, reads and writes no longer block each other and the mitigations above are no longer needed.
 
@@ -161,7 +164,7 @@ The full tool list lives in the README; details of the background engine:
 | Symptom | Cause | Resolution |
 |------|------|------|
 | Sync won't push (server `total_sessions` doesn't grow) | The old server returns 500 for columns added in Hermes 0.20 (e.g. `system_prompt_hash`) | Upgrade the server to a version with column filtering; the client recovers automatically next cycle |
-| `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite lock contention (see previous section) | Upgrade SQLite or set `HERMES_SYNC_AUTO_SYNC=0` |
+| `request timed out after 30s: session.resume/create` | Hermes 0.20 SQLite lock contention (see previous section); on Hermes ≥0.21 with **no** `database is locked` in hermes logs the cause is hermes backend stalls, not sync | Upgrade SQLite or set `HERMES_SYNC_AUTO_SYNC=0`; on 0.21 check hermes backend/desktop logs for event-loop stalls (see note above) |
 | Sync fails with `UNIQUE constraint failed: sessions.title` | Hermes 0.20+ enforces a partial unique index on `sessions.title` (`WHERE title IS NOT NULL`); sessions in the shared pool can carry the same auto-generated title | Client now disambiguates colliding titles with a ` (N)` suffix on pull (mirroring the desktop app); update the client |
 | Authentication failure after registering the downloaded package | `<YOUR_API_KEY>` was not replaced with a real Key | Copy the Key for the corresponding workspace from the onboarding help page |
 | Server session/message count keeps growing for reasonix sessions | The reasonix desktop normalizes local transcripts (strips timestamps, prepends its system prompt), so the `(role, timestamp)` dedupe triple no longer matches and every periodic push re-inserts the same messages | Server-side content-level dedupe now covers reasonix (same treatment as hermes' message-alternation repair); update the server |
