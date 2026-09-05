@@ -27,7 +27,7 @@
 |  |  |  mcp_servers:          |    |  * bootstrap push (首次配对)      |    |  |
 |  |  |    hermes-sync:        |    |  * periodic sync (5min)          |    |  |
 |  |  |      env:              |    |  * auto-update (24h, 校验+替换)   |    |  |
-|  |  |        HERMES_SYNC_... |    |  * 单写者锁/更新锁 (双实例安全)    |    |  |
+|  |  |        HERMES_SYNC_... |    |  * 锁+主备角色 (多副本安全)       |    |  |
 |  |  +------------------------+    +--------------+-------------------+    |  |
 |  |  +------------------------+                   |                        |  |
 |  |  |  .hermes-sync-watermark| (增量拉取水位线)   | HTTP/8765              |  |
@@ -132,7 +132,7 @@
 
 | 模块 | 职责 |
 |------|------|
-| `server.py` | MCP 入口：工具面（`sync_*` + `hermes_sync_*` 别名）、后台任务（启动拉取 / 周期同步 / 自动更新）、单写者锁、pull 分页与重试、API 调用与配额错误翻译；兼容 mcp SDK v1/v2 |
+| `server.py` | MCP 入口：工具面（`sync_*` + `hermes_sync_*` 别名）、后台任务（启动拉取 / 周期同步 / 自动更新）、单写者锁（后台循环 + 写工具，主/备角色）、pull 分页与重试、API 调用与配额错误翻译；兼容 mcp SDK v1/v2 |
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
@@ -145,7 +145,7 @@
 - **目录布局**：
   ```
   mcp/
-  ├── server.py            # MCP 入口：工具面 + 后台任务 + 单写者锁
+  ├── server.py            # MCP 入口：工具面 + 后台任务 + 单写者锁（含主/备角色）
   ├── updater.py           # 自动更新：manifest 比对、zip 校验、原子替换
   ├── auto-sync.py          # OpenClaw 常驻同步循环（独立进程，见 openclaw 节）
   ├── run.bat / run.sh     # 本地运行入口（按 HERMES_SYNC_AGENT 选择适配器）
@@ -169,8 +169,9 @@
   agent 冲突；去重键统一为 `(session_id, role, timestamp)` 三元组（客户端与服务端同规则，
   详见「消息身份与幂等去重」）。
 - **后台任务**（`server.py`）：启动 8s 增量拉取 → bootstrap push（首次配对）→ 每 300s
-  周期同步（push → pull → projects push/pull）→ 自动更新（启动 60s 后、每小时）；单写者锁 +
-  更新锁（双实例安全），详见「增量同步与水位线」与「客户端自动更新」。
+  周期同步（push → pull → projects push/pull）→ 自动更新（启动 60s 后、每小时）；单写者锁
+  （后台循环 + 写工具共用）+ 更新锁，多副本时仅启动赢家（主）跑后台同步、其余 standby 只应答
+  工具，详见「增量同步与水位线」「客户端自动更新」及上文主/备角色段。
 - **OpenClaw 常驻同步**（`mcp/auto-sync.py`）：OpenClaw 惰性拉起 MCP server（仅当 agent
   调用工具时），进程内 `HERMES_SYNC_AUTO_SYNC=1` 不会自行触发——独立循环进程按固定间隔
   （默认 300s、最小 60s）跑同一 `server.full_sync`（pull→push、字段级合并、水位线+去重），
