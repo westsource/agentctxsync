@@ -68,6 +68,8 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 
 ![会话查看器 — Markdown 渲染与代码块](docs/screenshots/05-session-viewer.png)
 
+![同一会话池多端一致 — Web 端、Hermes 与 Oh My Pi 显示同一组会话](docs/screenshots/06-multi-agent-one-session-list.png)
+
 ## 快速开始
 
 > 下面所有 `<SERVER_IP>` 都是占位符——请替换为你实际部署的地址。

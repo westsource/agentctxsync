@@ -68,6 +68,8 @@ Each Agent deploys its own client and points at the same Workspace, and they syn
 
 ![Session viewer — Markdown rendering with code blocks](docs/screenshots/05-session-viewer.png)
 
+![One session pool across clients — the same sessions in the web UI, Hermes and Oh My Pi](docs/screenshots/06-multi-agent-one-session-list.png)
+
 ## Quick Start
 
 > All `<SERVER_IP>` below are placeholders — replace them with the address of your actual deployment.
