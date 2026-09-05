@@ -128,6 +128,83 @@ def _release_lock(lock_path: Path | None = None):
     except OSError:
         pass
 
+# ---------------------------------------------------------------------------
+# Instance role + tool-call locking
+#
+# Hermes spawns one copy of this MCP server per serve instance / profile /
+# host. The lockfile above already serializes BACKGROUND sync between the
+# copies (one winner per cycle). These helpers extend the same lock to
+# EXPLICIT tool calls (previously unguarded, so two copies could mutate the
+# store at once) and make each copy's role visible in mcp-stderr so ops can
+# tell which process is doing the work.
+# ---------------------------------------------------------------------------
+
+#: Runtime role of THIS copy. "primary" = won the startup lock and runs the
+#: background sync loops; "standby" = another copy runs them (tools still
+#: served, so a standby must not exit). Never persisted: every process start
+#: re-runs the startup race.
+_role = "starting"
+
+#: How long a mutating tool call waits for the cross-process sync lock before
+#: refusing with a busy hint. Background cycles finish in seconds; 20s covers
+#: a slow full resync without hanging the caller.
+TOOL_LOCK_WAIT_S = float(os.environ.get("HERMES_SYNC_TOOL_LOCK_WAIT_S", "20"))
+TOOL_LOCK_POLL_S = 0.5
+
+
+def _lock_holder_pid(lock_path: Path | None = None) -> int | None:
+    """PID currently recorded in the lock file, or None when absent/empty."""
+    lock_path = lock_path or LOCK_FILE
+    try:
+        return int(lock_path.read_text().strip())
+    except Exception:
+        return None
+
+
+async def _acquire_tool_lock() -> bool:
+    """Bounded exclusive access to the sync lock for ONE mutating tool call.
+
+    Serializes against (a) this process's own background cycle (the lock file
+    then holds our pid) and (b) other server copies (a live foreign pid).
+    Returns True when the caller now owns the lock — it MUST be released with
+    ``_release_lock()``. Returns False once the wait budget (TOOL_LOCK_WAIT_S)
+    elapses without the lock becoming free.
+    """
+    deadline = asyncio.get_event_loop().time() + TOOL_LOCK_WAIT_S
+    warned = False
+    while True:
+        # Attempt every iteration: _try_acquire_lock steals a stale lockfile
+        # (dead holder) and fails fast on a live one (our own background
+        # cycle or another copy).
+        if _try_acquire_lock():
+            return True
+        holder = _lock_holder_pid()
+        if holder is not None and holder != os.getpid() and not warned:
+            warned = True
+            log(f"Sync tool waiting for the sync lock (held by pid {holder})...")
+        if asyncio.get_event_loop().time() >= deadline:
+            return False
+        await asyncio.sleep(TOOL_LOCK_POLL_S)
+
+
+async def _locked_tool(loop, fn):
+    """Run blocking ``fn`` under the cross-process sync lock.
+
+    Returns fn's result, or a busy dict when the lock could not be obtained
+    in time (another copy or the background cycle is mid-sync).
+    """
+    if not await _acquire_tool_lock():
+        holder = _lock_holder_pid()
+        detail = "另一个实例或后台同步正在进行，请稍后重试"
+        if holder:
+            detail += f"（当前持有者 pid {holder}）"
+        return {"error": "sync_busy", "detail": detail + "。"}
+    try:
+        return await loop.run_in_executor(None, fn)
+    finally:
+        _release_lock()
+
+
 class _SyncServer(Server):
     """MCP server that keeps a handle on the active session so background
     sync tasks can push log notifications (notifications/message) to the
@@ -856,21 +933,21 @@ async def _dispatch_tool(name: str, arguments: dict) -> str:
         full = bool(arguments.get("full", False))
         if limit is None:
             limit = None if full else 50
-        result = await loop.run_in_executor(
-            None, lambda: pull_sessions(last_sync_at=0 if full else None,
+        result = await _locked_tool(
+            loop, lambda: pull_sessions(last_sync_at=0 if full else None,
                                         limit=limit))
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_push":
-        result = await loop.run_in_executor(None, push_sessions)
+        result = await _locked_tool(loop, push_sessions)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_full":
-        result = await loop.run_in_executor(None, full_sync)
+        result = await _locked_tool(loop, full_sync)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "project_push":
-        result = await loop.run_in_executor(None, push_projects)
+        result = await _locked_tool(loop, push_projects)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "project_pull":
-        result = await loop.run_in_executor(None, pull_projects)
+        result = await _locked_tool(loop, pull_projects)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -903,8 +980,22 @@ else:
         return [TextContent(type="text", text=text)]
 
 async def periodic_sync():
+    global _role
     if not AUTO_SYNC:
         log("Background periodic sync disabled (HERMES_SYNC_AUTO_SYNC=0)")
+        return
+    # Wait for the startup task (runs at +8s) to resolve this copy's role:
+    # until then _role is still "starting" and the gate below would misfire.
+    # Startup always sets primary/standby when AUTO_SYNC is on.
+    while _role == "starting":
+        await asyncio.sleep(1)
+    # Background sync is the STARTUP winner's job alone. A copy that lost the
+    # startup race stays standby for its whole life: waking every cycle to
+    # re-lose would only add log noise and useless retries. Failover happens
+    # naturally when the host respawns a copy after the primary died — the
+    # fresh startup race steals the stale lockfile via _try_acquire_lock.
+    if _role != "primary":
+        log(f"Periodic sync disabled: standby instance (pid {os.getpid()})")
         return
     while True:
         await asyncio.sleep(SYNC_INTERVAL)
@@ -939,16 +1030,22 @@ async def periodic_sync():
             _release_lock()
 
 async def background_startup_sync():
+    global _role
     if not AUTO_SYNC:
         log("Background startup sync disabled (HERMES_SYNC_AUTO_SYNC=0)")
         return
     # Delay the first sync so the host agent's own startup/read burst (e.g.
     # Hermes session.resume) has finished before we take SQLite locks.
     await asyncio.sleep(8)
-    log(f"Starting, auto-syncing from {SYNC_SERVER} (agent: {adapter.agent_type})...")
     if not _try_acquire_lock():
-        log("Initial sync skipped: another server process holds the lock")
+        _role = "standby"
+        holder = _lock_holder_pid()
+        log(f"Standby (pid {os.getpid()}): another server process "
+            f"(pid {holder}) runs background sync; tools still served")
         return
+    _role = "primary"
+    log(f"Primary (pid {os.getpid()}): starting auto-sync from {SYNC_SERVER} "
+        f"(agent: {adapter.agent_type})...")
     try:
         loop = asyncio.get_event_loop()
         # pull first, then push (matches periodic full_sync). The pull
@@ -1032,6 +1129,8 @@ async def main():
     asyncio.create_task(background_update_check())
     log(f"Device: {DEVICE_ID}")
     log(f"Agent: {adapter.agent_type} (local store: {adapter.discover()})")
+    log(f"PID: {os.getpid()} (sync lock: {LOCK_FILE.name}, "
+        f"tool lock wait: {TOOL_LOCK_WAIT_S:.0f}s)")
     log(f"Periodic sync enabled: every {SYNC_INTERVAL}s ({SYNC_INTERVAL//60}min)")
     log(f"Client version: {updater.local_version(VERSION_FILE)} "
         f"(auto-update: {'on' if AUTO_UPDATE else 'off'}, "
