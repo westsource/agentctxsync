@@ -6,6 +6,7 @@ full sync (a full resync pulls/pushes every session on the server).
 """
 
 import asyncio
+import os
 import sys
 import tempfile
 import unittest
@@ -326,6 +327,96 @@ class ProjectFieldMergeTest(unittest.TestCase):
         server._anchor_push_project_meta(meta, chunk, revs)
         self.assertEqual(meta,
                          {"p1": {"name": {"base": 7, "val": "新名"}}})
+
+
+class SyncLockAndRoleTest(unittest.TestCase):
+    """Cross-process sync lock extended to mutating tool calls, and the
+    startup-loser standby role (see the helpers above _SyncServer)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        lock = Path(self.tmp.name) / "hermes-sync.lock"
+        self._orig = (server.LOCK_FILE, server.TOOL_LOCK_WAIT_S,
+                      server.TOOL_LOCK_POLL_S, server._role,
+                      server.AUTO_SYNC)
+        server.LOCK_FILE = lock
+        server.TOOL_LOCK_WAIT_S = 0.3
+        server.TOOL_LOCK_POLL_S = 0.02
+        server._role = "starting"
+        server.AUTO_SYNC = True
+
+    def tearDown(self):
+        (server.LOCK_FILE, server.TOOL_LOCK_WAIT_S, server.TOOL_LOCK_POLL_S,
+         server._role, server.AUTO_SYNC) = self._orig
+
+    @staticmethod
+    def _run(coro):
+        return asyncio.run(coro)
+
+    def test_acquire_release_roundtrip(self):
+        self.assertTrue(self._run(server._acquire_tool_lock()))
+        self.assertEqual(server._lock_holder_pid(), os.getpid())
+        server._release_lock()
+        self.assertIsNone(server._lock_holder_pid())
+
+    def test_stale_lock_stolen(self):
+        # os.kill(pid, 0) liveness checks are platform-dependent; patch the
+        # probe so the test asserts the steal logic, not Windows semantics.
+        server.LOCK_FILE.write_text("424242")
+        with mock.patch.object(server, "_pid_alive", return_value=False):
+            self.assertTrue(self._run(server._acquire_tool_lock()))
+        self.assertEqual(server._lock_holder_pid(), os.getpid())
+        server._release_lock()
+
+    def test_foreign_live_holder_busy_after_wait(self):
+        async def go():
+            loop = asyncio.get_event_loop()
+            server.LOCK_FILE.write_text(str(os.getppid()))
+            out = await server._locked_tool(loop, lambda: "ran")
+            return out
+
+        out = self._run(go())
+        self.assertEqual(out.get("error"), "sync_busy")
+        self.assertNotEqual(out.get("detail"), "ran")
+        # foreign holder untouched; nothing leaked into the file
+        self.assertEqual(server._lock_holder_pid(), os.getppid())
+
+    def test_locked_tool_runs_and_releases(self):
+        async def go():
+            loop = asyncio.get_event_loop()
+            out = await server._locked_tool(loop, lambda: {"done": 1})
+            return out, server._lock_holder_pid()
+
+        out, holder_after = self._run(go())
+        self.assertEqual(out, {"done": 1})
+        self.assertIsNone(holder_after)
+
+    def test_own_cycle_waits_then_runs(self):
+        # Lock file holds OUR pid (background cycle in progress): the tool
+        # must wait for the cycle to release, then acquire and run.
+        async def go():
+            loop = asyncio.get_event_loop()
+            server.LOCK_FILE.write_text(str(os.getpid()))
+
+            async def release_later():
+                await asyncio.sleep(0.05)
+                server._release_lock()
+
+            asyncio.get_event_loop().create_task(release_later())
+            out = await server._locked_tool(loop, lambda: {"done": 2})
+            return out
+
+        self.assertEqual(self._run(go()), {"done": 2})
+
+    def test_periodic_sync_standby_returns_immediately(self):
+        server._role = "standby"
+        # would loop forever as primary; standby must return at once
+        self._run(server.periodic_sync())
+
+    def test_periodic_sync_disabled_flag_returns_immediately(self):
+        server.AUTO_SYNC = False
+        self._run(server.periodic_sync())
 
 
 if __name__ == "__main__":
