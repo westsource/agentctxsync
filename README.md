@@ -112,7 +112,7 @@ export HERMES_SYNC_API_KEY=ws_yourkeyhere
 bash scripts/deploy-local-mcp.sh
 ```
 
-Each Agent deploys its own instance (one `HERMES_SYNC_AGENT` value + independent lock files); point them all at the same Workspace API Key and they sync with each other. Client behavior: one incremental pull ~8s after startup (pushing local data as a bootstrap on first pairing), then auto-sync every 300 seconds (`HERMES_SYNC_INTERVAL`).
+Each Agent deploys its own instance (one `HERMES_SYNC_AGENT` value + independent lock files); point them all at the same Workspace API Key and they sync with each other. Client behavior: one incremental pull ~8s after startup (pushing local data as a bootstrap on first pairing), then auto-sync every 300 seconds (`HERMES_SYNC_INTERVAL`). When several copies of the same agent client run on one machine (Hermes spawns one per serve instance/profile), only the startup winner (`Primary`) runs background sync; the others serve tools only (`Standby` — role + pid appear in mcp-stderr). Mutating sync tools (`sync_full`/`sync_pull`/`sync_push`/`project_push`/`project_pull`) take the same cross-process lock as the background cycle: a busy copy returns a "sync busy" hint after `HERMES_SYNC_TOOL_LOCK_WAIT_S` (default 20s) instead of writing concurrently.
 
 ## Sync Tools
 

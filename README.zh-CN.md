@@ -112,7 +112,7 @@ export HERMES_SYNC_API_KEY=ws_yourkeyhere
 bash scripts/deploy-local-mcp.sh
 ```
 
-每个 Agent 各自部署一个实例（一个 `HERMES_SYNC_AGENT` 值 + 独立锁文件）；将它们都指向同一 Workspace API Key 即可相互同步。客户端行为：启动约 8 秒后做一次增量拉取（首次配对时自动上传本地数据作为 bootstrap），之后每 300 秒自动同步（`HERMES_SYNC_INTERVAL`）。
+每个 Agent 各自部署一个实例（一个 `HERMES_SYNC_AGENT` 值 + 独立锁文件）；将它们都指向同一 Workspace API Key 即可相互同步。客户端行为：启动约 8 秒后做一次增量拉取（首次配对时自动上传本地数据作为 bootstrap），之后每 300 秒自动同步（`HERMES_SYNC_INTERVAL`）。同一台机器上同一 Agent 客户端有多份副本时（Hermes 按 serve 实例/profile 各拉一份），只有启动抢锁成功的副本（`Primary`）跑后台同步，其余只应答工具（`Standby`——角色与 pid 见 mcp-stderr）。写工具（`sync_full`/`sync_pull`/`sync_push`/`project_push`/`project_pull`）与后台周期共用同一跨进程锁：锁被占用时等待 `HERMES_SYNC_TOOL_LOCK_WAIT_S`（默认 20s）后返回 busy 提示，而非并发写库。
 
 ## 同步工具
 
