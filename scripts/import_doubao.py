@@ -3,7 +3,7 @@
 Doubao (豆包) session importer for Agent Context Sync.
 
 Doubao stores sessions in the cloud (doubao.com / App / Electron desktop),
-with NO stable local session store comparable to codex / hermes / workbuddy,
+with NO stable local session store comparable to hermes / workbuddy,
 and no official API to pull personal chat history. So it can't be a normal
 local-store adapter. Instead this script turns *exported* Doubao content into
 canonical sessions (``doubao:`` prefix, ``agent_type="doubao"``) and pushes

@@ -26,7 +26,7 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 **边界情况需评估后才可能改动**：
 1. 新 agent 的消息类型超出通用渲染（如新的富媒体 part）→ 仅需 Web UI 增加
    meta 驱动的渲染分支，协议不变
-2. 本地存储加密（如历史 codex 前身的 XOR）→ 仅适配器内部加解密，外部不变
+2. 本地存储加密（如历史 codex 前身的 XOR；codex 引擎已移除，仅作参考）→ 仅适配器内部加解密，外部不变
 3. 未来需要"按 agent 隔离的 workspace 语义"（默认是共享会话池）→ 服务端
    `/pull` 增加 `agent` 过滤参数即可，schema 不变
 4. canonical 模型出现真正通用的新字段（如附件/图片）→ 在 `base.py` 演进字段
@@ -37,18 +37,21 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 
 复制 `mcp/adapters/_template.py` 前，先按下列清单确认新 agent 的本地存储：
 
+> 注：codex CLI 引擎（曾名 `deepseek_harness.py`/`codex.py`，存储 `~/.codex` rollout）已于 2026-09-06 移除并并入 dsh：
+> 存量 `agent_type='deepseek-harness'` 数据迁移为 `dsh`。示例列以当前 agent 为准（dsh = 官方 DeepSeek Harness）。
+
 | 调研项 | 为什么要查 | 已有案例 |
 |--------|-----------|----------|
-| 数据目录 | 可能受环境变量/XDG/APPDATA 影响 | deepseek-harness: `~/.codex/`（`CODEX_HOME` 可覆盖）；opencode: `$XDG_DATA_HOME/opencode/storage/`；reasonix: `%APPDATA%\reasonix\`；openclaw: `~/.openclaw/agents/<id>/` |
-| 文件格式与 schema | 决定继承 `SQLiteAdapter` 还是 `JSONLAdapter` 或手写 | hermes/deepseek-harness: SQLite/JSONL 各一例；opencode: JSON 文件（session/message/part 各一文件） |
-| session id 生成与位置 | canonical id 前缀 + 本地 id 提取 | deepseek-harness: 文件名中的 UUID；reasonix: 文件名主干；opencode: `ses_` 前缀 26 字符 |
-| 写入约束 | **最高风险点** | deepseek-harness: append-only + `.zst` 压缩 + `session_index.jsonl` 标题索引（backfill 后才进列表）；reasonix: append-only + 锁文件 + events 日志权威；opencode: `.tmp`+rename 原子替换 |
-| 加密/完整性校验 | 决定能否直接读写 | deepseek-harness（codex 前身）旧版曾有 XOR 加密；新版明文 |
-| 索引/回填机制 | 写入后 UI 能否立即看到 | deepseek-harness 靠 SQLite backfill；opencode 正在运行的实例有内存缓存（写前建议停实例） |
+| 数据目录 | 可能受环境变量/XDG/APPDATA 影响 | dsh: `~/.dsh/`（`DSH_HOME` 可覆盖）；opencode: `$XDG_DATA_HOME/opencode/storage/`；reasonix: `%APPDATA%\reasonix\`；openclaw: `~/.openclaw/agents/<id>/` |
+| 文件格式与 schema | 决定继承 `SQLiteAdapter` 还是 `JSONLAdapter` 或手写 | hermes: SQLite；dsh: JSONL v0 事件日志（逐行 zstd 帧，需 `zstandard`）；opencode: JSON 文件（session/message/part 各一文件） |
+| session id 生成与位置 | canonical id 前缀 + 本地 id 提取 | dsh: 目录名 `session-<uuid>`（外来 id 经 idmap）；reasonix: 文件名主干；opencode: `ses_` 前缀 26 字符 |
+| 写入约束 | **最高风险点** | dsh: append-only v0 事件日志（seq 连续、原子替换、cwd 漂移搬迁目录）；reasonix: append-only + 锁文件 + events 日志权威；opencode: `.tmp`+rename 原子替换 |
+| 加密/完整性校验 | 决定能否直接读写 | 历史 codex 前身旧版曾有 XOR 加密；现明文（引擎已移除） |
+| 索引/回填机制 | 写入后 UI 能否立即看到 | dsh: 投影缓存文档写入时折叠（列表标题即时）；opencode 正在运行的实例有内存缓存（写前建议停实例） |
 | 官方 API/MCP 桥 | 也许不用碰文件 | openclaw 提供 `mcp serve` 官方读写桥 |
 
-> 参考实现：`mcp/adapters/deepseek_harness.py`、`opencode.py`、`reasonix.py`、`openclaw.py`
-> 是每个写入约束场景的具体示例。
+> 参考实现：`mcp/adapters/dsh.py`、`omp.py`、`opencode.py`、
+> `reasonix.py`、`openclaw.py` 是每个写入约束场景的具体示例。
 
 ## 第 2 步：实现适配器
 
@@ -79,10 +82,10 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 
 1. 构造 fixture：按该 agent 真实格式造 2~3 个样例会话文件（不要依赖本机安装）
 2. 往返单测（参考 `mcp/tests/` 现有用例）：
-   - 读：fixture → `read_sessions()` → 断言 canonical 字段与 id 前缀
+   - 读：fixture → `read_sessions()` → 断言 canonical 字段与 id 形状/归属
    - 写：`write_sessions()` 注入 → 再 `read_sessions()` → 断言往返一致
    - 幂等：同一批 sessions 写两次 → 第二次 `duplicates > 0` 且 `new_messages == 0`
-   - 前缀：写入 `codex:` 前缀会话到本 adapter → 抛 `ValueError`（或按适配器语义拒绝）
+   - 前缀：写入 `codex:`（历史前缀，对应遗留数据）会话到本 adapter → 抛 `ValueError`（或按适配器语义拒绝）
 3. 交叉同步（可选但推荐）：A adapter 推 → 服务端 → B adapter 拉取落地
 
 ## 第 5 步：部署

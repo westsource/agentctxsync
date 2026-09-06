@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import agent_color %}
+{% from "_macros.html" import agent_color, agent_label %}
 {% block title %}{{ t.nav_search }} - Agent Context Sync{% endblock %}
 
 {% block content %}
@@ -57,7 +57,7 @@
           </div>
         </div>
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(s.agent_type) }}">
-          <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+          <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ agent_label(s.agent_type or 'hermes') }}
         </span>
       </a>
       {% endfor %}

@@ -426,8 +426,9 @@ class PushTest(unittest.TestCase):
 
     def test_inbound_legacy_prefixed_ids_normalized(self):
         # id-scheme upgrade inbound compat: old clients still push
-        # codex:<uuid> / magic:<bare> ids. The shim maps them to bare ids
-        # with agent_type/profile_name columns.
+        # codex:<uuid> / magic:<bare> ids (codex engine retired; legacy
+        # codex ids normalize to agent_type=dsh). The shim maps them to
+        # bare ids with agent_type/profile_name columns.
         sessions = [
             {"id": "codex:019fc071-fab4-7661-9a0b-2afaa65cbb31", "title": "c",
              "messages": [{"session_id": "codex:019fc071-fab4-7661-9a0b-2afaa65cbb31",
@@ -439,7 +440,7 @@ class PushTest(unittest.TestCase):
         self.assertEqual(resp["imported"], 3)
         rows = {r["id"]: r for r in insert_rows(cur, "sessions")}
         self.assertIn("019fc071-fab4-7661-9a0b-2afaa65cbb31", rows)
-        self.assertEqual(rows["019fc071-fab4-7661-9a0b-2afaa65cbb31"]["agent_type"], "deepseek-harness")
+        self.assertEqual(rows["019fc071-fab4-7661-9a0b-2afaa65cbb31"]["agent_type"], "dsh")
         self.assertEqual(rows["20260808_205157_c272fe"]["agent_type"], "hermes")
         self.assertEqual(rows["20260808_205157_c272fe"]["profile_name"], "magic")
         self.assertEqual(rows["20260808_180012_0c275f"]["agent_type"], "hermes")

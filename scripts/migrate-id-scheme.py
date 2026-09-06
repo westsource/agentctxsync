@@ -22,7 +22,7 @@ import sys
 
 # prefix -> agent (mirrors the server's inbound shim in server/sync.py)
 AGENT_ID_PREFIXES = {
-    "codex:": "codex", "opencode:": "opencode", "reasonix:": "reasonix",
+    "codex:": "dsh", "opencode:": "opencode", "reasonix:": "reasonix",
     "openclaw:": "openclaw", "workbuddy:": "workbuddy",
 }
 

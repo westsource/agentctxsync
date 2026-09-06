@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ ws.name }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% from "_macros.html" import agent_color %}
+{% from "_macros.html" import agent_color, agent_label %}
 {% set filter_q = 'agent=' ~ agent ~ '&sort=' ~ sort ~ '&dir=' ~ dir ~ '&q=' ~ (q|urlencode) %}
 <!-- Page header（03 工作空间详情样式）-->
 <div class="mb-5">
@@ -127,7 +127,7 @@
     </div>
     <!-- Agent 胶囊筛选 -->
     <div class="flex flex-wrap items-center justify-between gap-3 mt-3.5">
-      {% set agent_options = [('all', t.ws_agent_all), ('hermes', 'Hermes'), ('deepseek-harness', 'DeepSeek Harness'), ('opencode', 'OpenCode'), ('reasonix', 'Reasonix'), ('openclaw', 'OpenClaw'), ('omp', 'Oh My Pi')] %}
+      {% set agent_options = [('all', t.ws_agent_all), ('dsh', 'DeepSeek Harness'), ('hermes', 'Hermes'), ('opencode', 'OpenCode'), ('reasonix', 'Reasonix'), ('openclaw', 'OpenClaw'), ('workbuddy', 'WorkBuddy'), ('omp', 'Oh My Pi')] %}
       <div class="flex flex-wrap items-center gap-1.5">
         {% for val, label in agent_options %}
         <a href="/web/workspace/{{ ws.id }}?agent={{ val }}&sort={{ sort }}&dir={{ dir }}&q={{ q|urlencode }}"
@@ -197,7 +197,7 @@
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold {{ agent_color(s.agent_type) }}">
-            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ agent_label(s.agent_type or 'hermes') }}
           </span>
           <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 6.5C4 5.7 4.7 5 5.5 5H14.5C15.3 5 16 5.7 16 6.5V13C16 13.8 15.3 14.5 14.5 14.5H8.5L5.5 17V14.5H5.5C4.7 14.5 4 13.8 4 13V6.5Z"/></svg>
@@ -251,7 +251,7 @@
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold {{ agent_color(s.agent_type) }}">
-            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ s.agent_type or 'hermes' }}
+            <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ agent_label(s.agent_type or 'hermes') }}
           </span>
           <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#F6F5FA] text-gray-500">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M4 6.5C4 5.7 4.7 5 5.5 5H14.5C15.3 5 16 5.7 16 6.5V13C16 13.8 15.3 14.5 14.5 14.5H8.5L5.5 17V14.5H5.5C4.7 14.5 4 13.8 4 13V6.5Z"/></svg>

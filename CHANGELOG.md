@@ -1,3 +1,60 @@
+## [2026.09.06.2] - 2026-09-06
+
+### Changed（codex 引擎移除并并入 dsh）
+- **移除历史 codex 引擎**：`mcp/adapters/deepseek_harness.py`（更名 `codex.py` 后）与注册键
+  `deepseek-harness` 一并删除——codex CLI rollout 存储非本系统支持对象，引擎仅用于旧数据
+  兼容的阶段结束。
+- **存量数据迁移**：`agent_type='deepseek-harness'` 的历史会话迁移为 `agent_type='dsh'`
+  （官方 DeepSeek Harness）；入站遗留 `codex:` 前缀 id 归一目标同步改为 `dsh`。
+- 客户端 manifest 随之移除该适配器文件；版本 bump 至 `2026.09.06.2`。
+- 文档同步：ARCHITECTURE/ADDING_AGENT/SECURITY_AUDIT/server-deployment 的历史叙述改为
+  「引擎已移除、数据并入 dsh」。
+- **dsh 进入公开分发**：DSH Desktop 2.0.5 实机验证通过后加入 `PUBLIC_AGENTS`
+  （`server/client_update.py`），客户端 zip 分发与帮助页完整接入流程启用（见
+  `2026.09.06.1` 的 Fixed 实机验证项）。
+
+## [2026.09.06.1] - 2026-09-06
+
+### Added（dsh 支持）
+- **新 Agent：dsh（官方 DeepSeek Harness）**：`mcp/adapters/dsh.py`，读/写
+  deepseek-ai/deepseek-harness 的 v0 会话事件日志（`<DSH_HOME 或 ~/.dsh>/sessions/
+  --<encoded-cwd>--/<session-id>/session.jsonl[.zstd]`，每会话一目录；`DSH_HOME` 可
+  覆盖）。适配器按 `HERMES_SYNC_AGENT=dsh` 选择。
+- **读取**：zstd/明文 JSONL 均可（zstd 需要 `zstandard` 包，缺失时跳过并计入跳过数）；
+  `session` 头 → `session/title` → canonical；`user/message`/`assistant/message`
+  → 会话消息（tool/chunk/compaction 事件非对话文本，跳过）；写入 `seq` 自 0 连续；
+  外来会话经 idmap 映射 `session-<uuid>` 本地 id。
+- **写入**：新会话目录 + v0 头 + 连续 seq 事件日志，原子替换（temp+rename）；同 id
+  会话跨 cwd 漂移时复用既有目录（防重复分裂）；`storages/workspace.json` 尽力而为
+  索引（workspace→sessionIds），投影缓存留给 dsh 自身（外来会话列表需重启
+  DSH Desktop 后出现）。
+- **服务端**：`server/agents.py` 注册 dsh 条目（label/desc/store/register/install，
+  面向 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 dsh-mcp-client 行）；
+  workspace 会话胶囊白名单加入 dsh。
+- **测试**：`mcp/tests/test_dsh.py` 9 用例（v0 读、外来会话往返、追加/幂等、同 id
+  就地更新与跨 cwd 复用、_no-cwd 兜底、slug 编码、status、zstd 条件跳过）；
+  mcp 套件 134 项全绿（1 跳过=缺 zstandard）。
+- 客户端版本 bump 至 `2026.09.06.1`（`mcp/updater.py` + `server/client_update.py` +
+  `mcp/.hermes-sync-version`）。分发与帮助页仍按未验证处理（不加入 `PUBLIC_AGENTS`）。
+
+### Fixed（dsh v0 格式兼容性，经 DSH Desktop 2.0.5 实机启动验证）
+- **zstd 逐行帧**：dsh 读器要求**首个 frame 解压后恰为一行 header**；写入改为
+  每行一个独立 frame（拼接），与 dsh 自身 append 帧结构兼容（原先整文件单帧会被
+  判 corrupt 导致 host-boot 失败）。
+- **assistant 消息 `source`**：`kind` 必须为 `model`（校验器拒绝 `user`），按
+  `{kind: model, provider, model}` 写入。
+- **slug 编码**：`~/.dsh/sessions` 目录名保留尾部连字符（`E:/` → `--E---`），
+  与上游 projectKey 一致（原先无条件 `rstrip('-')` 造成目录与 header cwd 身份不匹配）。
+- **会话目录随 cwd 迁移**：header cwd 与目录 slug 不一致时（服务端 cwd 编辑/大小写
+  漂移）搬迁目录并重写 header；NTFS 大小写不敏感场景改就地改名。
+- **workspace/投影缓存域分工**：workspace 域由 dsh 原生 bootstrap 归组
+  （fs.realpath 规范路径，外部合成会破坏其不变式——filter/双记账/空列表）；
+  投影缓存（session_projcache）文档按桌面自身折叠输出的 v5 全模板由适配器
+  在每次日志写入后同步折叠（identity=header createdAt/cwd、title/titleInput/
+  sessionListMetadata 等 21 行），使「重拉后单列表即时显示真实标题」而无需
+  逐个打开。workspace.json 不写、交由 dsh 首次启动按会话头引导。
+- 测试扩至 135 项（含逐行帧/模型 source/slug/搬迁/单归属/缓存标题回归）。
+
 ## [2026.09.05] - 2026-09-05
 
 ### Fixed（mcp 客户端多实例加固）

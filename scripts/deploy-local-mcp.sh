@@ -5,7 +5,7 @@
 #   1. Create a workspace on the server Web UI
 #   2. Copy the workspace API key
 #   3. Set HERMES_SYNC_API_KEY (and HERMES_SYNC_AGENT to select the agent:
-#      hermes | codex | opencode | reasonix | openclaw; default hermes)
+#      hermes | dsh | opencode | reasonix | openclaw; default hermes)
 #   4. Set HERMES_SYNC_SERVER to your deployment (defaults to a placeholder)
 #
 # Windows: run inside Git Bash (hermes bundles one) or WSL. The script
@@ -70,7 +70,7 @@ if [ "$AGENT" = "hermes" ] && [ -f "$HERMES_HOME/config.yaml" ]; then
     fi
 elif [ "$AGENT" != "hermes" ]; then
     echo "Agent '$AGENT' is not hermes: register server.py via its own MCP config"
-    echo "  (codex: ~/.codex/config.toml | opencode: opencode.jsonc |"
+    echo "  (dsh: ~/.dsh/profiles/<profile>/cordis.patch.yml | opencode: opencode.jsonc |"
     echo "   reasonix: [[plugins]] | openclaw: mcp.servers -- see docs/ADDING_AGENT.md)"
 else
     echo "WARNING: config.yaml not found at $HERMES_HOME/config.yaml"

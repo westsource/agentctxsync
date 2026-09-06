@@ -5,9 +5,10 @@ End-to-end multi-agent cross-sync test against a running server.
 Usage:
     python scripts/e2e_multagent.py http://localhost:8765 <workspace_api_key>
 
-Verifies the full loop: codex adapter push -> server (PostgreSQL) ->
-opencode adapter pull -> local store, and the reverse direction, with
-stable identity and idempotent re-push.
+Verifies the full loop: dsh (official DeepSeek Harness) adapter push ->
+server (PostgreSQL) -> opencode adapter pull -> local store, and the
+reverse direction, with stable identity and idempotent re-push. (The
+legacy codex engine was removed 2026-09-06 and merged into dsh.)
 """
 
 import json
@@ -17,12 +18,13 @@ import tempfile
 import time
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
 
 # allow running from repo root (mcp package lives at <root>/mcp)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 
-from adapters.codex import CodexAdapter  # noqa: E402
+from adapters.dsh import DshAdapter  # noqa: E402
 from adapters.opencode import OpencodeAdapter  # noqa: E402
 from adapters.hermes import HermesAdapter  # noqa: E402
 
@@ -39,13 +41,12 @@ def api_call(server, api_key, method, path, data=None):
 
 def make_hermes_db(path: Path):
     conn = sqlite3.connect(str(path))
-    conn.execute("""CREATE TABLE sessions (
-        id TEXT PRIMARY KEY, title TEXT, model TEXT, started_at REAL,
-        message_count INTEGER, last_synced_at REAL)""")
-    conn.execute("""CREATE TABLE messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
-        role TEXT, content TEXT, timestamp REAL)""")
-    conn.execute("INSERT INTO sessions VALUES ('hermes-e2e-1','Hermes E2E','gpt-4o',1000.0,2,1000.0)")
+    conn.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, session_title TEXT, "
+                 "started_at REAL, profile_name TEXT, agent_type TEXT)")
+    conn.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "session_id TEXT, role TEXT, content TEXT, timestamp REAL)")
+    conn.execute("INSERT INTO sessions VALUES "
+                 "('hermes-e2e-1', 'E2E Hermes', 1000.0, 'default', 'hermes')")
     conn.execute("INSERT INTO messages (session_id,role,content,timestamp) VALUES "
                  "('hermes-e2e-1','user','hello from hermes',1000.5),"
                  "('hermes-e2e-1','assistant','hi back',1001.0)")
@@ -53,23 +54,18 @@ def make_hermes_db(path: Path):
     conn.close()
 
 
-def make_codex_fixture(home: Path):
-    sess = home / "sessions"
-    sess.mkdir(parents=True)
-    import uuid
-    uid = str(uuid.uuid4())
-    meta = {"meta": {"id": uid, "timestamp": "2026-01-01T10:00:00+00:00",
-                     "model_provider": "openai"}, "git": {}}
-    line = {"type": "response_item", "payload": {
-        "type": "message", "role": "user",
-        "content": [{"type": "input_text", "text": "hello from codex"}]}}
-    p = sess / f"rollout-2026-01-01T10-00-00-{uid}.jsonl"
-    p.write_text(json.dumps(meta) + "\n" + json.dumps(line) + "\n", encoding="utf-8")
-    (home / "session_index.jsonl").write_text(
-        json.dumps({"id": uid, "thread_name": "Codex E2E",
-                    "updated_at": "2026-01-01T10:00:00+00:00"}) + "\n",
-        encoding="utf-8")
-    return uid
+def make_dsh_fixture(root: Path) -> str:
+    """One dsh-format session in a temp store (plain jsonl when the running
+    python lacks zstandard; the adapter handles both)."""
+    sid = f"session-{uuid.uuid4()}"
+    a = DshAdapter(sessions_root=root / "sessions", storages_root=root / "storages")
+    a.write_sessions([{
+        "id": sid, "started_at": 1000.0, "cwd": str(root),
+        "title": "DSH E2E",
+        "messages": [{"session_id": sid, "role": "user",
+                      "content": "hello from dsh", "timestamp": 1001.0}],
+    }])
+    return sid
 
 
 def main():
@@ -82,7 +78,7 @@ def main():
     tmp = Path(tempfile.mkdtemp(prefix="e2e-multiagent-"))
     passed = 0
 
-    # ---- 1. hermes -> server -> codex -----------------------------------
+    # ---- 1. hermes -> server -> dsh -------------------------------------
     hermes_db = tmp / "hermes" / "state.db"
     hermes_db.parent.mkdir(parents=True)
     make_hermes_db(hermes_db)
@@ -95,44 +91,45 @@ def main():
     assert r.get("imported", 0) == 1, r
     passed += 1
 
-    codex_home = tmp / "codex-home"
-    make_codex_fixture(codex_home)
-    codex = CodexAdapter(codex_home=codex_home)
-    codex_sessions = codex.read_sessions()
-    for s in codex_sessions:
-        s["agent_type"] = "codex"
+    dsh_home = tmp / "dsh-home"
+    make_dsh_fixture(dsh_home)
+    dsh = DshAdapter(sessions_root=dsh_home / "sessions",
+                     storages_root=dsh_home / "storages")
+    dsh_sessions = dsh.read_sessions()
+    for s in dsh_sessions:
+        s["agent_type"] = "dsh"
     r = api_call(server, api_key, "POST", "/push",
-                 {"device_id": "e2e-codex-device", "sessions": codex_sessions})
-    print("codex push ->", {k: v for k, v in r.items() if k != "sync_at"})
+                 {"device_id": "e2e-dsh-device", "sessions": dsh_sessions})
+    print("dsh push ->", {k: v for k, v in r.items() if k != "sync_at"})
     assert r.get("imported", 0) == 1, r
     passed += 1
 
-    # codex pulls everything (its own + hermes' bare-id session)
+    # dsh pulls everything (its own + hermes' bare-id session)
     r = api_call(server, api_key, "POST", "/pull",
-                 {"device_id": "e2e-codex-device", "last_sync_at": 0,
+                 {"device_id": "e2e-dsh-device", "last_sync_at": 0,
                   "limit": 50, "offset": 0})
     print("pull ->", r.get("total_sessions"), "sessions on server")
     assert r.get("total_sessions", 0) == 2, r
-    stats = codex.write_sessions(r["sessions"])
-    print("codex local write ->", stats)
+    stats = dsh.write_sessions(r["sessions"])
+    print("dsh local write ->", stats)
     assert stats["imported"] == 1 and stats["new_messages"] == 2, stats
-    back = {s["id"]: s for s in codex.read_sessions()}
+    back = {s["id"]: s for s in dsh.read_sessions()}
     assert "hermes-e2e-1" in back, list(back)  # bare id preserved
     assert any(m["content"] == "hello from hermes"
                for m in back["hermes-e2e-1"]["messages"])
     passed += 1
 
     # idempotent re-pull
-    stats2 = codex.write_sessions(r["sessions"])
+    stats2 = dsh.write_sessions(r["sessions"])
     assert stats2["duplicates"] >= 2, stats2
     passed += 1
 
-    # ---- 2. codex -> server -> opencode --------------------------------
+    # ---- 2. dsh -> server -> opencode -----------------------------------
     storage = tmp / "opencode-storage"
     (storage / "session" / "info").mkdir(parents=True)
     opencode = OpencodeAdapter(storage_dir=storage)
-    stats = opencode.write_sessions(codex.read_sessions())
-    print("opencode local write (from codex local incl. hermes) ->", stats)
+    stats = opencode.write_sessions(dsh.read_sessions())
+    print("opencode local write (from dsh local incl. hermes) ->", stats)
     assert stats["imported"] == 2, stats
     passed += 1
 
@@ -155,14 +152,14 @@ def main():
     print("opencode re-pull write ->", stats)
     back = {s["id"]: s for s in opencode.read_sessions()}
     assert "hermes-e2e-1" in back
-    assert any(k.startswith("codex:") for k in back), list(back)
+    assert any(k.startswith("session-") for k in back), list(back)
     passed += 1
 
     # ---- 3. status endpoint reflects totals -----------------------------
     r = api_call(server, api_key, "GET", "/status/e2e-hermes-device")
     print("status ->", r)
     assert r.get("total_sessions", 0) == 2, r
-    assert r.get("total_messages", 0) == 3, r  # hermes 2 msgs + codex 1 msg
+    assert r.get("total_messages", 0) == 3, r  # hermes 2 msgs + dsh 1 msg
     passed += 1
 
     print(f"\nALL {passed} E2E CHECKS PASSED")

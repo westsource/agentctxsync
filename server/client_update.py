@@ -24,11 +24,14 @@ router = APIRouter()
 # (sessions.json + jsonl transcripts) and ships the standalone auto-sync.py
 # because OpenClaw spawns MCP servers lazily. omp (Oh My Pi, fork of pi) uses
 # a JSONL v3 session format and was validated via fixture round-trip tests.
+# dsh (official DeepSeek Harness, deepseek-ai/dsh) was validated 2026-09-06
+# end-to-end against DSH Desktop 2.0.5 (zstd v0 event logs, workspace
+# bootstrap from headers, projection-cache title folding).
 # The other agent adapters stay in AGENTS (registry) for development, but
 # their MCP client distribution and help-page onboarding are taken offline
 # until validated. Re-enable an agent by adding its key here.
 PUBLIC_AGENTS = ("hermes", "workbuddy", "reasonix", "opencode", "openclaw",
-                 "omp")
+                 "omp", "dsh")
 
 # The client source is the repository `mcp/` package. Two layouts exist:
 #   repo:    <repo>/server/server.py  + <repo>/mcp/            (one level up)
@@ -42,7 +45,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.09.05.1"
+CLIENT_VERSION = "2026.09.06.2"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -56,13 +59,28 @@ def _client_archive_files():
         # spawns MCP servers lazily (OpenClaw) so auto-sync works without
         # an agent turn
         files.append(("mcp/auto-sync.py", auto))
+    _scripts_candidates = [os.path.join(os.path.dirname(_SRV_DIR), "scripts"),
+                           os.path.join(_SRV_DIR, "scripts")]
+
+    def _find_script(name):
+        for d in _scripts_candidates:
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                return p
+        return None
+
     # one-shot deploy scripts (ship next to mcp/ so the `../mcp` layout
     # resolves inside the extracted archive)
-    repo_scripts = os.path.join(os.path.dirname(_SRV_DIR), "scripts")
     for name in ("deploy-local-mcp.ps1", "deploy-local-mcp.sh"):
-        src = os.path.join(repo_scripts, name)
-        if os.path.exists(src):
+        src = _find_script(name)
+        if src:
             files.append((f"scripts/{name}", src))
+    # dependency bootstrap: creates <extract>/venv with mcp (+ zstandard for
+    # dsh) so <PYTHON> needs no pre-installed packages on the target machine
+    for name in ("install-deps.bat", "install-deps.sh"):
+        src = _find_script(name)
+        if src:
+            files.append((name, src))
     ad = os.path.join(CLIENT_DIR, "adapters")
     if os.path.isdir(ad):
         for name in sorted(os.listdir(ad)):
