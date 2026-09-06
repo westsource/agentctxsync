@@ -9,6 +9,9 @@
   `#D63384`（脱离蓝族，避免与 dsh 同色系）。调整后 7 色两两最小 ΔE≈22
   （hermes/dsh，双方均为品牌锚点色的上限），其余全部 ≥33。
 - 仅服务端模板改动（`_macros.html` / `landing.html`），客户端版本不变。
+- **「最新接入」徽标移至 DeepSeek Harness**：landing「主流 Agent 开箱即用」区的
+  NEW/最新接入标记由 WorkBuddy 改挂最新接入的 dsh；翻译键改为通用名
+  `lp_agent_newest_tag`（`translations.py` + `landing.html`）。
 
 ## [2026.09.06.2] - 2026-09-06
 
