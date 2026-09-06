@@ -1,6 +1,6 @@
 {# Agent badge colors.
    hermes / unknown -> purple  #6E56CF
-   deepseek-harness -> orange  #F2994A
+   dsh (DeepSeek Harness) -> indigo #4D6BFE
    opencode         -> slate   #64748B
    reasonix         -> blue    #4285F4
    openclaw         -> red     #EB5757
@@ -9,7 +9,7 @@
    Unknown/None -> hermes purple.
 #}
 {% macro agent_color(a) -%}
-{%- if a == 'deepseek-harness' -%}bg-[#FFF7E6] text-[#F2994A]
+{%- if a == 'dsh' -%}bg-[#EEF1FF] text-[#4D6BFE]
 {%- elif a == 'opencode' -%}bg-[#F1F5F9] text-[#64748B]
 {%- elif a == 'reasonix' -%}bg-[#E8F1FE] text-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
@@ -19,12 +19,23 @@
 {%- endif -%}
 {%- endmacro %}
 {% macro agent_color_solid(a) -%}
-{%- if a == 'deepseek-harness' -%}bg-[#F2994A]
+{%- if a == 'dsh' -%}bg-[#4D6BFE]
 {%- elif a == 'opencode' -%}bg-[#64748B]
 {%- elif a == 'reasonix' -%}bg-[#4285F4]
 {%- elif a == 'openclaw' -%}bg-[#EB5757]
 {%- elif a == 'workbuddy' -%}bg-[#0D9488]
 {%- elif a == 'omp' -%}bg-[#B45309]
 {%- else -%}bg-[#6E56CF]
+{%- endif -%}
+{%- endmacro %}
+{% macro agent_label(a) -%}
+{%- if a == 'dsh' -%}DeepSeek Harness
+{%- elif a == 'hermes' -%}Hermes
+{%- elif a == 'workbuddy' -%}WorkBuddy
+{%- elif a == 'reasonix' -%}Reasonix
+{%- elif a == 'opencode' -%}OpenCode
+{%- elif a == 'openclaw' -%}OpenClaw
+{%- elif a == 'omp' -%}Oh My Pi
+{%- else -%}{{ a }}
 {%- endif -%}
 {%- endmacro %}

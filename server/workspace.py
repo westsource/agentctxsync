@@ -256,7 +256,8 @@ async def web_workspace_detail(ws_id: int, request: Request):
         page = 1
     # Agent capsule filter: whitelist of known agent types.
     agent = request.query_params.get("agent", "all")
-    if agent not in ("all", "hermes", "codex", "opencode", "reasonix", "openclaw", "omp"):
+    if agent not in ("all", "hermes", "opencode", "reasonix",
+                     "openclaw", "workbuddy", "omp", "dsh"):
         agent = "all"
     if agent == "all":
         agent_clause = ""

@@ -104,8 +104,8 @@ After deployment:
 **Method B (manual)**:
 
 ```bash
-# Choose an agent (hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy | omp), default hermes
-export HERMES_SYNC_AGENT=deepseek-harness
+# Choose an agent (hermes | dsh | opencode | reasonix | openclaw | workbuddy | omp), default hermes
+export HERMES_SYNC_AGENT=dsh
 
 # Set the workspace API key (format ws_xxx)
 export HERMES_SYNC_API_KEY=ws_yourkeyhere

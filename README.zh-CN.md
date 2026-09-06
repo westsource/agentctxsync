@@ -104,8 +104,8 @@ bash ../scripts/deploy-server.sh
 **方式 B（手动）**：
 
 ```bash
-# 选择 agent（hermes | deepseek-harness | opencode | reasonix | openclaw | workbuddy | omp），默认 hermes
-export HERMES_SYNC_AGENT=deepseek-harness
+# 选择 agent（hermes | dsh | opencode | reasonix | openclaw | workbuddy | omp），默认 hermes
+export HERMES_SYNC_AGENT=dsh
 
 # 设置 workspace api key（格式 ws_xxx）
 export HERMES_SYNC_API_KEY=ws_yourkeyhere

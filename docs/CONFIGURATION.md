@@ -16,7 +16,7 @@ Reference for the environment variables used by the server and the local MCP cli
 
 | Variable | Default | Description |
 |------|--------|------|
-| `HERMES_SYNC_AGENT` | `hermes` | Local storage adapter: `hermes`/`deepseek-harness`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
+| `HERMES_SYNC_AGENT` | `hermes` | Local storage adapter: `hermes`/`dsh`/`opencode`/`reasonix`/`openclaw`/`workbuddy` |
 | `HERMES_SYNC_SERVER` | `https://www.agentctxsync.com` | Remote server address (the shipped client points at the public server; self-hosted deployments must set it to their own address) |
 | `HERMES_SYNC_API_KEY` | - | **Workspace API Key** (required, format `ws_xxx`) |
 | `HERMES_SYNC_INTERVAL` | `300` | Auto-sync interval (seconds) |

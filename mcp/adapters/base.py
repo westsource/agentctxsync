@@ -79,6 +79,7 @@ AGENT_PREFIXES = {
     "openclaw": "openclaw:",
     "workbuddy": "workbuddy:",
     "omp": None,
+    "dsh": None,           # official DeepSeek Harness (deepseek-ai/dsh)
 }
 
 CANONICAL_SESSION_FIELDS = (

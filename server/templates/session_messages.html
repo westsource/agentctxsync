@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ session.title or session.id }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% from "_macros.html" import agent_color %}
+{% from "_macros.html" import agent_color, agent_label %}
 <style>
   .md-body > :first-child { margin-top: 0; }
   .md-body > :last-child { margin-bottom: 0; }
@@ -74,7 +74,7 @@
     </div>
   </div>
   <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(session.agent_type) }}">
-    <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ session.agent_type or 'hermes' }}
+    <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ agent_label(session.agent_type or 'hermes') }}
   </span>
   <div class="flex items-center gap-2 shrink-0">
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
@@ -164,7 +164,7 @@
         </div>
         <div class="max-w-[85%] min-w-0">
           <div class="flex items-center gap-2 mb-1.5">
-            <span class="text-[13px] font-semibold text-gray-700">{{ session.agent_type or 'hermes' }}</span>
+            <span class="text-[13px] font-semibold text-gray-700">{{ agent_label(session.agent_type or 'hermes') }}</span>
             {% if m.meta and m.meta.subagent %}
             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span>
             {% endif %}

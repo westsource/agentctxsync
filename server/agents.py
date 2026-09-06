@@ -148,65 +148,6 @@ AGENTS = {
             ],
         },
     },
-    "deepseek-harness": {
-        "label": "DeepSeek Harness",
-        "desc": {
-            "zh": "DeepSeek Harness（codex rollout 格式），会话为 ~/.codex/sessions/*.jsonl。",
-            "en": "DeepSeek Harness (codex rollout format); sessions live in ~/.codex/sessions/*.jsonl.",
-        },
-        "store": {
-            "zh": "~/.codex/sessions/（rollout-<时间戳>-<uuid>.jsonl）",
-            "en": "~/.codex/sessions/ (rollout-<timestamp>-<uuid>.jsonl)",
-        },
-        "config": {
-            "zh": "~/.codex/config.toml",
-            "en": "~/.codex/config.toml",
-        },
-        "register": {
-            "zh": (
-                "# 编辑 ~/.codex/config.toml（或运行 codex mcp add，若你的版本支持）\n"
-                "[mcp_servers.hermes-sync]\n"
-                'command = "<PYTHON>"\n'
-                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "deepseek-harness", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
-            ),
-            "en": (
-                "# Edit ~/.codex/config.toml (or use codex mcp add if your version supports it)\n"
-                "[mcp_servers.hermes-sync]\n"
-                'command = "<PYTHON>"\n'
-                'args = ["<EXTRACT_DIR>/mcp/server.py"]\n'
-                'env = { HERMES_SYNC_AGENT = "deepseek-harness", HERMES_SYNC_API_KEY = "<KEY>", HERMES_SYNC_SERVER = "<SERVER>" }'
-            ),
-        },
-        "verify": "codex --version && 在 harness 会话中调用 hermes_sync_status",
-        "env_agent": True,
-        "uninstall": {
-            "zh": (
-                "# 移除：删除 ~/.codex/config.toml 中的 [mcp_servers.hermes-sync] 配置块"
-            # 若用 codex mcp remove hermes-sync 注册，可运行 codex mcp remove hermes-sync
-            ),
-            "en": (
-                "# Remove: delete the [mcp_servers.hermes-sync] block in ~/.codex/config.toml"
-            # or run codex mcp remove hermes-sync if you registered via it
-            ),
-        },
-        "install": {
-            "zh": [
-                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-deepseek-harness</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
-                {"text": "确认已安装 DeepSeek Harness（<code>codex --version</code>，若基于 codex CLI）。"},
-                {"text": "编辑 <code>~/.codex/config.toml</code>，添加 <code>[mcp_servers.hermes-sync]</code> 配置（<code>&lt;PYTHON&gt;</code> 替换为 Python 3.10+ 解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
-                {"code": "<REGISTER>"},
-                {"text": "重启 harness（新会话生效）。"},
-            ],
-            "en": [
-                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-deepseek-harness</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
-                {"text": "Make sure DeepSeek Harness is installed (<code>codex --version</code> if it is built on the codex CLI)."},
-                {"text": "Edit <code>~/.codex/config.toml</code> and add <code>[mcp_servers.hermes-sync]</code> (replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
-                {"code": "<REGISTER>"},
-                {"text": "Restart the harness (new sessions pick it up)."},
-            ],
-        },
-    },
     "opencode": {
         "label": "OpenCode",
         "desc": {
@@ -530,6 +471,84 @@ AGENTS = {
                 {"text": "Register hermes-sync under omp's MCP config (stdio; fields per omp.sh/docs; replace <code>&lt;PYTHON&gt;</code> with a Python 3.10+ interpreter and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
                 {"code": "<REGISTER>"},
                 {"text": "Restart omp (new sessions pick it up) - MCP tools load with the session; an incremental pull runs ~8s after startup, then it syncs both ways every 300s."},
+            ],
+        },
+    },
+    "dsh": {
+        "label": "DeepSeek Harness",
+        "desc": {
+            "zh": "官方 DeepSeek Harness（deepseek-ai/dsh，Cordis 插件化，含 DSH Desktop 等发行），会话为 <DSH_HOME 或 ~/.dsh>/sessions/ 下每会话一目录的 v0 事件日志（session.jsonl[.zstd]）。",
+            "en": "Official DeepSeek Harness (deepseek-ai/dsh, Cordis-based; includes DSH Desktop etc.); sessions are per-session v0 event logs under <DSH_HOME or ~/.dsh>/sessions/ (session.jsonl[.zstd]).",
+        },
+        "store": {
+            "zh": "~/.dsh/sessions/（<encoded-cwd>/<session-id>/session.jsonl.zstd；env DSH_HOME 可覆盖）",
+            "en": "~/.dsh/sessions/ (<encoded-cwd>/<session-id>/session.jsonl.zstd; DSH_HOME overrides)",
+        },
+        "config": {
+            "zh": "~/.dsh/profiles/<profile>/cordis.patch.yml（经 @deepseek-ai/dsh-mcp-client 插件行注册；桌面版 profile 常为 desktop）",
+            "en": "~/.dsh/profiles/<profile>/cordis.patch.yml (register rows via the @deepseek-ai/dsh-mcp-client plugin; the desktop profile is usually \"desktop\")",
+        },
+        "register": {
+            "zh": (
+                "# 在 ~/.dsh/profiles/<profile>/cordis.patch.yml 顶层数组追加一条 dsh-mcp-client 行\n"
+                "# （行字段以所固定上游 dsh 版本的 loader patch 语法为准）\n"
+                "- id: mcp-hermes-sync\n"
+                "  name: '@deepseek-ai/dsh-mcp-client'\n"
+                "  config:\n"
+                "    serverName: hermes-sync\n"
+                "    transport: stdio\n"
+                "    command: '<PYTHON>'\n"
+                "    args: ['<EXTRACT_DIR>/mcp/server.py']\n"
+                "    env:\n"
+                "      HERMES_SYNC_AGENT: dsh\n"
+                "      HERMES_SYNC_SERVER: '<SERVER>'\n"
+                "      HERMES_SYNC_API_KEY: '<KEY>'\n"
+                "    failOnStartupError: false"
+            ),
+            "en": (
+                "# Append one dsh-mcp-client row to the top-level array of\n"
+                "# ~/.dsh/profiles/<profile>/cordis.patch.yml (fields per the\n"
+                "# loader-patch grammar of the pinned upstream dsh version)\n"
+                "- id: mcp-hermes-sync\n"
+                "  name: '@deepseek-ai/dsh-mcp-client'\n"
+                "  config:\n"
+                "    serverName: hermes-sync\n"
+                "    transport: stdio\n"
+                "    command: '<PYTHON>'\n"
+                "    args: ['<EXTRACT_DIR>/mcp/server.py']\n"
+                "    env:\n"
+                "      HERMES_SYNC_AGENT: dsh\n"
+                "      HERMES_SYNC_SERVER: '<SERVER>'\n"
+                "      HERMES_SYNC_API_KEY: '<KEY>'\n"
+                "    failOnStartupError: false"
+            ),
+        },
+        "verify": "重启 dsh 后在其会话中调用 hermes_sync_status（工具名 mcp__hermes-sync__sync_status）",
+        "env_agent": True,
+        "uninstall": {
+            "zh": (
+                "# 移除：从 ~/.dsh/profiles/<profile>/cordis.patch.yml 删除 mcp-hermes-sync 行并重启"
+            ),
+            "en": (
+                "# Remove: delete the mcp-hermes-sync row from ~/.dsh/profiles/<profile>/cordis.patch.yml and restart"
+            ),
+        },
+        "install": {
+            "zh": [
+                {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-dsh</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
+                {"text": "运行包内 <code>install-deps.bat</code>（Windows）或 <code>./install-deps.sh</code>（macOS/Linux），自动创建含 <code>mcp</code> 与 <code>zstandard</code> 的 venv 并打印解释器路径；也可使用已装这两个依赖的现有 Python。记下该路径作为 <code>&lt;PYTHON&gt;</code>。"},
+                {"text": "确认 dsh 数据根（默认 <code>~/.dsh</code>，DSH_HOME 可覆盖）与活动 profile（桌面版为 <code>profiles/desktop</code>）。"},
+                {"text": "编辑 <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code>，向顶层数组追加 hermes-sync 行（<code>&lt;PYTHON&gt;</code> 替换为第 2 步解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"code": "<REGISTER>"},
+                {"text": "重启 dsh / DSH Desktop（新会话生效）。工具以 <code>mcp__hermes-sync__*</code> 暴露（<code>hermes_sync_status</code> 可验证）；启动约 8 秒后增量拉取，之后每 300 秒自动双向同步。首次接入时 dsh 会按会话头自动 bootstrap 工作区归组，并随写入折叠标题缓存——新拉会话在列表中即时显示真实标题。"},
+            ],
+            "en": [
+                {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-dsh</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
+                {"text": "Run <code>install-deps.bat</code> (Windows) or <code>./install-deps.sh</code> (macOS/Linux) from the archive - it creates a venv with both <code>mcp</code> and <code>zstandard</code> and prints the interpreter path; or use any existing Python that already has both. Note that path as <code>&lt;PYTHON&gt;</code>."},
+                {"text": "Locate the dsh data root (default <code>~/.dsh</code>, DSH_HOME overrides) and the active profile (desktop uses <code>profiles/desktop</code>)."},
+                {"text": "Edit <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code> and append the hermes-sync row to the top-level array (replace <code>&lt;PYTHON&gt;</code> with the interpreter from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"code": "<REGISTER>"},
+                {"text": "Restart dsh / DSH Desktop (new sessions pick it up). Tools appear as <code>mcp__hermes-sync__*</code> (verify with <code>hermes_sync_status</code>); an incremental pull runs ~8s after startup, then it syncs both ways every 300s. On first run dsh bootstraps workspace grouping from session headers itself, and title/projection caches are folded on write, so freshly pulled sessions show real titles in the list immediately."},
             ],
         },
     },

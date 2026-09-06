@@ -19,7 +19,7 @@
 |  |  +------------------------+    |  Tools: sync_status/pull/push/   |    |  |
 |  |  |  本地存储 (per agent)  |    |  full, project_push/pull         |    |  |
 |  |  |  state.db / jsonl /    |<-->|  (+ hermes_sync_* 兼容别名)        |    |  |
-|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/deepseek-harness/opencode |    |  |
+|  |  |  SQLite / JSON files   | R/W|  Adapters: hermes/dsh/opencode |    |  |
 |  |  +------------------------+    |  /reasonix/openclaw/workbuddy  |    |  |
 |  |                                |                                  |    |  |
 |  |  +------------------------+    |  Background Tasks:               |    |  |
@@ -136,7 +136,7 @@
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
-| `adapters/deepseek_harness.py` | DeepSeek Harness（codex rollout 格式；非 UUID 外来 id 映射本地 UUID、毫秒戳冲突 +1ms 修补、`session_index.jsonl` 标题回填） |
+| `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，v0 事件日志 `session.jsonl[.zstd]`，逐行 zstd 帧；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析、`model` 列写 `{id, providerID}` JSON）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
@@ -295,7 +295,7 @@ User (admin / user)
   仅残留在 meta）时也参与内容比较。同一规则镜像在客户端 `mcp/adapters/base.py::write_sessions`
   （pull 写本地），保证拉推往返不产生重复行。
 - **时间戳唯一性修补**：harness 同一毫秒戳会写入大量事件，两消息同三元组会在拉推往返中静默塌缩，
-  适配器把碰撞时间戳确定性 +1ms 上调至空闲（`mcp/adapters/deepseek_harness.py::_unique_ts`，同文件恒等映射）；
+  适配器把碰撞时间戳确定性 +1ms 上调至空闲（该 +1ms 修补由历史 codex 引擎引入，2026-09-06 引擎移除；模式仍适用 JSONL 类适配器）；
   reasonix 转写文件无可靠时间戳，用单调递增合成值（`base + i/10`）保持去重键唯一。
 - **message_count 修复**：服务端在 pull/push 时按实际消息数重算 `message_count`
   （sync 写入的会话本地该列常为 0，而桌面 UI 过滤 `message_count < 1` 的会话）。
@@ -317,7 +317,7 @@ User (admin / user)
 - **外来会话 owner 注册表**：`.hermes-sync-foreign.json`（hermes）/ `*-foreign-ids.json`
   （其余 agent）记录 `{id: owner agent}`；pull 写入外来会话时登记，push 时按 owner 打
   `agent_type`，服务端保持归属。旧纯 id 列表格式读取时自动升级为 dict。
-- **路径穿越防护**：自由 id 类存储（deepseek-harness / reasonix / opencode / openclaw / workbuddy）写入前
+- **路径穿越防护**：自由 id 类存储（dsh / reasonix / opencode / openclaw / workbuddy；历史 codex 引擎已移除）写入前
   经 `validate_local_id` / `validate_file_id`（拒绝含 `/`、`\`、`.`、`..` 的 id），详见
   SECURITY_AUDIT.md。
 
@@ -473,8 +473,8 @@ User (admin / user)
 - 分发（`server/client_update.py`）：zip 内含**重写默认值后**的 `mcp/` 包——构建时把
   `SYNC_SERVER` 默认值改成服务端地址、`HERMES_SYNC_AGENT` 改成目标 agent；manifest 的 sha256
   必须对**实际发货字节**计算（否则客户端校验失败）。可分发 agent 白名单 `PUBLIC_AGENTS`
-  （hermes / workbuddy / reasonix / opencode / openclaw 已端到端验证并上线帮助页分发；
-  deepseek-harness 在注册表中但分发与帮助页未启用）。
+  （hermes / workbuddy / reasonix / opencode / openclaw / dsh 已端到端验证并上线帮助页分发；
+  历史 codex 引擎已移除，存量 deepseek-harness 数据并入 dsh）。
 - 客户端（`mcp/updater.py`）：manifest 比对版本 → 下载 → 按 manifest 逐文件 sha256 校验 →
   备份后原子替换、删除不再分发的文件；版本写入 `.hermes-sync-version`；**重启后生效**
   （日志 + 宿主通知）。启动 60s 后首次检查、之后每小时（避开宿主启动峰值）；独立更新锁。
@@ -511,7 +511,8 @@ User (admin / user)
 
 | 脚本 | 用途 |
 |---|---|
-| `e2e_multagent.py` | 多 agent 交叉同步 e2e：codex 推 → 服务端 → opencode 拉及反向，验证 id 稳定与重推幂等 |
+| `e2e_multagent.py` | 多 agent 交叉同步 e2e：hermes → dsh → opencode 推/拉及反向，验证 id 稳定与重推幂等（历史 codex 腿随引擎移除改由 dsh 承接） |
+
 ## 已支持 Agent 接入方案（适配器实现细节）
 
 > 每个 agent 一个适配器（`mcp/adapters/<name>.py`，`_ADAPTER_MODULES` 注册、惰性加载），
@@ -537,26 +538,26 @@ User (admin / user)
 - **项目同步**：projects.db 同样按档案聚合读、按 `profile` 路由写，应用服务端 remap；
   目标档案目录不存在时创建。
 
-### deepseek-harness（DeepSeek Harness / codex 格式）
+### 历史：codex 引擎（已移除，并入 dsh）
 
-- **存储布局**：`~/.codex/`（`CODEX_HOME` 可覆盖）下 `sessions/`，每会话一个
-  `rollout-<ts>-<id>.jsonl`；0.142+ 按 `sessions/YYYY/MM/DD/` 分区，旧版扁平；`.zst`
-  压缩文件跳过（无解压依赖）；标题在 `session_index.jsonl`（append-only 索引，last-wins）。
-- **读取**：会话元数据取 `session_meta`（0.142+）/ 旧版 `{"meta":…}` 首行；conversation
-  行取 `response_item`（或裸 payload）；`event_msg`/`turn_context` 生命周期事件跳过
-  （turn_context 只贡献 model/cwd）；`compacted` 摘要保留为 assistant 消息；
-  `reasoning` 跳过（内部思考不进池）；`function_call`/`custom_tool_call` 及 output 映射为
-  `tool` 角色 + `tool_name`/`tool_call_id`（Web 折叠卡片渲染）；`developer` 角色归入
-  `system`；标题从 `session_index.jsonl` 回填。
-- **时间戳消歧 `_unique_ts`**：同毫秒大量条目 → 同三元组会在拉推往返静默塌缩；碰撞
-  时间戳确定性 +1ms 上调至空闲（同文件恒等映射）。**新 JSONL 类适配器（omp）必读**。
-- **外来会话 id 映射**：harness 桌面 backfill 只索引 UUID 形 rollout id——非 UUID 外来
-  id（如 hermes 时间戳 id）写为映射 UUID（`.hermes-sync-idmap.json` 持久化，重拉复用
-  同一本地 id 保持去重稳定）；UUID 形外来 id（workbuddy）直通。
-- **写入**：新文件按当前时间落入 `YYYY/MM/DD` 分区（`session_meta` 头 + rollout 行）；
-  已有文件按 id 定位（`_existing_path` 递归扫文件名中的 id）追加；标题变更追加到
-  `session_index.jsonl`。写入约束 = append-only（服务端是去重权威，本地重复靠
-  `(role, timestamp)` 集合拦截）。
+> codex CLI rollout 适配器（曾名 `deepseek_harness.py`，后更名 `codex.py`）面向 codex CLI
+> 存储（`~/.codex` rollout jsonl），非官方 DeepSeek Harness。2026-09-06 起该引擎与注册键
+> `deepseek-harness` 一并移除：存量 `agent_type='deepseek-harness'` 数据迁移为 `dsh`；
+> 入站遗留 `codex:` 前缀 id 归一为 `agent_type=dsh`。官方 DeepSeek Harness 见下节 **dsh**。
+
+### dsh（官方 DeepSeek Harness，deepseek-ai/dsh）
+
+- **存储布局**：`<DSH_HOME 或 ~/.dsh>/sessions/--<cwd-slug>--/<session-<uuid>>/session.jsonl[.zstd]`
+  （每会话一目录；v0 头 `{"type":"session","version":0,...}` + 事件行；zstd 为**逐行独立帧**
+  ——dsh 读器要求首帧解压后恰为一行 header）。`DSH_HOME` 可覆盖数据根。
+- **读取**：`session/title` → 标题、`user/message`/`assistant/message`（assistant
+  `source.kind=model`）→ canonical 消息；`seq` 连续；tool/chunk/compaction 事件非对话跳过。
+- **写入**：v0 头 + 连续 seq 事件日志（原子替换）；外来 id 经 idmap 映射 `session-<uuid>`；
+  cwd 漂移搬迁目录（Windows NTFS 大小写漂移就地改名）；zstd 需 `zstandard`（缺失时
+  跳过压缩文件并计跳过数）。
+- **域分工**：workspace 域由 dsh 首启按会话头 bootstrap（fs.realpath 规范路径），外部不写；
+  投影缓存（`session_projcache` v5 文档，identity=header createdAt/cwd）在每次日志写入后
+  按桌面折叠模板同步折叠 → 拉入会话在列表中即时显示真实标题。
 
 ### opencode（opencode CLI/桌面）
 
@@ -722,7 +723,7 @@ User (admin / user)
 | thinking 块 | `messages.reasoning`（契约强制映射） |
 | 工具调用 / 结果 | `tool` 角色 + `tool_call_id`/`tool_name`/`tool_calls` |
 | 时间戳 | `messages.timestamp`（排序 + 三元组去重） |
-| compaction 摘要 | `messages.compacted` + 摘要 assistant 消息（deepseek_harness 同款降级） |
+| compaction 摘要 | `messages.compacted` + 摘要 assistant 消息（历史 codex 引擎同款降级，引擎已移除） |
 
 **只能进 `meta`（原样保存、无语义/无 UI 渲染）**：条目树拓扑（`parentId`/leaf/分支）、
 `thinking_level_change`、`label`、`custom` 条目（扩展状态、tool 执行记录）、omp 的
@@ -738,7 +739,7 @@ User (admin / user)
 3. **多模态 content**：`content` 为 TEXT 列，ImageContent 等结构化块需序列化/降级。
 4. **去重冲突风险（适配器必做）**：分支重问场景下两条不同内容的消息可能共享
    `(role, 同一毫秒)` → 三元组去重折叠丢失。必须对碰撞时间戳做确定性 +1ms 修补
-   （复用 `deepseek_harness.py::_unique_ts` 模式）。
+   （复用历史 codex 引擎 `_unique_ts` 模式；引擎已移除）。
 
 ### 适配器实现方案（mcp/adapters/omp.py）
 
@@ -765,7 +766,7 @@ User (admin / user)
   `agent.db` 注册表与本适配器无关（直接读文件）。
 - **测试**：`mcp/tests/test_omp.py` fixture 造 pi 格式 + omp 扩展格式（title 首记录、
   model_change 差异、compaction、分支 parentId）各 2~3 个样例，覆盖往返、幂等、前缀、
-  时间戳消歧（复用 deepseek_harness 测试模式）。
+  时间戳消歧（复用历史 codex 引擎测试模式；引擎已移除）。
 
 ### 服务端扩展路径（若需完整树/分支/压缩渲染）
 
@@ -804,7 +805,7 @@ POST /api/projects/pull   # 拉取项目 + folders + remap（全量池，不含�
 任何把 `agent` 用于过滤拉取结果的做法都是回归，不得恢复。
 
 **决策依据**：跨 Agent 同步是核心能力——同一工作空间下不同设备可能运行不同 Agent
-（hermes / deepseek-harness / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
+（hermes / dsh / workbuddy / opencode / reasonix / openclaw）。A 设备（hermes）必须能看到
 B 设备（workbuddy）推上来的会话，否则跨 Agent 内容对桌面端不可见，与 README 声明的
 「every client pulls the full pool (all agents)」相悖。此前服务端按 `agent` 过滤 `/pull`
 （客户端又总是携带 `agent=hermes`），导致 hermes 客户端永远拉不到 workbuddy 会话，
