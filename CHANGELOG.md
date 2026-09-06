@@ -1,3 +1,15 @@
+## [2026.09.06.3] - 2026-09-06
+
+### Changed（Agent 标识色统一 + 辨识度调整）
+- **landing 页与系统内部配色对齐**：landing 的 agent pill 取色原为硬编码且两处过期
+  （DeepSeek Harness 仍是 codex 时代橙、Oh My Pi 用青），现与 `_macros.html` 单一来源
+  完全一致（宏为系统内所有 agent 徽标/胶囊/列表的唯一取色点）。
+- **拉开相近色对**：hermes 改品牌紫 600 `#5B45B9`（与 dsh 的 DeepSeek 蓝 `#4D6BFE`
+  拉开明度；默认/未知 agent 仍用品牌紫 500 `#6E56CF`）；reasonix 由蓝 `#4285F4` 改洋红
+  `#D63384`（脱离蓝族，避免与 dsh 同色系）。调整后 7 色两两最小 ΔE≈22
+  （hermes/dsh，双方均为品牌锚点色的上限），其余全部 ≥33。
+- 仅服务端模板改动（`_macros.html` / `landing.html`），客户端版本不变。
+
 ## [2026.09.06.2] - 2026-09-06
 
 ### Changed（codex 引擎移除并并入 dsh）
