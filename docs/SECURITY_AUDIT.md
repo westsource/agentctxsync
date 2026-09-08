@@ -18,17 +18,17 @@
 | H3 | 高 | 全链路默认明文传输（无 TLS）+ cookie 无 `Secure` 标记 + API key 明文 | `server/server.py:663`、`scripts/deploy-server.sh`、`mcp/server.py` |
 | H4 | 高 | 无 CSRF 防护，且存在 GET 型破坏性端点 | `server/server.py:1549`、`:1650` |
 | M1 | 中 | 停用用户不吊销已签发的 JWT（`is_active` 仅登录时检查） | `server/server.py:544` `get_current_user` |
-| M2 | 中 | 开放注册 + 登录/注册无速率限制 + 消息量无配额 → 暴力破解与存储滥用 | `server/server.py:673`、`:2216` |
+| M2 | 中 | 开放注册 + 登录/注册无速率限制 + 消息量无配额 → 暴力破解与存储滥用（2026-09-08：注册/登录/验证码已按 IP 限速，见详情；消息配额未做） | `server/auth.py`、`server/ratelimit.py` |
 | M3 | 中 | 上传/请求体/解压无大小上限（gzip 炸弹、`/push`、`/pull` limit） | `server/server.py:1472`、`:2178`、`:2216` |
 | M4 | 中 | 开放重定向（信任 `Referer` 头） | `server/server.py:894` `web_set_language` |
-| M5 | 中 | 密码策略偏弱（最短 6 位）、PBKDF2 迭代 100k 低于当前推荐 | `server/server.py` `hash_password` |
+| M5 | 中 | 密码策略偏弱（最短 6 位）、PBKDF2 迭代 100k 低于当前推荐（2026-09-08：新哈希迭代 600k，存量登录自动惰性升级；最短 6 位未改） | `server/auth.py` `hash_password` |
 | M6 | 中 | 无安全响应头（CSP / X-Frame-Options / HSTS）→ 点击劫持等 | 全站（中间件） |
 | L1 | 低 | WorkBuddy 适配器对远程 `cwd` 直接 `mkdir`（任意目录创建原语） | `mcp/adapters/workbuddy.py:316` |
 | L2 | 低 | MASTER_API_KEY 比较非恒时 | `server/server.py:558` |
 | L3 | 低 | JWT 无撤销机制；改密不使旧 token 失效；`JWT_SECRET` 未配置时每进程随机 | `server/server.py:33`、`create_jwt` |
 | L4 | 低 | `/health` 失败时回显数据库异常细节 | `server/server.py:2168` |
 | L5 | 低 | systemd 服务以 root 运行；初始管理员密码/API key 打印到日志 | `scripts/deploy-server.sh`、`server/server.py:367` |
-| L6 | 低 | 用户名无字符/长度限制（注册枚举、显示污染） | `server/server.py:676` |
+| L6 | 低 | 用户名无字符/长度限制（注册枚举、显示污染）（2026-09-08：自助注册/资料路径限长——用户名 ≤ 32、显示名 ≤ 64、密码 ≤ 128；字符集未限制） | `server/auth.py` |
 
 ---
 
@@ -138,6 +138,8 @@
 2. 登录/注册加速率限制（内存令牌桶或简单按 IP+用户名计数；可选用 `slowapi`/`limits`）。
 3. 配额扩展：`quota_config` 增加 `max_messages`，`/push` 对消息新增量同样 gate。
 
+**状态（2026-09-08）**：第 2 条已落地——`server/ratelimit.py` 进程内按 IP 限速（注册 10 次/10 分钟、登录 30 次/10 分钟、验证码 30 次/5 分钟），接入注册/登录（Web+API）与验证码刷新端点；`main.py` 启用 `proxy_headers` 保证反代后取到真实客户端 IP（部署要求见 ratelimit.py 文档串）。第 1 条（邀请码必填/注册开关）未做——开放注册 + 邀请码可选是产品决策（README 已声明），以限速而非关闭注册控制滥用。第 3 条（消息量配额）未做。注册现在单事务完成（邀请行 `FOR UPDATE` → 建用户/默认工作空间 → 核销邀请 → 写 `user_created` 审计行）。
+
 ### M3. 上传 / 请求体 / 解压无大小上限
 
 **位置**：`server/server.py:1472`（`raw = await file.read()` 无大小限制）、`:1476`（`gzip.decompress(raw)` 无解压上限）、`:2178` `/pull`（`limit`/`offset` 不 clamp，`LIMIT` 可为任意大）、`:2216` `/push`（`request.json()` 无 body 上限）。
@@ -169,6 +171,8 @@
 **问题**：最短 6 位无复杂度要求；PBKDF2-SHA256 100k 迭代低于 OWASP 当前推荐（600k+，且更推荐 Argon2id/bcrypt）。GPU 集群对弱密码的离线破解速度可观；初始 admin 密码是 12 位 `token_urlsafe`（此点没问题）。
 
 **修复方案**：最短 10 位 + 复杂度建议；迭代数提升到 ≥ 600k（存量哈希自动随下次改密升级）；或迁移到 `argon2-cffi`（引入新依赖，需你决策）。
+
+**状态（2026-09-08）**：`server/auth.py` 新哈希迭代已升至 600,000（OWASP 2023），`hash_password` 与旧格式字符串兼容（每行哈希自携带迭代数），存量 100k 哈希在下次成功登录时经 `password_needs_upgrade` 惰性重哈希升级（Web/API 登录均已接入）。密码新增服务端上限 128 字符（注册/改密/资料/`/api/me/change-password`），防超长输入对 PBKDF2 的 CPU DoS。最短 6 位未改；复杂度建议与 Argon2id 迁移未做（产品决策）。
 
 ### M6. 无安全响应头
 
