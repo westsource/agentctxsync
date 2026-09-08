@@ -84,23 +84,21 @@ class QuotaCheckTest(unittest.TestCase):
         self.assertTrue(ok)
 
 
-class InviteGrantPlanTest(unittest.TestCase):
-    def _run(self, row):
-        conn = FakeConn(FakeCursor([row] if row is not None else []))
-        with mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)):
-            return auth.invite_grant_plan("HSYNC-TEST")
+class ResolveGrantPlanTest(unittest.TestCase):
+    """resolve_grant_plan() normalizes a stored invite grant_plan; the DB
+    read + FOR UPDATE lock now live inside the registration transaction."""
 
     def test_grant_free(self):
-        self.assertEqual(self._run(("free",)), "free")
+        self.assertEqual(auth.resolve_grant_plan("free"), "free")
 
     def test_grant_unlimited(self):
-        self.assertEqual(self._run(("unlimited",)), "unlimited")
-
-    def test_missing_invite_defaults_unlimited(self):
-        self.assertEqual(self._run(None), "unlimited")
+        self.assertEqual(auth.resolve_grant_plan("unlimited"), "unlimited")
 
     def test_unknown_value_falls_back_unlimited(self):
-        self.assertEqual(self._run(("pro",)), "unlimited")
+        self.assertEqual(auth.resolve_grant_plan("pro"), "unlimited")
+
+    def test_none_falls_back_unlimited(self):
+        self.assertEqual(auth.resolve_grant_plan(None), "unlimited")
 
 
 class PlanLimitsTest(unittest.TestCase):

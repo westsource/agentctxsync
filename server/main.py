@@ -46,4 +46,9 @@ if __name__ == "__main__":
     print(f"PG DSN: {db.PG_DSN.split('@')[1]}")
     print(f"Templates: {render.TEMPLATE_DIR}")
     print("Web UI: http://0.0.0.0:8765/web/")
-    uvicorn.run(app, host="0.0.0.0", port=8765, log_level="info")
+    # proxy_headers: trust X-Forwarded-For only from 127.0.0.1 (uvicorn
+    # default) so request.client.host carries the real client IP behind an
+    # nginx reverse proxy — the per-IP rate limits in ratelimit.py depend on
+    # it. Direct exposure is unaffected (remote XFF is ignored).
+    uvicorn.run(app, host="0.0.0.0", port=8765, log_level="info",
+                proxy_headers=True)
