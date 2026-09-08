@@ -427,6 +427,16 @@ _PATH_FIELDS = frozenset(("cwd", "git_repo_root", "primary_path"))
 def _field_dirty(field: str, local_val, sidecar_val) -> bool:
     """Field-level dirty check for the optimistic-merge sidecars.
 
+    A missing/empty LOCAL value is never a local edit: none of the agents
+    can express "user deleted this field" (a dsh log without a
+    ``session/title`` event is a never-titled session, not a title removal;
+    hermes titles are never user-cleared). Counting None as dirty made the
+    pull DROP the server's authoritative value for exactly those sessions --
+    every sync-written log that lacked the event yet read "dirty" against
+    its sidecar anchor, so the incoming title was popped on every pull and
+    the session stayed permanently untitled (and on the desktop list fell
+    back to the workspace/dir name). Missing local == adopt the server.
+
     Path fields (cwd/git_repo_root/primary_path) compare case- and
     separator-insensitively: Windows local stores spell the same directory
     differently (E:\\a\\b vs E:/a/b, case-folded), and a spelling-only
@@ -434,6 +444,8 @@ def _field_dirty(field: str, local_val, sidecar_val) -> bool:
     drop the field (falling back to the process cwd on write) and keep the
     session permanently dirty. Everything else stays exact-match.
     """
+    if local_val is None or local_val == "":
+        return False
     if field in _PATH_FIELDS and isinstance(local_val, str) \
             and isinstance(sidecar_val, str):
         return _path_key(local_val) != _path_key(sidecar_val)
@@ -534,6 +546,62 @@ def _anchor_push_project_meta(meta: dict, projects, project_revs):
         for f, B in (po.get("field_meta") or {}).items():
             if B is not None and f in revmap and f in po:
                 meta.setdefault(pid, {})[f] = {"base": revmap[f], "val": po[f]}
+
+
+def _reconcile_sidecar_titles(local_by_id: dict) -> int:
+    """Write server-accepted titles into local sessions that never got one.
+
+    Heals the title-loss loop: a session whose sync-written log lacked a
+    ``session/title`` event used to read "dirty" against its sidecar anchor
+    (see ``_field_dirty``), so every pull popped the incoming title and the
+    log stayed untitled -- the desktop list fell back to the workspace/dir
+    name until a manual rename. The anchor IS the last value this device
+    accepted from the server, so writing it back adopts server state rather
+    than inventing a local edit; with the dirty semantics fixed, sessions
+    the server re-serves adopt on pull normally and only idle ones need
+    this pass. No-op once every local title is in place. Runs after every
+    pull; best-effort (never fails the sync).
+    """
+    if FIELD_META_PATH is None:
+        return 0
+    meta = _load_field_meta()
+    patches = []
+    for sid, sm in meta.items():
+        entry = sm.get("title") if isinstance(sm, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        val = entry.get("val")
+        if not isinstance(val, str) or not val.strip():
+            continue
+        s = local_by_id.get(str(sid))
+        if s is None or (s.get("title") or "").strip():
+            continue
+        p = dict(s)
+        p["title"] = val
+        patches.append(p)
+    if not patches:
+        return 0
+    healed = 0
+    for start in range(0, len(patches), 15):
+        batch = patches[start:start + 15]
+        for gap in (0, 2, 5, 10):
+            if gap:
+                time.sleep(gap)
+            try:
+                stats = adapter.write_sessions(batch)
+                healed += int(stats.get("updated", 0) or 0) \
+                    + int(stats.get("imported", 0) or 0)
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e).lower() or gap == 10:
+                    log(f"Title reconcile failed (locked): {e}")
+                    return healed
+            except Exception as e:  # adapters differ; heal is best-effort
+                log(f"Title reconcile failed: {e}")
+                return healed
+    if healed:
+        log(f"Healed {healed} local session title(s) from sidecar anchors")
+    return healed
 
 
 def pull_sessions(last_sync_at=None, limit=None):
@@ -669,9 +737,13 @@ def pull_sessions(last_sync_at=None, limit=None):
 
     if "error" not in result and result.get("sync_at"):
         adapter.save_sync_watermark(result["sync_at"])
+    # Heal any local session whose title the server stopped re-serving
+    # before this device ever adopted it (see _reconcile_sidecar_titles).
+    healed = _reconcile_sidecar_titles(local_by_id)
     _save_field_meta(meta)
     return {"imported": imported, "new_messages": new_messages,
-            "total_remote_sessions": total_remote}
+            "total_remote_sessions": total_remote,
+            "titles_healed": healed}
 
 def push_sessions():
     if adapter.discover() is None:

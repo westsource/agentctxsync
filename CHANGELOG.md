@@ -1,3 +1,56 @@
+## [2026.09.08.1] - 2026-09-08
+
+### Fixed（拉取把服务端标题当「本地脏字段」丢弃，DSH Desktop 列表回退显示工作区名）
+- **无本地值的字段不再视为本地编辑**：`mcp/server.py::_field_dirty` 此前把
+  「本地缺失」（None/空）与 sidecar 锚点值不同判为 dirty——同步写入的会话日志只要
+  还没有 `session/title` 事件，拉取就会把载荷里的服务端标题 pop 掉，下一次拉取再次
+  pop，会话永久无标题；DSH Desktop 列表对无标题会话回退显示工作区/目录名（实测
+  250 个本地会话中 200 个无标题，而服务端 249 个都带真实标题；对副本做全量重拉、
+  重写 7598 条消息后标题新增为 0）。现「缺失本地值 = 采纳服务端值」——各 agent 的
+  本地存储都表达不了「用户删除了该字段」，None 只是从未写入；push 侧同步收紧为
+  None 字段不参与断言（不会反向把服务端值清掉）。
+- **拉取后按 sidecar 锚点回填缺失标题**：`mcp/server.py::_reconcile_sidecar_titles`
+  在每次成功 pull 后把 field-meta 中服务端已接受的 title 值写回本地日志/存储
+  （走 adapter 正常写入路径：dsh 补写 `session/title` 事件并折叠投影缓存文档、列表
+  即时显示真实标题；消息集不变 → push 指纹不变 → 不触发重推）。对增量拉取不再
+  下发（空闲）的会话也能一次性自愈，无需等待全量重拉。
+- 回归：`mcp/tests/test_mcp_server.py` 新增 4 用例（脏语义 2：缺失值非脏/push 不
+  断言 None；拉取保标题；sidecar 回填），`mcp/tests/test_dsh.py` 新增无标题日志
+  标题-only 写入用例（seq 连续、无消息重复、缓存文档标题更新）。客户端版本 bump
+  至 `2026.09.08.1`（`mcp/updater.py` + `server/client_update.py` +
+  `mcp/.hermes-sync-version`）。
+- **服务端无需改动**：核对 236 生产库（workspace 4），250 个本地会话全部存在于
+  服务端、249 个带真实标题，`/pull` 始终返回 `title` + `field_rev`，push 不写 None
+  值——标题缺口纯为客户端丢弃所致。
+
+## [2026.09.07.1] - 2026-09-07
+
+### Fixed（dsh 客户端，projcache 无 cwd 文档被 DSH Desktop 2.0.5 拒收）
+- **无 cwd 会话不再写投影缓存文档，并清除历史遗留的 null-cwd 文档**：dsh 适配器
+  （`mcp/adapters/dsh.py::_refresh_cache_docs`）此前对 `_no-cwd` 兜底会话折叠
+  `identity.cwd: null` 的 v5 缓存文档，而 DSH Desktop 2.0.5 的 projcache schema 要求
+  `identity.cwd` 为 string——每次桌面启动都把这类文档移入 `.json.bak.*`（视为缺失），
+  下一次同步又把它们写回来，形成持续告警噪音（实测 8 个 `_no-cwd` 会话在 21:01/
+  21:46/21:52 三次启动各产生一批 `.bak`）。修复：无 cwd 会话（`meta is None` 或
+  `meta["cwd"]` 为空）不再写缓存文档，且清理同名的历史陈旧文档；有 cwd 会话的折叠
+  行为不变。列表标题回退逻辑不受影响（缓存本就是 fail-soft，缺失时回退到目录名）。
+- 回归：`mcp/tests/test_dsh.py` 新增 2 用例（无 cwd 写入不产生 projcache 文档 /
+  更新触发的刷新移除陈旧 null-cwd 文档）。
+- 客户端版本 bump 至 `2026.09.07.1`（`mcp/updater.py` +
+  `server/client_update.py` + `mcp/.hermes-sync-version`）。
+
+### Fixed（dsh 客户端，重写日志 seq 偏移导致 DSH Desktop observe 拒读）
+- **整文件重写时 seq 一律从 0 重新编号**：`mcp/adapters/dsh.py::_write_log` 此前在
+  追加更新触发重写时从 `existing seq + 1` 续号——整份文件被重新编号到非 0 区间，
+  而 dsh 读器（`dsh-session-persistence-jsonl`）要求每个事件的 `seq` 等于其在文件中的
+  0 基事件索引（`event.seq !== events.length` 即拒收，最终报
+  `complete frame contains a torn JSONL record`）。实测清库全量重拉 256 个会话中
+  93 个被二次同步重写过的会话全部落在非 0 区间，逐一 observe 失败；首轮导入
+  （seq 0 起）的可正常读取。修复：重写即按行索引从 0 编号，turn/step 展示计数随文件
+  重启；多次同步轮次结果稳定。
+- 回归：`mcp/tests/test_dsh.py` 新增
+  `test_rewrite_renumbers_seq_from_zero`（追加触发重写后 seqs == 0..N-1）。
+
 ## [2026.09.06.3] - 2026-09-06
 
 ### Changed（Agent 标识色统一 + 辨识度调整）
