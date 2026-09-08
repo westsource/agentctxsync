@@ -557,7 +557,9 @@ User (admin / user)
   跳过压缩文件并计跳过数）。
 - **域分工**：workspace 域由 dsh 首启按会话头 bootstrap（fs.realpath 规范路径），外部不写；
   投影缓存（`session_projcache` v5 文档，identity=header createdAt/cwd）在每次日志写入后
-  按桌面折叠模板同步折叠 → 拉入会话在列表中即时显示真实标题。
+  按桌面折叠模板同步折叠 → 拉入会话在列表中即时显示真实标题；无 cwd 会话（`_no-cwd`
+  兜底）不折叠且清除陈旧文档——v5 schema 要求 `identity.cwd` 为 string，null 文档会被
+  桌面每次启动移入 `.json.bak.*`，折叠只会制造告警噪音、毫无列表收益。
 
 ### opencode（opencode CLI/桌面）
 

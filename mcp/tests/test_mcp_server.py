@@ -6,6 +6,7 @@ full sync (a full resync pulls/pushes every session on the server).
 """
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -287,6 +288,127 @@ class FieldMergeTest(unittest.TestCase):
         # cwd (known base, accepted) anchored; title (base None, refused) not
         self.assertEqual(meta,
                          {"s1": {"cwd": {"base": 7, "val": "D:/NEW"}}})
+
+    def test_missing_local_value_is_not_dirty(self):
+        """A store that never wrote the field is not a local edit.
+
+        A dsh log without a ``session/title`` event (or a column never
+        populated) used to read "dirty" against the sidecar anchor, so the
+        pull dropped the server's authoritative value and the session stayed
+        permanently untitled (desktop list fell back to the workspace name).
+        Missing/empty local means "adopt the server", never "user deleted".
+        """
+        self.assertFalse(server._field_dirty("title", None, "Server title"))
+        self.assertFalse(server._field_dirty("title", "", "Server title"))
+        self.assertFalse(server._field_dirty("cwd", None, "D:/x"))
+        # real local values still compare exactly (paths case-insensitively)
+        self.assertTrue(server._field_dirty("title", "Local", "Server"))
+        self.assertFalse(server._field_dirty("title", "Same", "Same"))
+        self.assertFalse(
+            server._field_dirty("cwd", r"D:\Work\X", "D:/work/x"))
+
+    def test_push_missing_local_field_is_omitted_not_asserted(self):
+        """Mirror rule on push: a None local value must not be asserted
+        against a known base (would clobber the server value)."""
+        meta = {"s1": {"title": {"base": 1, "val": "Server title"}}}
+        s = {"id": "s1", "title": None, "messages": []}
+        out = server._annotate_push_session(s, meta)
+        self.assertNotIn("title", out)
+        self.assertEqual(out.get("field_meta"), {})
+
+
+class PullTitleAdoptTest(unittest.TestCase):
+    """Pull must adopt the server title for a session whose local log never
+    got one (title-loss loop), and reconcile idle sessions from the sidecar
+    anchor when the server no longer re-serves them (see CHANGELOG
+    2026.09.08.1)."""
+
+    def _fake_adapter(self, received):
+        class FakeAdapter:
+            agent_type = "dsh"
+
+            def discover(self):
+                return "store"
+
+            def last_synced_at(self):
+                return 0.0
+
+            def save_sync_watermark(self, ts):
+                pass
+
+            def read_sessions(self):
+                # local store: session exists but has NO title yet
+                return [{"id": "s1", "cwd": "D:/x",
+                         "messages": [{"role": "user", "content": "hi",
+                                       "timestamp": 1.0}]}]
+
+            def write_sessions(self, sessions):
+                received.extend(sessions)
+                return {"imported": 0, "updated": len(sessions),
+                        "new_messages": 0}
+        return FakeAdapter()
+
+    def test_pull_keeps_server_title_when_local_untitled(self):
+        """Sidecar anchored + local missing title: the incoming title must
+        survive the merge (previously popped as 'dirty') and reach the
+        adapter write."""
+        received = []
+        meta = {"s1": {"title": {"base": 1, "val": "Server title"}}}
+        page = {"sessions": [{
+            "id": "s1", "cwd": "D:/x", "title": "Server title",
+            "field_rev": {"title": 1},
+            "messages": [{"role": "user", "content": "hi",
+                          "timestamp": 1.0}]}],
+            "sync_at": 5.0, "total_sessions": 1}
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            mp = td / "meta.json"
+            mp.write_text(json.dumps(meta), encoding="utf-8")
+            with mock.patch.object(server, "adapter",
+                                   self._fake_adapter(received)), \
+                    mock.patch.object(server, "FIELD_META_PATH", mp), \
+                    mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                      td / "fp.json"), \
+                    mock.patch.object(server, "api_call",
+                                      return_value=page):
+                r = server.pull_sessions()
+        self.assertTrue(received, "adapter must have been written")
+        for s in received:
+            self.assertEqual(s["title"], "Server title",
+                             "pull must not drop the server title")
+        self.assertGreaterEqual(r.get("titles_healed", 0), 0)
+
+    def test_reconcile_heals_idle_session_from_sidecar(self):
+        """A session the server no longer re-serves recovers its title from
+        the sidecar anchor (last server-accepted value); titled sessions and
+        unknowns are untouched; second run is a no-op."""
+        received = []
+        meta = {"s1": {"title": {"base": 3, "val": "Server title"}},
+                "s2": {"title": {"base": 4, "val": "Other title"}}}
+        local_by_id = {
+            "s1": {"id": "s1", "cwd": "D:/x",
+                   "messages": [{"role": "user", "content": "hi",
+                                 "timestamp": 1.0}]},
+            "s2": {"id": "s2", "cwd": "D:/y", "title": "Has one",
+                   "messages": []},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            mp = td / "meta.json"
+            mp.write_text(json.dumps(meta), encoding="utf-8")
+            with mock.patch.object(server, "adapter",
+                                   self._fake_adapter(received)), \
+                    mock.patch.object(server, "FIELD_META_PATH", mp):
+                self.assertEqual(
+                    server._reconcile_sidecar_titles(local_by_id), 1)
+                # the adapter write landed the title: a fresh local read
+                # would now see it, so the next run is a no-op
+                local_by_id["s1"]["title"] = "Server title"
+                self.assertEqual(
+                    server._reconcile_sidecar_titles(local_by_id), 0)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["id"], "s1")
+        self.assertEqual(received[0]["title"], "Server title")
 
 
 class ProjectFieldMergeTest(unittest.TestCase):

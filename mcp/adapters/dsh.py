@@ -535,10 +535,16 @@ class DshAdapter(Adapter):
     def _write_log(self, sdir: Path, sid: str, cwd, session: dict,
                    existing: dict, rows: list[dict]):
         """(Re)write one session log atomically: v0 header + contiguous-seq
-        user/message & assistant/message events. Compressed .zstd unless the
-        store already uses plain .jsonl."""
+        user/message & assistant/message events (seq renumbered from 0 on
+        every rewrite). Compressed .zstd unless the store already uses plain
+        .jsonl."""
         lines = []
-        seq = existing["seq"] + 1
+        # seq is the 0-based event index of THIS file, renumbered on every
+        # rewrite. dsh's reader asserts event.seq === its 0-based position in
+        # the expanded event stream; continuing from the previous file's max
+        # seq would shift every rewritten log off zero and make the whole
+        # file unreadable ("complete frame contains a torn JSONL record").
+        seq = 0
         header = {"type": "session", "version": 0, "id": sid}
         try:
             header["createdAt"] = int(float(
@@ -559,7 +565,9 @@ class DshAdapter(Adapter):
             }, ensure_ascii=False))
             seq += 1
 
-        turn, step = existing["turn"], existing["step"]
+        # turn/step replay from the renumbered file's own rows: the file is
+        # rewritten whole, so display counters restart with it.
+        turn, step = 0, 0
         last_role = None
         for r in sorted(rows, key=lambda k: (k["ts"], k["role"] != "user")):
             role, ts, content = r["role"], r["ts"], r["content"]
@@ -632,7 +640,14 @@ class DshAdapter(Adapter):
     def _refresh_cache_docs(self):
         """Fold every local session log into its projection-cache doc
         (version 5, identity-matched). Cache is fail-soft: a bad doc is
-        ignored by dsh, never authoritative (the log is)."""
+        ignored by dsh, never authoritative (the log is).
+
+        Sessions without a real header cwd get NO doc (and any stale doc
+        from an earlier write is removed): DSH Desktop 2.0.5's v5 schema
+        requires ``identity.cwd`` to be a string, so a ``null``-cwd doc is
+        quarantined to ``.json.bak.*`` on every boot and recreated by the
+        next sync -- a churn loop with no list benefit (cwd-less sessions
+        belong to no workspace)."""
         cdir = self._projcache_dir()
         if cdir is None:
             return
@@ -641,8 +656,15 @@ class DshAdapter(Adapter):
         except OSError:
             return
         for path, local_id in self._session_files():
+            doc_path = cdir / f"{local_id}.json"
             meta = self._log_meta(path)
-            if meta is None:
+            if meta is None or not meta["cwd"]:
+                # no foldable identity: drop any stale doc instead of
+                # churning quarantined .bak files on every desktop boot.
+                try:
+                    doc_path.unlink()
+                except OSError:
+                    pass
                 continue
             doc = {
                 "version": 5,
@@ -657,7 +679,7 @@ class DshAdapter(Adapter):
                 },
             }
             try:
-                (cdir / f"{local_id}.json").write_text(
+                doc_path.write_text(
                     json.dumps(doc, ensure_ascii=False, indent=2),
                     encoding="utf-8")
             except OSError:

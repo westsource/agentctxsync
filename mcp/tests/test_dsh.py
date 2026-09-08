@@ -191,6 +191,53 @@ class DshAdapterTest(unittest.TestCase):
                          ["hello dsh", "hi", "q2", "a2"])
         self.assertEqual(read["title"], "New title")
 
+    def test_title_only_update_on_untitled_log(self):
+        """A log that never carried a session/title event accepts a
+        title-only write (the sidecar reconcile path the client runs after
+        pulls): the event lands, seqs stay contiguous, messages are not
+        duplicated, and the projection-cache doc starts listing the title."""
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        sdir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            {"type": "session", "version": 0, "id": SID,
+             "createdAt": TS_MS, "cwd": r"E:\OpenCode\agentctxsync",
+             "delegationDepth": 0},
+            {"type": "user/message", "seq": 0, "time": TS_MS,
+             "surfaceOp": "append",
+             "data": {"id": "user-a1", "role": "user",
+                      "content": [{"type": "text", "text": "hello dsh"}],
+                      "source": {"kind": "user"}}},
+        ]
+        (sdir / "session.jsonl").write_text(
+            "\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+        a = DshAdapter(sessions_root=self.root)
+        s = a.read_sessions()[0]
+        self.assertNotIn("title", s)          # the reported broken state
+        s["title"] = "Healed title"
+        st = a.write_sessions([s])
+        self.assertEqual(st["updated"], 1)
+        self.assertEqual(st["new_messages"], 0)
+        read = a.read_sessions()[0]
+        self.assertEqual(read["title"], "Healed title")
+        self.assertEqual(len(read["messages"]), 1)
+        # exactly one title event; seq contiguous from 0 (existing plain
+        # file stays plain, so no zstd decode needed here)
+        seqs, titles = [], []
+        for ln in (sdir / "session.jsonl").read_text(encoding="utf-8").splitlines():
+            rec = json.loads(ln)
+            if "seq" in rec:
+                seqs.append(rec["seq"])
+            if rec.get("type") == "session/title":
+                titles.append(rec["data"]["title"])
+        self.assertEqual(seqs, list(range(len(seqs))))
+        self.assertEqual(titles, ["Healed title"])
+        # cache doc now lists the real title for the desktop list
+        doc = json.loads((self.root.parent / "storages"
+                          / "session_projcache" / "sessions"
+                          / f"{SID}.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["record"]["rows"]["title"]["val"],
+                         "Healed title")
+
     def test_no_cwd_uses_no_cwd_dir(self):
         a = DshAdapter(sessions_root=self.root)
         s = self._session(cwd=None)
@@ -201,6 +248,60 @@ class DshAdapterTest(unittest.TestCase):
         from adapters.dsh import HAVE_ZSTD
         fname = "session.jsonl.zstd" if HAVE_ZSTD else "session.jsonl"
         self.assertTrue((self.root / "_no-cwd" / local_id / fname).is_file())
+
+    def test_no_cwd_session_skips_projcache_doc(self):
+        # DSH Desktop 2.0.5's projcache v5 schema requires identity.cwd to
+        # be a string; a null-cwd doc is quarantined to .json.bak.* on every
+        # boot. Cwd-less sessions therefore get no cache doc at all.
+        a = DshAdapter(sessions_root=self.root)
+        a.write_sessions([self._session(cwd=None)])
+        local_id = json.loads(
+            (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
+                "hermes:20260531_232319_1e131a"]
+        self.assertFalse((self.root.parent / "storages"
+                          / "session_projcache" / "sessions"
+                          / f"{local_id}.json").exists())
+
+    def test_refresh_removes_stale_no_cwd_projcache_doc(self):
+        # Pre-fix writes left null-cwd docs behind; a refresh triggered by a
+        # later update must drop the stale doc instead of re-creating it.
+        a = DshAdapter(sessions_root=self.root)
+        a.write_sessions([self._session(cwd=None)])
+        local_id = json.loads(
+            (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
+                "hermes:20260531_232319_1e131a"]
+        doc = (self.root.parent / "storages" / "session_projcache"
+               / "sessions" / f"{local_id}.json")
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(json.dumps(
+            {"version": 5, "record": {"identity": {"cwd": None}}}),
+            encoding="utf-8")
+        s = self._session(cwd=None)
+        s["messages"].append({"session_id": s["id"], "role": "user",
+                              "content": "extra", "timestamp": 9.0})
+        st = a.write_sessions([s])  # changed -> cache refresh runs
+        self.assertEqual(st["new_messages"], 1)
+        self.assertFalse(doc.exists())
+
+    def test_rewrite_renumbers_seq_from_zero(self):
+        # dsh's reader requires every event's seq to equal its 0-based index
+        # in the file. A whole-file rewrite (append) must renumber from 0 --
+        # continuing from the previous max seq shifts the log off zero and
+        # dsh rejects it as corrupt on observe.
+        a = DshAdapter(sessions_root=self.root)
+        a.write_sessions([self._session()])
+        s = self._session()
+        s["messages"].append({"session_id": s["id"], "role": "user",
+                              "content": "more", "timestamp": 3.0})
+        st = a.write_sessions([s])  # append triggers a full rewrite
+        self.assertEqual(st["new_messages"], 1)
+        local_id = json.loads(
+            (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
+                "hermes:20260531_232319_1e131a"]
+        rows = [json.loads(x) for x in
+                self._session_text(a, local_id).splitlines()]
+        seqs = [r["seq"] for r in rows if r.get("seq") is not None]
+        self.assertEqual(seqs, list(range(len(seqs))))
 
     def test_slug_matches_rc_layout(self):
         # rc observed dir for E:\deepseekharness was --E-deepseekharness--
