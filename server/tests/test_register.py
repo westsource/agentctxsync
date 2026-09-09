@@ -72,6 +72,7 @@ class FakeRequest:
         self._form = form_data
         self.client = SimpleNamespace(host=ip or f"198.51.100.{next(_IPS)}")
         self.cookies = {"lang": lang} if lang else {}
+        self.base_url = "http://testserver/"
 
     async def form(self):
         return self._form
@@ -112,9 +113,9 @@ class RegisterSubmitTest(unittest.TestCase):
             allow_calls.append((scope, key))
             return rate_ok
 
-        async def fake_render(error, username="", display_name="", code=""):
+        async def fake_render(error, username="", display_name="", code="", email=""):
             ctx = {"error": error, "username": username,
-                   "display_name": display_name, "code": code}
+                   "display_name": display_name, "code": code, "email": email}
             rendered.append(ctx)
             return FakeRendered(ctx)
 
@@ -261,6 +262,107 @@ class RegisterSubmitTest(unittest.TestCase):
         self.assertEqual(cursor.executed, [])
         auth.captcha.verify.assert_not_called()
         self.assertEqual(allow_calls[0][0], "register")
+
+    def test_mail_flow_creates_pending_without_workspace(self):
+        """With SMTP configured, registration stores a pending-verify user
+        (NO workspace / api key yet), issues a token, mails it, and lands the
+        user on the verify page with a pending-state session cookie."""
+        cursor = FakeCursor([None, (7,)])   # email-uniqueness pre-check: free; then user id
+        conn = FakeConn(cursor)
+        mailed = []
+
+        def spy_allow(scope, key):
+            return True
+
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "hash_password", return_value="HASH"),
+            mock.patch.object(auth, "generate_api_key", return_value="ws_test"),
+            mock.patch.object(auth.captcha, "verify", return_value=True),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.ratelimit, "allow", new=spy_allow),
+            mock.patch.object(auth.mailer, "send_verification_mail",
+                              side_effect=lambda to, link, lang: mailed.append((to, link, lang))),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        form = valid_form(email="alice@example.com")
+        resp = asyncio.run(auth.web_register_submit(FakeRequest(form, lang="en")))
+        # Redirect to the verify page with an auto-login cookie.
+        self.assertEqual(resp.status_code, 303)
+        self.assertTrue(resp.headers["location"].startswith("/web/verify-email"))
+        set_cookie = resp.headers.get("set-cookie", "")
+        self.assertIn("hsync_token=", set_cookie)
+        # User inserted in pending state; email held as pending only.
+        sql, params = self._user_insert(cursor)
+        self.assertIsNotNone(sql)
+        self.assertIn("pending_email", sql)
+        self.assertEqual(params[10], "alice@example.com")       # pending_email
+        self.assertEqual(params[11], "alice@example.com")       # normalized
+        self.assertEqual(params[12], auth.STATE_PENDING)        # state
+        self.assertEqual(params[13], auth.AUTH_SOURCE_EMAIL)    # auth_source
+        # No default workspace is created for a pending account, but the
+        # verification token row is (digest only) and the mail went out.
+        self.assertFalse(any("INSERT INTO workspaces" in s for s, _ in cursor.executed))
+        self.assertTrue(any("INSERT INTO user_verification_tokens" in s
+                            for s, _ in cursor.executed))
+        self.assertEqual(len(mailed), 1)
+        self.assertEqual(mailed[0][0], "alice@example.com")
+        self.assertIn("/web/verify-email?token=", mailed[0][1])
+        self.assertEqual(mailed[0][2], "en")
+
+    def test_mail_flow_rejects_missing_email(self):
+        cursor = FakeCursor([(7,)])
+        conn = FakeConn(cursor)
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth.captcha, "verify", return_value=True),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.ratelimit, "allow", return_value=True),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        rendered = []
+
+        async def fake_render(error, username="", display_name="", code="", email=""):
+            rendered.append(error)
+
+        with mock.patch.object(auth, "render_register_page", new=fake_render):
+            resp = asyncio.run(auth.web_register_submit(FakeRequest(valid_form(email=""))))
+        self.assertEqual(rendered, ["register_email_required"])
+        self.assertEqual(cursor.executed, [])
+
+
+class EmailGateTest(unittest.TestCase):
+    """email_action_allowed gates ONLY new-workspace creation: ACTIVE or
+    verified accounts pass; legacy/pending unverified accounts do not."""
+
+    def _check(self, row):
+        conn = FakeConn(FakeCursor([row] if row is not None else []))
+        with mock.patch.object(auth, "smtp_configured", return_value=True), \
+                mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)):
+            return auth.email_action_allowed(7)
+
+    def test_feature_off_allows_without_db(self):
+        with mock.patch.object(auth, "smtp_configured", return_value=False):
+            self.assertTrue(auth.email_action_allowed(7))
+
+    def test_verified_email_allows(self):
+        self.assertTrue(self._check(("LEGACY_UNVERIFIED", 1_700_000_000.0)))
+
+    def test_active_admin_provisioned_allows(self):
+        self.assertTrue(self._check(("ACTIVE", None)))
+
+    def test_legacy_without_email_blocked(self):
+        self.assertFalse(self._check(("LEGACY_UNVERIFIED", None)))
+
+    def test_pending_blocked(self):
+        self.assertFalse(self._check(("PENDING_EMAIL_VERIFICATION", None)))
+
+    def test_missing_user_blocked(self):
+        self.assertFalse(self._check(None))
 
 
 if __name__ == "__main__":

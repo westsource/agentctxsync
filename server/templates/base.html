@@ -179,6 +179,10 @@
             <a href="/web/set-language/zh-CN" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'zh-CN' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">中文</a>
             <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
             <div class="my-1 border-t border-gray-200"></div>
+            {% if user.get("account_state") != 'ACTIVE' %}
+            <a href="/web/email" class="block px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 transition-colors">{{ t.nav_email_settings }}</a>
+            <div class="my-1 border-t border-gray-200"></div>
+            {% endif %}
             <button type="button" onclick="document.getElementById('profileModal').classList.remove('hidden')" class="block w-full text-left px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.nav_edit_profile }}</button>
           </div>
         </div>

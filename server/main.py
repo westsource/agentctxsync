@@ -25,10 +25,10 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Middleware registration order mirrors the original single-file app:
-# later-registered middleware wraps earlier ones, so enforce_password_change
+# later-registered middleware wraps earlier ones, so enforce_account_state
 # runs before flash_middleware exactly as before.
 app.middleware("http")(render.flash_middleware)
-app.middleware("http")(auth.enforce_password_change)
+app.middleware("http")(auth.enforce_account_state)
 # Outermost: wraps everything, so every request gets a REQ log line.
 app.middleware("http")(requestlog.request_log_middleware)
 

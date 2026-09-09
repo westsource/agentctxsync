@@ -110,7 +110,7 @@
 | `requestlog.py` | 请求日志中间件：全站 REQ 行 + 每日访问统计（`access_stats`/`access_device` 表，domain/IP 渠道、设备/agent/版本） | 全站中间件；`/web/admin/access`、`/web/admin/access/devices` |
 | `translations.py` | i18n 翻译表（zh-CN / en） | — |
 | `agents.py` | Agent 注册表（静态数据，驱动帮助页与客户端包生成） | — |
-| `auth.py` | 认证域：PBKDF2 密码、JWT 签发/校验、API key 依赖、登录/注册/改密/语言、强制改密中间件 | `/`、`/web/login`、`/web/register`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/api/auth/*` |
+| `auth.py` | 认证域：PBKDF2 密码、JWT 签发/校验、API key 依赖、登录/注册/改密/语言、账户状态中间件（强制改密 + 邮箱验证门）、邮箱验证（SMTP 可选开关） | `/`、`/web/login`、`/web/register`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/web/verify-email`、`/web/email`、`/api/auth/*` |
 | `workspace.py` | 工作空间域：仪表盘、全部会话、会话查看器、CRUD、导出/导入、软删除/回收站、REST | `/web/`、`/web/all-sessions`、`/web/workspace/*`、`/api/me`、`/api/workspaces` |
 | `sync.py` | 同步域：pull/push/status/sessions/users，配额执法与审计日志 | `/health`、`/pull`、`/push`、`/status/{device_id}`、`/sessions`、`/users` |
 | `projects.py` | 项目同步域：slug 同名合并、folders 增量合并、remap 路由 | `/api/projects/push`、`/api/projects/pull` |
@@ -121,9 +121,11 @@
 | `web_help.py` | 接入帮助域：帮助页、客户端包下载（由 `agents.py` 注册表 + `client_update.py` 驱动） | `/web/help`、`/web/help-hermes`（301）、`/web/download/mcp-client` |
 | `feedback.py` | 问题反馈域：提交建议/缺陷，管理员列表与解决状态切换 | `/web/feedback`、`/web/feedback/submit`、`/web/feedback/{fid}/resolve` |
 
-中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_password_change`（auth）→ `request_log_middleware`（requestlog，最外层，全站 REQ 日志），
+中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_account_state`（auth）→ `request_log_middleware`（requestlog，最外层，全站 REQ 日志），
 与单文件时代一致；`/web/*` 页面在强制改密期间仅放行
-`/web/login`、`/web/change-password`、`/web/logout`、`/web/register`、`/web/set-language`。
+`/web/login`、`/web/change-password`、`/web/logout`、`/web/register`、`/web/set-language`；
+邮箱验证开启时（SMTP 已配置，见 `config.smtp_configured`），待验证账户
+（`PENDING_EMAIL_VERIFICATION`）仅放行上述页面 + `/web/verify-email`、`/web/email`。
 
 ### 客户端代码结构（mcp/）
 
@@ -199,7 +201,11 @@ User (admin / user)
 ```
 
 - **Users**：新用户自助注册，默认开放、邀请码可选（填写则正常核销并授予对应套餐）；
-  管理员也可直接创建账号
+  管理员也可直接创建账号。邮箱验证为可选特性（配置 SMTP 即启用）：启用后新注册
+  账户为待验证态（`PENDING_EMAIL_VERIFICATION`，验证激活时才建默认工作空间）；
+  存量账户标记 `LEGACY_UNVERIFIED` 但一切照常——**唯一限制**：未验证邮箱的账户
+  不能创建新工作空间（已验证邮箱全局唯一，部分唯一索引）。已有工作空间、API Key、
+  会话同步与数据访问一概不限制，兼容存量用户
 - **Workspaces**：每个用户可创建多个 workspace，每个 workspace 有独立 API key
 - **隔离**：不同 workspace 之间的会话和消息完全隔离；同一 workspace 下的所有设备完全同步
 - **管理员权限边界**：管理员可管理用户、邀请码与全局工作区（元数据与开关），但
@@ -858,7 +864,12 @@ GET  /web/all-sessions          # 全部会话（跨工作空间统一列表：�
 GET  /web/search?q=&page=       # 全局搜索（跨工作空间全文搜索，会话/消息双路命中；?focus=<mid> 定位到具体消息）
 GET  /web/login                 # 登录页面
 GET  /web/captcha/new           # 注册验证码（自托管数学题 SVG，进程内一次性挑战）
-GET  /web/register              # 注册页面（自建数学验证码，邀请码可选，支持 ?code= 预填）
+GET  /web/register              # 注册页面（自建数学验证码，邀请码可选，支持 ?code= 预填；SMTP 启用时必填邮箱）
+GET  /web/verify-email          # 邮箱验证：等待/确认/无效/过期各态（?token= 仅展示不消费）
+POST /web/verify-email          # 确认并消费令牌，激活账户（事务内建默认工作空间 + 自动登录）
+GET  /web/email                 # 安全邮箱设置（存量绑定/更换邮箱状态与表单）
+POST /web/email/bind            # 绑定/更换邮箱（写入 pending_email 并发验证邮件）
+POST /web/email/resend          # 重发验证邮件（撤销旧令牌）
 GET  /web/logout                # 登出
 GET  /web/change-password       # 修改密码页（首次登录强制改密时跳转至此）
 POST /web/change-password       # 修改密码

@@ -2,7 +2,6 @@
 import json
 import secrets
 import time
-import time
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -239,6 +238,38 @@ def init_db():
         # it follows the account across devices; landing page still uses the
         # cookie. Read via the lang claim inside the JWT.
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'zh-CN'")
+        # ---- Email verification (optional feature; dormant without SMTP) ----
+        # Account model: verified email (unique among verified rows), a
+        # pending email awaiting verification, account state machine. Existing
+        # rows keep working untouched (state LEGACY_UNVERIFIED); the ONLY
+        # gated action for unverified accounts is creating a NEW workspace.
+        # State is enforced only when SMTP is configured
+        # (config.smtp_configured). Timestamps follow the schema's
+        # DOUBLE PRECISION epoch convention.
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_normalized TEXT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at DOUBLE PRECISION")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email_normalized TEXT")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_state TEXT DEFAULT 'LEGACY_UNVERIFIED'")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_source TEXT DEFAULT 'LEGACY_USERNAME'")
+        c.execute("""CREATE UNIQUE INDEX IF NOT EXISTS uq_users_verified_email
+            ON users (email_normalized) WHERE email_normalized IS NOT NULL
+            AND email_verified_at IS NOT NULL""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_verification_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            purpose TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            email_normalized TEXT NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL,
+            consumed_at DOUBLE PRECISION,
+            requested_ip TEXT,
+            created_at DOUBLE PRECISION NOT NULL
+        )""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_verification_tokens_live
+            ON user_verification_tokens (user_id, purpose)
+            WHERE consumed_at IS NULL""")
         # ---- Quota / plan (generic enforcement, policy lives in DB) ----
         # plan: 'free' | 'unlimited'. Existing rows default to 'free'. The
         # operator (private ops backend) writes plan/quota_config directly to
