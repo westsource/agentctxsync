@@ -21,79 +21,139 @@
   {% endif %}
 
   <!-- Account -->
-  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-5">
-    <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{{ t.security_account }}</p>
-    <p class="text-sm text-gray-700">
-      <span class="font-semibold">{{ user.username }}</span>
-      <span class="text-gray-400 ml-2">{{ t.security_username_fixed }}</span>
-    </p>
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-4">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs font-medium text-gray-400 uppercase tracking-wider">{{ t.security_account }}</p>
+        <p class="text-sm font-semibold text-gray-900 mt-1">{{ user.username }}</p>
+      </div>
+      <span class="text-xs text-gray-400">{{ t.security_username_fixed }}</span>
+    </div>
   </div>
 
-  <!-- Password -->
-  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-5">
-    <h2 class="text-base font-semibold text-gray-900 mb-1">{{ t.security_pwd_section }}</h2>
-    <p class="text-xs text-gray-400 mb-4">{{ t.security_pwd_hint }}</p>
-    <form method="POST" action="/web/change-password?next=/web/security" class="space-y-3">
+  <!-- Entries: change password / reset password / change email -->
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-100">
+    <button type="button" onclick="showDlg('dlgPwd')"
+            class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors rounded-t-2xl">
+      <span class="text-sm font-medium text-gray-900">{{ t.security_pwd_section }}</span>
+      <span class="text-gray-400">›</span>
+    </button>
+    <button type="button" onclick="showDlg('dlgReset')"
+            class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors">
+      <span class="text-sm font-medium text-gray-900">{{ t.security_pwd_reset }}</span>
+      <span class="text-gray-400">›</span>
+    </button>
+    <button type="button" onclick="showDlg('dlgEmail')"
+            class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors rounded-b-2xl">
+      <span class="text-sm font-medium text-gray-900">{{ t.security_email_change }}</span>
+      <span class="text-gray-400">›</span>
+    </button>
+  </div>
+
+  <!-- Current security email -->
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mt-4">
+    <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{{ t.security_email_section }}</p>
+    {% if row.email_verified_at %}
+      <p class="text-sm text-gray-700">{{ t.email_verified_yes }}: <span class="font-medium">{{ row.email[:1] }}***@{{ row.email.split('@')[-1] if '@' in row.email else row.email }}</span></p>
+    {% elif row.pending_email %}
+      <p class="text-sm text-gray-700">{{ t.email_pending_status }}: <span class="font-medium">{{ row.pending_email[:1] }}***@{{ row.pending_email.split('@')[-1] if '@' in row.pending_email else row.pending_email }}</span></p>
+      <p class="text-xs text-gray-400 mt-1">{{ t.email_pending_note2 }}</p>
+    {% else %}
+      <p class="text-sm text-gray-700">{{ t.email_verified_no }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ============ dialogs ============ -->
+<div id="dlgPwd" class="hidden fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4" onclick="if(event.target===this)hideDlg('dlgPwd')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-base font-semibold text-gray-900">{{ t.security_pwd_section }}</h2>
+      <button type="button" onclick="hideDlg('dlgPwd')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    <form method="POST" action="/web/change-password?next=/web/security" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
         <input type="password" name="old_password" required autocomplete="current-password"
                class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
       </div>
-      <div class="grid sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_new_password }}</label>
-          <input type="password" name="new_password" required minlength="6" maxlength="128" autocomplete="new-password"
-                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_confirm_password }}</label>
-          <input type="password" name="confirm_password" required minlength="6" maxlength="128" autocomplete="new-password"
-                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
-        </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_new_password }}</label>
+        <input type="password" name="new_password" required minlength="6" maxlength="128" autocomplete="new-password"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
       </div>
-      <button type="submit"
-              class="px-5 py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.security_pwd_btn }}</button>
-    </form>
-  </div>
-
-  <!-- Security email -->
-  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-1">{{ t.security_email_section }}</h2>
-    <div class="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm">
-      {% if row.email_verified_at %}
-        <p class="text-gray-700">{{ t.email_verified_yes }}: <span class="font-medium">{{ row.email[:1] }}***@{{ row.email.split('@')[-1] if '@' in row.email else row.email }}</span></p>
-      {% elif row.pending_email %}
-        <p class="text-gray-700">{{ t.email_pending_status }}: <span class="font-medium">{{ row.pending_email[:1] }}***@{{ row.pending_email.split('@')[-1] if '@' in row.pending_email else row.pending_email }}</span></p>
-        <p class="text-gray-400 text-xs mt-1">{{ t.email_pending_note2 }}</p>
-      {% else %}
-        <p class="text-gray-700">{{ t.email_verified_no }}</p>
-      {% endif %}
-    </div>
-
-    {% if row.pending_email %}
-    <form method="POST" action="/web/email/resend" class="mb-4">
-      <button type="submit"
-              class="w-full sm:w-auto px-5 py-2.5 border border-[#6E56CF] text-[#6E56CF] hover:bg-[#EDE9FB] font-semibold rounded-xl transition-colors text-sm">{{ t.email_resend_btn }}</button>
-    </form>
-    {% endif %}
-
-    <form method="POST" action="/web/email/bind" class="space-y-3">
-      <div class="grid sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_email }}</label>
-          <input type="email" name="email" required maxlength="254" autocomplete="email"
-                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
-          <input type="password" name="old_password" required autocomplete="current-password"
-                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
-        </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_confirm_password }}</label>
+        <input type="password" name="confirm_password" required minlength="6" maxlength="128" autocomplete="new-password"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
       </div>
-      <p class="text-xs text-gray-400">{{ t.email_new_hint }}</p>
-      <button type="submit"
-              class="px-5 py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.email_change_btn if row.email else t.email_bind_btn }}</button>
+      <p class="text-xs text-gray-400">{{ t.security_pwd_hint }}</p>
+      <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.security_pwd_btn }}</button>
     </form>
   </div>
 </div>
+
+<div id="dlgReset" class="hidden fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4" onclick="if(event.target===this)hideDlg('dlgReset')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-base font-semibold text-gray-900">{{ t.security_pwd_reset }}</h2>
+      <button type="button" onclick="hideDlg('dlgReset')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    {% if reset_sent %}
+    <p class="text-sm text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 mb-4">{{ t.sec_reset_sent }}</p>
+    {% endif %}
+    {% if row.email_verified_at %}
+      <p class="text-sm text-gray-600 mb-2">{{ t.security_email_section }}: <span class="font-medium">{{ row.email[:1] }}***@{{ row.email.split('@')[-1] if '@' in row.email else row.email }}</span></p>
+      <p class="text-xs text-gray-400 mb-5">{{ t.sec_reset_desc }}</p>
+      <form method="POST" action="/web/security/reset-request">
+        <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.sec_reset_btn }}</button>
+      </form>
+    {% else %}
+      <p class="text-sm text-gray-600 mb-5">{{ t.reset_no_verified_email }}</p>
+      <a href="/web/security?d=email" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.email_bind_btn }}</a>
+    {% endif %}
+  </div>
+</div>
+
+<div id="dlgEmail" class="hidden fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4" onclick="if(event.target===this)hideDlg('dlgEmail')">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-base font-semibold text-gray-900">{{ t.security_email_change }}</h2>
+      <button type="button" onclick="hideDlg('dlgEmail')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    {% if row.pending_email %}
+    <p class="text-sm text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 mb-4">
+      {{ t.email_pending_status }}: <span class="font-medium">{{ row.pending_email[:1] }}***@{{ row.pending_email.split('@')[-1] if '@' in row.pending_email else row.pending_email }}</span>
+    </p>
+    <form method="POST" action="/web/email/resend" class="mb-4">
+      <button type="submit" class="w-full py-2.5 border border-[#6E56CF] text-[#6E56CF] hover:bg-[#EDE9FB] font-semibold rounded-xl transition-colors text-sm">{{ t.email_resend_btn }}</button>
+    </form>
+    {% endif %}
+    <form method="POST" action="/web/email/bind" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_email }}</label>
+        <input type="email" name="email" required maxlength="254" autocomplete="email"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
+        <input type="password" name="old_password" required autocomplete="current-password"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+      </div>
+      <p class="text-xs text-gray-400">{{ t.email_new_hint }}</p>
+      <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.email_change_btn if row.email else t.email_bind_btn }}</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function showDlg(id) { document.getElementById(id).classList.remove('hidden'); }
+function hideDlg(id) { document.getElementById(id).classList.add('hidden'); }
+{% if open_dialog %}
+document.addEventListener('DOMContentLoaded', function () {
+  var el = document.getElementById('{{ open_dialog }}');
+  if (el) el.classList.remove('hidden');
+});
+{% endif %}
+</script>
 {% endblock %}
