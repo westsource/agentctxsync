@@ -12,8 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from agents import AGENTS
-from auth import (PASSWORD_MAX, generate_api_key, get_current_user,
-                  hash_password, verify_password)
+from auth import (PASSWORD_MAX, email_action_allowed, generate_api_key,
+                  get_current_user, hash_password, verify_password)
 from db import (_pg_val, get_conn, get_nav_workspaces,
                get_user_workspaces, rel_sync_label)
 from render import get_lang, get_translations, make_flash, render_page
@@ -173,6 +173,8 @@ async def web_create_workspace(request: Request):
         user = get_current_user(request)
     except:
         return RedirectResponse(url="/web/login")
+    if not email_action_allowed(user["sub"]):
+        return RedirectResponse(url="/web/email?error=email_required_gate", status_code=303)
     from fastapi import Form
     body = await request.form()
     name = body.get("name", "").strip()
@@ -939,6 +941,8 @@ async def api_list_workspaces(user: dict = Depends(get_current_user)):
 
 @router.post("/api/workspaces")
 async def api_create_workspace(request: Request, user: dict = Depends(get_current_user)):
+    if not email_action_allowed(user["sub"]):
+        raise HTTPException(status_code=403, detail="Email verification required")
     body = await request.json()
     name = body.get("name", "").strip()
     description = body.get("description", "").strip()

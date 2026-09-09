@@ -24,11 +24,13 @@ import time
 REGISTER_LIMIT, REGISTER_WINDOW = 10, 600    # open registration per IP / 10 min
 LOGIN_LIMIT, LOGIN_WINDOW = 30, 600          # login attempts per IP / 10 min
 CAPTCHA_LIMIT, CAPTCHA_WINDOW = 30, 300      # fresh captcha challenges per IP / 5 min
+EMAIL_LIMIT, EMAIL_WINDOW = 5, 600           # bind/resend verification mail per IP / 10 min
 
 _LIMITS = {
     "register": (REGISTER_LIMIT, REGISTER_WINDOW),
     "login": (LOGIN_LIMIT, LOGIN_WINDOW),
     "captcha": (CAPTCHA_LIMIT, CAPTCHA_WINDOW),
+    "email": (EMAIL_LIMIT, EMAIL_WINDOW),
 }
 _MAX_BUCKETS = 20000
 
