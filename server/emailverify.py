@@ -19,6 +19,7 @@ import time
 
 TOKEN_TTL = 30 * 60          # verification links valid 30 minutes
 PURPOSE_VERIFY_EMAIL = "verify_email"
+PURPOSE_RESET_PASSWORD = "reset_password"
 EMAIL_MAX = 254
 
 # Loose structural check only (OWASP): real ownership is proven by the mail

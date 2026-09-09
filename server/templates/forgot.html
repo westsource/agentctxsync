@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ t.forgot_title }}{% endblock %}
+{% block content_full %}
+<div x-data="{ loading: false }">
+  <div class="bg-white rounded-3xl p-8 shadow-2xl">
+    <div class="flex flex-col items-center mb-6">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 8px 20px rgba(94,84,207,.35)">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path stroke="white" stroke-width="2" stroke-linecap="round" d="M15 7a3 3 0 11-6 0 3 3 0 016 0zM4 21a8 8 0 0116 0"/></svg>
+      </div>
+      <h1 class="text-xl font-bold text-gray-900">{{ t.forgot_title }}</h1>
+    </div>
+
+    {% if mode == 'unavailable' %}
+      <p class="text-sm text-gray-500 mb-6">{{ t.forgot_unavailable }}</p>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+    {% elif mode == 'rate' %}
+      <p class="text-sm text-gray-500 mb-6">{{ t.email_rate_limited }}</p>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+    {% elif mode == 'done' %}
+      <h2 class="text-base font-semibold text-gray-900 mb-2">{{ t.forgot_done_title }}</h2>
+      <p class="text-sm text-gray-500 mb-6">{{ t.forgot_done_desc }}</p>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+    {% else %}
+      <p class="text-sm text-gray-500 mb-6">{{ t.forgot_desc }}</p>
+      <form method="POST" action="/web/forgot" @submit="loading = true">
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.forgot_identifier }}</label>
+          <input type="text" name="username" required autofocus autocomplete="username"
+                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+        </div>
+        <p class="text-xs text-gray-400 mb-4">{{ t.forgot_hint }}</p>
+        <button type="submit" :disabled="loading"
+                class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm">
+          <span x-show="!loading">{{ t.forgot_submit }}</span>
+          <span x-show="loading" x-cloak>{{ t.register_submitting }}</span>
+        </button>
+      </form>
+      <div class="mt-4 text-center">
+        <a href="/web/login" class="text-sm text-gray-500 hover:text-gray-700">{{ t.forgot_back_login }}</a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

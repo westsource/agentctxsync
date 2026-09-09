@@ -174,7 +174,7 @@ async def web_create_workspace(request: Request):
     except:
         return RedirectResponse(url="/web/login")
     if not email_action_allowed(user["sub"]):
-        return RedirectResponse(url="/web/email?error=email_required_gate", status_code=303)
+        return RedirectResponse(url="/web/security?error=email_required_gate", status_code=303)
     from fastapi import Form
     body = await request.form()
     name = body.get("name", "").strip()
