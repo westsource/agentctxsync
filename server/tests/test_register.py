@@ -32,6 +32,7 @@ class FakeCursor:
         self.rows = list(rows)
         self.executed = []
         self.fail_sql = fail_sql
+        self.rowcount = 1
 
     def execute(self, sql, params=None):
         if self.fail_sql and self.fail_sql in sql:
@@ -333,6 +334,102 @@ class RegisterSubmitTest(unittest.TestCase):
             resp = asyncio.run(auth.web_register_submit(FakeRequest(valid_form(email=""))))
         self.assertEqual(rendered, ["register_email_required"])
         self.assertEqual(cursor.executed, [])
+
+
+class EmailActivationTest(unittest.TestCase):
+    """POST /web/verify-email activates the account and creates the default
+    workspace exactly when the pending account has none yet (recommended
+    onboarding: activate -> dashboard is immediately sync-capable)."""
+
+    def _confirm(self):
+        raw = "activation-token-raw"
+        now = time.time()
+        # Row stream in fetchone order:
+        # 1 token lookup row (tuple), 2 user row FOR UPDATE (dict),
+        # 3 email-uniqueness (None = free), 4 workspace-exists (None = none),
+        # 5 default workspace insert RETURNING id.
+        rows = [
+            (11, 7, "verify_email", "alice@example.com", now + 1800, None),
+            {"id": 7, "username": "alice", "display_name": "Alice",
+             "is_admin": False, "lang": "zh-CN", "must_change_password": 0,
+             "account_state": auth.STATE_PENDING,
+             "auth_source": auth.AUTH_SOURCE_EMAIL,
+             "pending_email": "alice@example.com",
+             "pending_email_normalized": "alice@example.com"},
+            None, None,
+            (1,),
+        ]
+        cursor = FakeCursor(rows)
+        conn = FakeConn(cursor)
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "generate_api_key", return_value="ws_new"),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.emailverify, "token_digest",
+                              return_value="digest-of-" + raw),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        form = {"token": raw}
+        resp = asyncio.run(auth.web_verify_email_confirm(FakeRequest(form)))
+        return resp, cursor, conn
+
+    def test_activation_creates_default_workspace_and_logs_in(self):
+        resp, cursor, conn = self._confirm()
+        self.assertEqual(resp.status_code, 303)
+        self.assertEqual(resp.headers["location"], "/web/")
+        self.assertIn("hsync_token=", resp.headers.get("set-cookie", ""))
+        # Email moved from pending to verified; account activated.
+        user_update = next(p for s, p in cursor.executed
+                           if s.startswith("UPDATE users SET email = pending_email"))
+        self.assertEqual(user_update[0] is not None, True)  # verified_at
+        self.assertEqual(user_update[1], auth.STATE_ACTIVE)
+        self.assertEqual(user_update[2], 7)                 # user id
+        # Exactly one default workspace insert (localized zh name).
+        ws_inserts = [p for s, p in cursor.executed if "INSERT INTO workspaces" in s]
+        self.assertEqual(len(ws_inserts), 1)
+        self.assertEqual(ws_inserts[0][0], "默认工作空间")
+        # Token consumed and the activation audited.
+        self.assertTrue(any("consumed_at" in s and "user_verification_tokens" in s
+                            for s, _ in cursor.executed))
+        audit = next(p for s, p in cursor.executed if "INSERT INTO audit_log" in s)
+        self.assertEqual(audit[1], "email_verified")
+        self.assertFalse(conn.rolled_back)
+
+    def test_activation_keeps_existing_workspace(self):
+        """A user who already owns a workspace (e.g. legacy binding) must NOT
+        get a second default one: workspace-exists check returns a row."""
+        raw = "activation-token-raw"
+        now = time.time()
+        rows = [
+            (11, 7, "verify_email", "alice@example.com", now + 1800, None),
+            {"id": 7, "username": "alice", "display_name": "Alice",
+             "is_admin": False, "lang": "zh-CN", "must_change_password": 0,
+             "account_state": "LEGACY_UNVERIFIED",
+             "auth_source": "LEGACY_USERNAME",
+             "pending_email": "alice@example.com",
+             "pending_email_normalized": "alice@example.com"},
+            None,
+            (9,),  # workspace already exists -> no insert
+        ]
+        cursor = FakeCursor(rows)
+        conn = FakeConn(cursor)
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "generate_api_key", return_value="ws_new"),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.emailverify, "token_digest",
+                              return_value="digest-of-" + raw),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        resp = asyncio.run(auth.web_verify_email_confirm(
+            FakeRequest({"token": raw})))
+        self.assertEqual(resp.headers["location"], "/web/")
+        ws_inserts = [p for s, p in cursor.executed if "INSERT INTO workspaces" in s]
+        self.assertEqual(ws_inserts, [])
 
 
 class EmailGateTest(unittest.TestCase):
