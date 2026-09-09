@@ -1,0 +1,58 @@
+<div x-data="{ loading: false }" class="bg-white rounded-3xl p-8 shadow-2xl w-full max-w-md">
+    <div class="flex flex-col items-center mb-6">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 8px 20px rgba(94,84,207,.35)">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M3 8l9-5 9 5v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" stroke="white" stroke-width="2" stroke-linejoin="round"/><path d="M3 8l9 6 9-6" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>
+      </div>
+      <h1 class="text-lg font-bold text-gray-900">{{ t.email_title }}</h1>
+      <p class="text-gray-400 text-sm mt-1">{{ t.email_subtitle }}</p>
+    </div>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 text-red-600 border border-red-100 text-sm">{{ t[error] if error in t else error }}</div>
+    {% endif %}
+    {% if sent and not mail_failed %}
+    <div class="mb-4 px-4 py-3 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 text-sm">{{ t.email_sent_notice }}</div>
+    {% endif %}
+    {% if mail_failed %}
+    <div class="mb-4 px-4 py-3 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 text-sm">{{ t.email_mail_failed }}</div>
+    {% endif %}
+
+    <!-- Current status -->
+    <div class="mb-6 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm">
+      <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">{{ t.email_current_status }}</p>
+      {% if row.email_verified_at %}
+        <p class="text-gray-700">{{ t.email_verified_yes }}: <span class="font-medium">{{ row.email[:1] }}***@{{ row.email.split('@')[-1] if '@' in row.email else row.email }}</span></p>
+      {% elif row.pending_email %}
+        <p class="text-gray-700">{{ t.email_pending_status }}: <span class="font-medium">{{ row.pending_email[:1] }}***@{{ row.pending_email.split('@')[-1] if '@' in row.pending_email else row.pending_email }}</span></p>
+        <p class="text-gray-400 text-xs mt-1">{{ t.email_pending_note2 }}</p>
+      {% else %}
+        <p class="text-gray-700">{{ t.email_verified_no }}</p>
+      {% endif %}
+    </div>
+
+    {% if row.pending_email %}
+      <form method="POST" action="/web/email/resend" class="mb-4" @submit="loading = true">
+        <button type="submit" :disabled="loading"
+                class="w-full py-2.5 border border-[#6E56CF] text-[#6E56CF] hover:bg-[#EDE9FB] font-semibold rounded-xl transition-colors text-sm">{{ t.email_resend_btn }}</button>
+      </form>
+    {% endif %}
+
+    <form method="POST" action="/web/email/bind" @submit="loading = true">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_email }}</label>
+        <input type="email" name="email" required maxlength="254" autocomplete="email"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
+      </div>
+      <div class="mb-2">
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
+        <input type="password" name="old_password" required autocomplete="current-password"
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
+      </div>
+      <p class="text-xs text-gray-400 mb-4">{{ t.email_new_hint }}</p>
+      <button type="submit" :disabled="loading"
+              class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm">
+        <span x-show="!loading">{{ t.email_change_btn if row.email else t.email_bind_btn }}</span>
+        <span x-show="loading" x-cloak>{{ t.register_submitting }}</span>
+      </button>
+    </form>
+</div>
