@@ -180,7 +180,10 @@
             <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
             <div class="my-1 border-t border-gray-200"></div>
             {% if user.get("account_state") != 'PENDING_EMAIL_VERIFICATION' %}
-            <a href="/web/security" class="block px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.nav_security }}</a>
+            <a href="/web/security" class="block px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors">{{ t.security_title }}</a>
+            <a href="/web/security?d=dlgPwd" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_section }}</a>
+            <a href="/web/security?d=dlgReset" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_reset }}</a>
+            <a href="/web/security?d=dlgEmail" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_email_change }}</a>
             <div class="my-1 border-t border-gray-200"></div>
             {% endif %}
             <button type="button" onclick="document.getElementById('profileModal').classList.remove('hidden')" class="block w-full text-left px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.nav_edit_profile }}</button>
@@ -234,31 +237,10 @@
     <form method="POST" action="/web/update-profile" class="px-6 py-5 space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
-        <input type="text" name="display_name" value="{{ user.display_name or '' }}"
+        <input type="text" name="display_name" value="{{ user.display_name or '' }}" maxlength="64"
                class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
       </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_new_password }}</label>
-        <input type="password" name="new_password" placeholder="{{ t.admin_leave_empty }}" minlength="6"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
-        <input type="password" name="old_password"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
-      </div>
-      {% if user.is_admin %}
-      <div>
-        <label class="flex items-center gap-2 text-sm text-gray-500">
-          <input type="checkbox" name="is_admin" value="true" checked {% if user.username == 'admin' %}disabled{% endif %}
-                 class="rounded border-slate-600 bg-gray-100 text-[#6E56CF] focus:ring-[#6E56CF]">
-          {{ t.admin_admin_privileges }}
-        </label>
-        {% if user.username == 'admin' %}
-        <p class="text-xs text-gray-400 mt-1">{{ t.admin_cannot_remove_admin }}</p>
-        {% endif %}
-      </div>
-      {% endif %}
+      <p class="text-xs text-gray-400">{{ t.profile_display_only_hint }}</p>
       <div class="flex justify-end gap-3 pt-2">
         <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
         <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_save }}</button>

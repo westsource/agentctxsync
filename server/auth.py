@@ -751,9 +751,9 @@ async def web_email_resend(request: Request):
 
 @router.get("/web/security", response_class=HTMLResponse)
 async def web_security_page(request: Request):
-    """Security hub: change password + manage the verified email, one entry
-    point for every logged-in account (pending accounts are locked to the
-    verify page by the account-state middleware and never reach here)."""
+    """Security hub: change password / reset password / change email entries,
+    each opening a dialog. A 'd' query param auto-opens the dialog (allowed
+    ids only: dlgPwd / dlgReset / dlgEmail)."""
     try:
         user = get_current_user(request)
     except Exception:
@@ -763,14 +763,60 @@ async def web_security_page(request: Request):
     row = _user_email_state(user["sub"])
     if not row:
         return RedirectResponse(url="/web/login")
+    d = request.query_params.get("d", "")
+    if d not in ("dlgPwd", "dlgReset", "dlgEmail"):
+        d = ""
     return await render_page("security.html", {
         "user": user,
         "row": row,
+        "open_dialog": d,
         "error": request.query_params.get("error", ""),
         "success": request.query_params.get("success", ""),
         "sent": request.query_params.get("sent") == "1",
+        "reset_sent": request.query_params.get("reset_sent") == "1",
         "mail_failed": request.query_params.get("mail_failed") == "1",
     })
+
+
+@router.post("/web/security/reset-request", response_class=HTMLResponse)
+async def web_security_reset_request(request: Request):
+    """Send a password-reset mail to the account's VERIFIED security email
+    (self-service reset entry for signed-in users). Token/flow identical to
+    the guest /web/forgot path: purpose reset_password, one-time, 30 min."""
+    try:
+        user = get_current_user(request)
+    except Exception:
+        return RedirectResponse(url="/web/login")
+    if not smtp_configured():
+        return RedirectResponse(url="/web/security", status_code=303)
+    ip = client_ip(request)
+    if not ratelimit.allow("email", ip):
+        return RedirectResponse(url="/web/security?d=dlgReset&error=email_rate_limited",
+                                status_code=303)
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT id, lang, email, email_normalized, email_verified_at "
+                  "FROM users WHERE id = %s", (user["sub"],))
+        u = c.fetchone()
+        if not u or u["email_verified_at"] is None or not u["email"]:
+            return RedirectResponse(url="/web/security?d=dlgReset&error=reset_no_verified_email",
+                                    status_code=303)
+        raw_token = emailverify.issue_token(
+            conn, u["id"], emailverify.PURPOSE_RESET_PASSWORD,
+            u["email_normalized"], ip)
+        audit_event(conn, "password_reset_requested", u["id"],
+                    "password reset requested (security hub)")
+        to_email = u["email"]
+        lang = u["lang"] or "zh-CN"
+    try:
+        mailer.send_password_reset_mail(to_email,
+                                        password_reset_link(request, raw_token),
+                                        lang)
+        return RedirectResponse(url="/web/security?d=dlgReset&reset_sent=1",
+                                status_code=303)
+    except mailer.MailerError:
+        return RedirectResponse(url="/web/security?d=dlgReset&mail_failed=1",
+                                status_code=303)
 
 
 @router.get("/web/forgot", response_class=HTMLResponse)
@@ -938,45 +984,20 @@ async def web_change_password(request: Request):
 
 @router.post("/web/update-profile", response_class=HTMLResponse)
 async def web_update_profile(request: Request):
-    """Update own profile: display name, optional password, admin flag.
-    Mirrors the admin edit-user behavior; main admin is protected, and
-    non-admin users can never grant themselves the admin role.
-    Changing the password requires verifying the current one."""
+    """Update own display name only. Password and email changes moved to the
+    security hub (/web/security dialogs); admin role is not touched here."""
     try:
         user = get_current_user(request)
     except:
         return RedirectResponse(url="/web/login")
     body = await request.form()
     display_name = body.get("display_name", "").strip()
-    new_password = body.get("new_password", "")  # do not strip, keep parity with change-password
-    old_password = body.get("old_password", "")
-    is_admin = body.get("is_admin") == "true"
-    uid = user["sub"]
     if len(display_name) > DISPLAY_NAME_MAX:
         return RedirectResponse(url="/web/?error=display_too_long", status_code=303)
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("SELECT username, password_hash FROM users WHERE id = %s", (uid,))
-        row = c.fetchone()
-        if not row:
-            return RedirectResponse(url="/web/login")
-        username, password_hash = row
-        if username == "admin":
-            is_admin = True  # main admin role is never removable
-        if not user.get("is_admin"):
-            is_admin = False  # no self-elevation
-        if new_password:
-            if len(new_password) < 6:
-                return RedirectResponse(url="/web/?error=pwd_short", status_code=303)
-            if len(new_password) > PASSWORD_MAX:
-                return RedirectResponse(url="/web/?error=pwd_too_long", status_code=303)
-            if not verify_password(old_password, password_hash):
-                return RedirectResponse(url="/web/?error=old_pwd_wrong", status_code=303)
-            c.execute("UPDATE users SET display_name = %s, password_hash = %s, is_admin = %s, must_change_password = 0 WHERE id = %s",
-                      (display_name, hash_password(new_password), is_admin, uid))
-        else:
-            c.execute("UPDATE users SET display_name = %s, is_admin = %s WHERE id = %s",
-                      (display_name, is_admin, uid))
+        c.execute("UPDATE users SET display_name = %s WHERE id = %s",
+                  (display_name, user["sub"]))
     return RedirectResponse(url="/web/?success=profile_updated", status_code=303)
 
 @router.get("/web/set-language/{lang}")
