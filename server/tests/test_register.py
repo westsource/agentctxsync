@@ -354,6 +354,7 @@ class EmailActivationTest(unittest.TestCase):
              "is_admin": False, "lang": "zh-CN", "must_change_password": 0,
              "account_state": auth.STATE_PENDING,
              "auth_source": auth.AUTH_SOURCE_EMAIL,
+             "email": None,
              "pending_email": "alice@example.com",
              "pending_email_normalized": "alice@example.com"},
             None, None,
@@ -408,6 +409,7 @@ class EmailActivationTest(unittest.TestCase):
              "is_admin": False, "lang": "zh-CN", "must_change_password": 0,
              "account_state": "LEGACY_UNVERIFIED",
              "auth_source": "LEGACY_USERNAME",
+             "email": "old@example.com",
              "pending_email": "alice@example.com",
              "pending_email_normalized": "alice@example.com"},
             None,
@@ -430,6 +432,116 @@ class EmailActivationTest(unittest.TestCase):
         self.assertEqual(resp.headers["location"], "/web/")
         ws_inserts = [p for s, p in cursor.executed if "INSERT INTO workspaces" in s]
         self.assertEqual(ws_inserts, [])
+
+
+class ForgotResetTest(unittest.TestCase):
+    """Password recovery: uniform anti-enumeration response, reset only for
+    verified-email accounts, one-time token consumed inside the reset tx."""
+
+    def _render_capture(self, rendered):
+        async def fake_render(tpl, ctx):
+            rendered.append((tpl, ctx))
+            return FakeRendered(ctx)
+        return fake_render
+
+    def test_forgot_unknown_identifier_uniform_done_no_mail(self):
+        cursor = FakeCursor([None])  # user lookup -> not found
+        conn = FakeConn(cursor)
+        rendered = []
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.ratelimit, "allow", return_value=True),
+            mock.patch.object(auth, "render_page", new=self._render_capture(rendered)),
+            mock.patch.object(auth.mailer, "send_password_reset_mail"),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        resp = asyncio.run(auth.web_forgot_submit(
+            FakeRequest({"username": "ghost"})))
+        tpl, ctx = rendered[0]
+        self.assertEqual(ctx["mode"], "done")
+        auth.mailer.send_password_reset_mail.assert_not_called()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_forgot_verified_account_sends_reset_mail(self):
+        rows = [{"id": 7, "username": "alice", "email": "alice@example.com",
+                 "email_normalized": "alice@example.com",
+                 "email_verified_at": 1_700_000_000.0, "lang": "zh-CN"}]
+        cursor = FakeCursor(rows)
+        conn = FakeConn(cursor)
+        rendered = []
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth.ratelimit, "allow", return_value=True),
+            mock.patch.object(auth, "render_page", new=self._render_capture(rendered)),
+            mock.patch.object(auth.mailer, "send_password_reset_mail"),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        asyncio.run(auth.web_forgot_submit(FakeRequest({"username": "alice"})))
+        auth.mailer.send_password_reset_mail.assert_called_once()
+        to_email, link, lang = auth.mailer.send_password_reset_mail.call_args[0]
+        self.assertEqual(to_email, "alice@example.com")
+        self.assertIn("/web/reset?token=", link)
+        # Token was issued under the reset purpose (digest only).
+        self.assertTrue(any("INSERT INTO user_verification_tokens" in s
+                            for s, _ in cursor.executed))
+
+    def _reset_submit(self, rows):
+        cursor = FakeCursor(rows)
+        conn = FakeConn(cursor)
+        rendered = []
+        patchers = [
+            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
+            mock.patch.object(auth, "smtp_configured", return_value=True),
+            mock.patch.object(auth, "hash_password", return_value="NEWHASH"),
+            mock.patch.object(auth.emailverify, "token_digest",
+                              return_value="digest-of-raw"),
+            mock.patch.object(auth, "render_page", new=self._render_capture(rendered)),
+        ]
+        for p in patchers:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in patchers])
+        form = {"token": "raw", "new_password": "newsecret1",
+                "confirm_password": "newsecret1"}
+        resp = asyncio.run(auth.web_reset_submit(FakeRequest(form)))
+        return resp, cursor, rendered
+
+    def test_reset_sets_password_and_consumes_token(self):
+        now = time.time()
+        rows = [
+            (22, 7, "reset_password", "alice@example.com", now + 1800, None),
+            {"id": 7, "lang": "zh-CN", "email": "alice@example.com",
+             "email_normalized": "alice@example.com",
+             "email_verified_at": 1_700_000_000.0},
+        ]
+        resp, cursor, rendered = self._reset_submit(rows)
+        tpl, ctx = rendered[0]
+        self.assertEqual(ctx["mode"], "done")
+        # Password hash updated, must_change cleared, token consumed, audited.
+        update = next(p for s, p in cursor.executed
+                      if s.startswith("UPDATE users SET password_hash"))
+        self.assertEqual(update[0], "NEWHASH")
+        self.assertTrue(any("consumed_at" in s and "user_verification_tokens" in s
+                            for s, _ in cursor.executed))
+        audit = next(p for s, p in cursor.executed if "INSERT INTO audit_log" in s)
+        self.assertEqual(audit[1], "password_reset")
+
+    def test_reset_rejects_unverified_account(self):
+        now = time.time()
+        rows = [
+            (22, 7, "reset_password", "alice@example.com", now + 1800, None),
+            {"id": 7, "lang": "zh-CN", "email": None,
+             "email_normalized": None, "email_verified_at": None},
+        ]
+        resp, cursor, rendered = self._reset_submit(rows)
+        self.assertEqual(rendered[0][1]["mode"], "invalid")
+        self.assertFalse(any(s.startswith("UPDATE users SET password_hash")
+                             for s, _ in cursor.executed))
 
 
 class EmailGateTest(unittest.TestCase):

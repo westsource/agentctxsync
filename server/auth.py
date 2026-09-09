@@ -40,7 +40,8 @@ AUTH_SOURCE_EMAIL = "EMAIL_REQUIRED"
 
 # Pages reachable before the forced password change.
 PW_ONLY_ALLOWED = {"/web/login", "/web/change-password", "/web/logout",
-                   "/web/register", "/web/set-language"}
+                   "/web/register", "/web/set-language",
+                   "/web/forgot", "/web/reset"}
 # Pages reachable while the account is waiting for email verification
 # (waiting/confirm page + the security-email management page).
 VERIFY_ALLOWED = PW_ONLY_ALLOWED | {"/web/verify-email", "/web/email"}
@@ -151,11 +152,35 @@ def audit_user_created(conn, user_id, workspace_id, code, ip):
                 workspace_id, code)
 
 
-def verify_link(request, raw_token):
-    """Full https verify URL for the mail: PUBLIC_URL when configured (the
-    236 deployment sets HERMES_SYNC_PUBLIC_URL), else the request's own base."""
+def _mail_link(request, path, raw_token):
+    """Absolute URL for token links in mail. Uses PUBLIC_URL when configured
+    (236 sets HERMES_SYNC_PUBLIC_URL), else the request's own base."""
     base = PUBLIC_URL or str(request.base_url).rstrip("/")
-    return f"{base}/web/verify-email?token={raw_token}"
+    return f"{base}{path}?token={raw_token}"
+
+
+def verify_link(request, raw_token):
+    """Email-verification link (activation / binding)."""
+    return _mail_link(request, "/web/verify-email", raw_token)
+
+
+def password_reset_link(request, raw_token):
+    """Password-reset link."""
+    return _mail_link(request, "/web/reset", raw_token)
+
+
+def _safe_next(request, default):
+    """Validate a client-supplied 'next' path (same-origin redirect only)."""
+    nxt = request.query_params.get("next", "").strip()
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return nxt
+    return default
+
+
+def email_home_for(state):
+    """Where email-management forms return after success: the pending page
+    for accounts still awaiting verification, else the security hub."""
+    return "/web/email" if state == STATE_PENDING else "/web/security"
 
 
 def email_action_allowed(user_id):
@@ -553,7 +578,7 @@ async def web_verify_email_confirm(request: Request):
             mode = "expired"
         else:
             c.execute("SELECT id, username, display_name, is_admin, lang, "
-                      "must_change_password, account_state, auth_source, "
+                      "must_change_password, account_state, auth_source, email, "
                       "pending_email, pending_email_normalized "
                       "FROM users WHERE id = %s FOR UPDATE", (tok["user_id"],))
             u = c.fetchone()
@@ -585,8 +610,19 @@ async def web_verify_email_confirm(request: Request):
                 success_user = {"id": u["id"], "username": u["username"],
                                 "display_name": u["display_name"],
                                 "is_admin": u["is_admin"], "lang": u["lang"] or "zh-CN",
-                                "must_change_password": u["must_change_password"]}
+                                "must_change_password": u["must_change_password"],
+                                "old_email": u["email"] or None,
+                                "new_email": u["pending_email"]}
     if success_user:
+        # Email change (not first-time activation): notify both addresses
+        # that the security email moved. Best-effort; failures never roll back.
+        if (success_user["old_email"] and success_user["old_email"] != success_user["new_email"]):
+            try:
+                mailer.send_email_changed_notice(success_user["old_email"],
+                                                 success_user["new_email"],
+                                                 success_user["lang"])
+            except mailer.MailerError:
+                pass
         token = create_jwt(success_user["id"], success_user["username"],
                            success_user["is_admin"], success_user["display_name"],
                            success_user["lang"], account_state=STATE_ACTIVE)
@@ -600,8 +636,9 @@ async def web_verify_email_confirm(request: Request):
 
 @router.get("/web/email", response_class=HTMLResponse)
 async def web_email_page(request: Request, error: str = ""):
-    """Security-email management: bind/change email for legacy and verified
-    accounts; resend/change for accounts awaiting verification."""
+    """Email-management deep link. Pending accounts get the standalone page
+    (they are locked out of the rest); everyone else is routed to the
+    security hub (same query parameters carried over)."""
     try:
         user = get_current_user(request)
     except Exception:
@@ -611,13 +648,22 @@ async def web_email_page(request: Request, error: str = ""):
     row = _user_email_state(user["sub"])
     if not row:
         return RedirectResponse(url="/web/login")
-    return await render_page("account_email.html", {
-        "user": user,
-        "row": row,
-        "error": error or request.query_params.get("error", ""),
-        "sent": request.query_params.get("sent") == "1",
-        "mail_failed": request.query_params.get("mail_failed") == "1",
-    })
+    if row["account_state"] == STATE_PENDING:
+        return await render_page("account_email.html", {
+            "user": user,
+            "row": row,
+            "error": error or request.query_params.get("error", ""),
+            "sent": request.query_params.get("sent") == "1",
+            "mail_failed": request.query_params.get("mail_failed") == "1",
+        })
+    target = _safe_next(request, "/web/security")
+    qs = []
+    for key in ("error", "sent", "mail_failed"):
+        if request.query_params.get(key):
+            qs.append(f"{key}={request.query_params[key]}")
+    sep = "&" if "?" in target else "?"
+    return RedirectResponse(url=target + (sep + "&".join(qs) if qs else ""),
+                            status_code=303)
 
 
 @router.post("/web/email/bind", response_class=HTMLResponse)
@@ -657,12 +703,14 @@ async def web_email_bind(request: Request):
         raw_token = emailverify.issue_token(
             conn, u["id"], emailverify.PURPOSE_VERIFY_EMAIL, norm, ip)
         audit_event(conn, "email_pending_set", u["id"], f"email={norm}")
+        state = u["account_state"]
+        lang = u["lang"] or "zh-CN"
     try:
-        mailer.send_verification_mail(email, verify_link(request, raw_token),
-                                      u["lang"] or "zh-CN")
-        return RedirectResponse(url="/web/email?sent=1", status_code=303)
+        mailer.send_verification_mail(email, verify_link(request, raw_token), lang)
     except mailer.MailerError:
-        return RedirectResponse(url="/web/email?sent=1&mail_failed=1", status_code=303)
+        return RedirectResponse(url=email_home_for(state) + "?sent=1&mail_failed=1",
+                                 status_code=303)
+    return RedirectResponse(url=email_home_for(state) + "?sent=1", status_code=303)
 
 
 @router.post("/web/email/resend", response_class=HTMLResponse)
@@ -680,7 +728,7 @@ async def web_email_resend(request: Request):
         return RedirectResponse(url="/web/email?error=email_rate_limited", status_code=303)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("SELECT id, lang, pending_email, pending_email_normalized "
+        c.execute("SELECT id, lang, account_state, pending_email, pending_email_normalized "
                   "FROM users WHERE id = %s FOR UPDATE", (user["sub"],))
         u = c.fetchone()
         if not u or not u["pending_email_normalized"]:
@@ -692,11 +740,148 @@ async def web_email_resend(request: Request):
                     f"email={u['pending_email_normalized']}")
         pending = u["pending_email"]
         lang = u["lang"] or "zh-CN"
+        state = u["account_state"]
     try:
         mailer.send_verification_mail(pending, verify_link(request, raw_token), lang)
-        return RedirectResponse(url="/web/email?sent=1", status_code=303)
     except mailer.MailerError:
-        return RedirectResponse(url="/web/email?sent=1&mail_failed=1", status_code=303)
+        return RedirectResponse(url=email_home_for(state) + "?sent=1&mail_failed=1",
+                                 status_code=303)
+    return RedirectResponse(url=email_home_for(state) + "?sent=1", status_code=303)
+
+
+@router.get("/web/security", response_class=HTMLResponse)
+async def web_security_page(request: Request):
+    """Security hub: change password + manage the verified email, one entry
+    point for every logged-in account (pending accounts are locked to the
+    verify page by the account-state middleware and never reach here)."""
+    try:
+        user = get_current_user(request)
+    except Exception:
+        return RedirectResponse(url="/web/login")
+    if not smtp_configured():
+        return RedirectResponse(url="/web/", status_code=303)
+    row = _user_email_state(user["sub"])
+    if not row:
+        return RedirectResponse(url="/web/login")
+    return await render_page("security.html", {
+        "user": user,
+        "row": row,
+        "error": request.query_params.get("error", ""),
+        "success": request.query_params.get("success", ""),
+        "sent": request.query_params.get("sent") == "1",
+        "mail_failed": request.query_params.get("mail_failed") == "1",
+    })
+
+
+@router.get("/web/forgot", response_class=HTMLResponse)
+async def web_forgot_page(request: Request):
+    """Request a password-reset mail (guest page)."""
+    if not smtp_configured():
+        return await render_page("forgot.html", {"mode": "unavailable"})
+    return await render_page("forgot.html", {"mode": "form"})
+
+
+@router.post("/web/forgot", response_class=HTMLResponse)
+async def web_forgot_submit(request: Request):
+    """Anti-enumeration: every submitted identifier gets the SAME response.
+    A reset mail is sent only when the identifier resolves to an account with
+    a VERIFIED email; everything else is a silent no-op."""
+    if not smtp_configured():
+        return await render_page("forgot.html", {"mode": "unavailable"})
+    if not ratelimit.allow("forgot", client_ip(request)):
+        return await render_page("forgot.html", {"mode": "rate"})
+    body = await request.form()
+    identifier = body.get("username", "").strip()
+    ip = client_ip(request)
+    if identifier:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            u = _find_login_user(c, identifier)
+            if (u and u["email_verified_at"] is not None and u["email"]):
+                raw_token = emailverify.issue_token(
+                    conn, u["id"], emailverify.PURPOSE_RESET_PASSWORD,
+                    u["email_normalized"], ip)
+                audit_event(conn, "password_reset_requested", u["id"],
+                            "password reset requested")
+                to_email = u["email"]
+                lang = u["lang"] or "zh-CN"
+        if u and u["email_verified_at"] is not None and u["email"]:
+            try:
+                mailer.send_password_reset_mail(to_email,
+                                                password_reset_link(request, raw_token),
+                                                lang)
+            except mailer.MailerError:
+                pass  # uniform response regardless of delivery outcome
+    return await render_page("forgot.html", {"mode": "done"})
+
+
+@router.get("/web/reset", response_class=HTMLResponse)
+async def web_reset_page(request: Request):
+    """Password-reset form (token shown, NOT consumed — mail scanners can't
+    burn it)."""
+    if not smtp_configured():
+        return RedirectResponse(url="/web/login", status_code=303)
+    raw = request.query_params.get("token", "").strip()
+    if not raw:
+        return RedirectResponse(url="/web/login", status_code=303)
+    with get_conn() as conn:
+        tok = emailverify.lookup_token(conn, raw, emailverify.PURPOSE_RESET_PASSWORD)
+        if not tok or tok["consumed_at"] is not None:
+            mode = "invalid"
+        elif tok["expires_at"] < time.time():
+            mode = "expired"
+        else:
+            mode = "form"
+    if mode != "form":
+        return await render_page("reset.html", {"mode": mode, "token": ""})
+    return await render_page("reset.html", {"mode": "form", "token": raw})
+
+
+@router.post("/web/reset", response_class=HTMLResponse)
+async def web_reset_submit(request: Request):
+    """Consume the reset token, verify the account still holds that verified
+    email, and set the new password inside one transaction."""
+    if not smtp_configured():
+        return RedirectResponse(url="/web/login", status_code=303)
+    body = await request.form()
+    raw = body.get("token", "").strip()
+    new_pw = body.get("new_password", "")
+    confirm = body.get("confirm_password", "")
+    if len(new_pw) < 6:
+        return await render_page("reset.html",
+                                 {"mode": "form", "token": raw, "error": "pwd_short"})
+    if len(new_pw) > PASSWORD_MAX:
+        return await render_page("reset.html",
+                                 {"mode": "form", "token": raw, "error": "pwd_too_long"})
+    if new_pw != confirm:
+        return await render_page("reset.html",
+                                 {"mode": "form", "token": raw, "error": "pwd_mismatch"})
+    mode = None
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        tok = emailverify.lookup_token(conn, raw, emailverify.PURPOSE_RESET_PASSWORD)
+        if not tok or tok["consumed_at"] is not None:
+            mode = "invalid"
+        elif tok["expires_at"] < time.time():
+            mode = "expired"
+        else:
+            c.execute("SELECT id, lang, email, email_normalized, email_verified_at "
+                      "FROM users WHERE id = %s FOR UPDATE", (tok["user_id"],))
+            u = c.fetchone()
+            if (not u or u["email_verified_at"] is None
+                    or u["email_normalized"] != tok["email_normalized"]):
+                mode = "invalid"
+                conn.rollback()
+            else:
+                c.execute("UPDATE users SET password_hash = %s, must_change_password = 0 "
+                          "WHERE id = %s", (hash_password(new_pw), u["id"]))
+                emailverify.consume_token(conn, tok["id"], time.time())
+                audit_event(conn, "password_reset", u["id"], "password reset")
+                mode = "done"
+                lang = u["lang"] or "zh-CN"
+    if mode == "done":
+        return await render_page("reset.html", {"mode": "done", "token": ""})
+    return await render_page("reset.html", {"mode": mode, "token": ""})
 
 
 @router.get("/web/change-password", response_class=HTMLResponse)
@@ -705,8 +890,12 @@ async def web_change_password_page(request: Request):
         user = get_current_user(request)
     except:
         return RedirectResponse(url="/web/login")
+    # The forced-change flow uses this standalone page; voluntary visits are
+    # funneled into the security hub (single entry point).
+    if request.query_params.get("forced") != "1":
+        return RedirectResponse(url="/web/security", status_code=303)
     return await render_page("change_password.html", {"user": user,
-                                           "forced": request.query_params.get("forced") == "1"})
+                                           "forced": True})
 
 @router.post("/web/change-password", response_class=HTMLResponse)
 async def web_change_password(request: Request):
@@ -718,19 +907,33 @@ async def web_change_password(request: Request):
     old_pw = body.get("old_password", "")
     new_pw = body.get("new_password", "")
     confirm = body.get("confirm_password", "")
+    nxt = request.query_params.get("next", "").strip()
+    local_next = (nxt.startswith("/") and not nxt.startswith("//")
+                  and nxt != "/web/change-password")
     if new_pw != confirm:
+        if local_next:
+            return RedirectResponse(url=f"{nxt}?error=pwd_mismatch", status_code=303)
         return RedirectResponse(url="/web/change-password?forced=1&error=pwd_mismatch", status_code=303)
     if len(new_pw) < 6:
+        if local_next:
+            return RedirectResponse(url=f"{nxt}?error=pwd_short", status_code=303)
         return RedirectResponse(url="/web/change-password?forced=1&error=pwd_short", status_code=303)
     if len(new_pw) > PASSWORD_MAX:
+        if local_next:
+            return RedirectResponse(url=f"{nxt}?error=pwd_too_long", status_code=303)
         return RedirectResponse(url="/web/change-password?forced=1&error=pwd_too_long", status_code=303)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("SELECT password_hash FROM users WHERE id = %s", (user["sub"],))
         u = c.fetchone()
         if not u or not verify_password(old_pw, u["password_hash"]):
+            if local_next:
+                return RedirectResponse(url=f"{nxt}?error=old_pwd_wrong", status_code=303)
             return RedirectResponse(url="/web/change-password?forced=1&error=old_pwd_wrong", status_code=303)
-        c.execute("UPDATE users SET password_hash = %s, must_change_password = 0 WHERE id = %s", (hash_password(new_pw), user["sub"]))
+        c.execute("UPDATE users SET password_hash = %s, must_change_password = 0 WHERE id = %s",
+                  (hash_password(new_pw), user["sub"]))
+    if local_next:
+        return RedirectResponse(url=f"{nxt}?success=pwd_changed", status_code=303)
     return RedirectResponse(url="/web/?success=pwd_changed", status_code=303)
 
 @router.post("/web/update-profile", response_class=HTMLResponse)

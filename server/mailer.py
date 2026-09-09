@@ -74,3 +74,45 @@ def send_verification_mail(to_email, verify_url, lang="zh-CN"):
             + verify_url + "\n\n"
             "链接 30 分钟内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
     send_mail(to_email, subject, text)
+
+
+def send_password_reset_mail(to_email, reset_url, lang="zh-CN"):
+    """Send the password-reset mail (verified-email accounts only)."""
+    if lang == "en":
+        subject = "Reset your password — Agent Context Sync"
+        text = (
+            "Hello,\n\n"
+            "we received a request to reset your Agent Context Sync password. "
+            "Open the link below to choose a new one:\n\n" + reset_url + "\n\n"
+            "The link is valid for 30 minutes and can be used once. "
+            "If you did not request it, ignore this mail and your password "
+            "will stay unchanged.\n")
+    else:
+        subject = "重置密码 — Agent Context Sync"
+        text = (
+            "你好，\n\n"
+            "我们收到重置你的 Agent Context Sync 密码的请求。"
+            "请打开以下链接设置新密码：\n\n" + reset_url + "\n\n"
+            "链接 30 分钟内有效且仅可使用一次。若非本人操作，请忽略本邮件，"
+            "你的密码将保持不变。\n")
+    send_mail(to_email, subject, text)
+
+
+def send_email_changed_notice(old_email, new_email, lang="zh-CN"):
+    """Notify BOTH addresses after a verified email change."""
+    if lang == "en":
+        subject = "Your security email changed — Agent Context Sync"
+        text = (
+            "Hello,\n\n"
+            "your Agent Context Sync security email was changed from\n"
+            + old_email + "\nto\n" + new_email + "\n\n"
+            "If this was not you, contact your administrator immediately.\n")
+    else:
+        subject = "安全邮箱已变更 — Agent Context Sync"
+        text = (
+            "你好，\n\n"
+            "你的 Agent Context Sync 安全邮箱已由\n"
+            + old_email + "\n变更为\n" + new_email + "\n\n"
+            "若非本人操作，请立即联系管理员。\n")
+    send_mail(old_email, subject, text)
+    send_mail(new_email, subject, text)
