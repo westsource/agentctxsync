@@ -180,10 +180,14 @@
             <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
             <div class="my-1 border-t border-gray-200"></div>
             {% if user.get("account_state") != 'PENDING_EMAIL_VERIFICATION' %}
-            <a href="/web/security" class="block px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider hover:text-gray-600 transition-colors">{{ t.security_title }}</a>
-            <a href="/web/security?d=dlgPwd" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_section }}</a>
-            <a href="/web/security?d=dlgReset" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_reset }}</a>
-            <a href="/web/security?d=dlgEmail" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_email_change }}</a>
+            <button type="button" onclick="toggleSecurityMenu()" class="block w-full text-left px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider hover:text-gray-600 hover:bg-gray-50 transition-colors">
+              <span>{{ t.security_title }}</span><span class="float-right transition-transform" id="securityCaret">▸</span>
+            </button>
+            <div id="securitySub" class="hidden">
+              <a href="/web/security?d=dlgPwd" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_section }}</a>
+              <a href="/web/security?d=dlgReset" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_pwd_reset }}</a>
+              <a href="/web/security?d=dlgEmail" class="block pl-5 pr-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.security_email_change }}</a>
+            </div>
             <div class="my-1 border-t border-gray-200"></div>
             {% endif %}
             <button type="button" onclick="document.getElementById('profileModal').classList.remove('hidden')" class="block w-full text-left px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">{{ t.nav_edit_profile }}</button>
@@ -293,6 +297,13 @@ function copyToClipboard(btn) {
   } else {
     legacyCopy();
   }
+}
+function toggleSecurityMenu() {
+  var sub = document.getElementById('securitySub');
+  var caret = document.getElementById('securityCaret');
+  if (!sub) return;
+  var collapsed = sub.classList.toggle('hidden'); // true => now folded
+  if (caret) caret.textContent = collapsed ? '▸' : '▾';
 }
 </script>
 </body>
