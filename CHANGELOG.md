@@ -1,3 +1,45 @@
+## [Unreleased] - 服务端专用（客户端 mcp 版本保持 2026.09.08.1 不变）
+
+### Added（账户安全中心：找回密码 / 修改密码 / 更改邮箱 单入口）
+- **找回密码**：登录页「忘记密码？」→ `/web/forgot` 统一响应防枚举；仅当标识命中
+  「已验证邮箱」账户才发重置邮件（限速 5/10min/IP）。重置令牌复用
+  `user_verification_tokens`（purpose=reset_password，SHA-256 摘要/30min/单次/
+  重发作废旧令牌）；`/web/reset` GET 展示表单不消费令牌，POST 事务内校验账户仍持有
+  该已验证邮箱后置新密码 + 消费 + 审计。
+- **安全信息子菜单**：账户菜单「安全信息」为可折叠二级菜单（标题不可点击），三个子项
+  修改密码 / 重置密码 / 更改邮箱 各自弹出对应弹窗（`/web/security?d=dlg*`）：
+  - 修改密码：当前密码 + 新密码×2；
+  - 重置密码：新端点 `/web/security/reset-request` 向已验证安全邮箱发重置邮件；
+  - 更改邮箱：新邮箱 + 当前密码（待验证状态机），成功后向新旧邮箱发变更通知。
+- **更改信息弹窗仅改显示名**：密码/管理员标志移出，改密/改邮收敛到安全信息。
+
+### Added（邮箱验证可选特性，配置 SMTP 即启用）
+- 新用户注册必填邮箱 → `PENDING_EMAIL_VERIFICATION`（不建工作空间；验证激活时才建
+  默认工作空间 + 自动登录）；验证 GET 展示不消费、POST 事务内激活。
+- 门禁仅一处：**新建工作空间需已验证邮箱**（ACTIVE/管理员代建豁免）；存量用户、既有
+  工作空间、API Key、同步、读取一律不限制；存量账户默认 `LEGACY_UNVERIFIED`，无
+  宽限期/时间锁定。
+- users 增 email/email_normalized/email_verified_at/pending_email(+norm)/account_state/
+  auth_source 列；新增 `user_verification_tokens` 表（哈希摘要、30min、单次）；
+  已验证邮箱部分唯一索引（`uq_users_verified_email`）。迁移 idempotent，重启自动生效。
+- 登录支持「用户名优先，回落已验证邮箱」；account_state 进入 JWT 与 api 登录响应；
+  中间件 `enforce_account_state` 合并强制改密 + 待验证锁页。
+- 存量绑定 / 更换 / 重发走 `/web/email`（pending 账户）或 `/web/security`（已验证）；
+  绑定/重发按 IP 限速 5/10min；防枚举统一文案。
+- 自研 `mailer.py`（纯 smtplib SSL/STARTTLS，零新依赖），发信失败不阻断注册。
+- 236 已配置 `smtp.126.com:465 / westsource@126.com`（凭据仅存服务器 drop-in 与本机
+  部署资料夹，不入库）。
+
+### Changed（注册加固汇总）
+- 进程内按 IP 限速（注册 10/10min、登录 30/10min、验证码 30/5min、邮箱/找回 5/10min）；
+  uvicorn `proxy_headers=True`（反代后取真实客户端 IP）。
+- PBKDF2 迭代 100k→600k（新哈希），存量登录惰性重哈希升级；密码上限 128、用户名≤32、
+  显示名≤64。
+- 注册单事务化（邀请 `FOR UPDATE`）、验证码失败表单保留、邀请码自动大写归一；
+  api_register 对齐（自动建默认工作空间 + 审计 + 长度校验）。
+- 注册页双列紧凑布局、必填字段红色星号。
+- SECURITY_AUDIT M2/M5/L6 状态标注；server 全量 166 用例通过。
+
 ## [2026.09.08.1] - 2026-09-08
 
 ### Fixed（拉取把服务端标题当「本地脏字段」丢弃，DSH Desktop 列表回退显示工作区名）
