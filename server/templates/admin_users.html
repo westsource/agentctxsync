@@ -25,6 +25,7 @@
           <tr class="border-b border-gray-100 bg-[#F9F8FD]">
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_username }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_display_name }}</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_email }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_status }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_role }}</th>
             <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_workspaces }}</th>
@@ -42,6 +43,24 @@
               </div>
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">{{ u.display_name or t.common_none }}</td>
+            <td class="px-6 py-4">
+              {% if u.email_verified_at %}
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-900">{{ u.email or u.email_normalized }}</span>
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#1E8E3E]"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.email_verified_yes }}</span>
+              </div>
+              {% if u.pending_email %}
+              <div class="mt-1 text-xs text-gray-400">{{ t.email_pending_status }}: {{ u.pending_email }}</div>
+              {% endif %}
+              {% elif u.pending_email %}
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-500">{{ u.pending_email }}</span>
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF7E6] text-[#F2994A]"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.email_pending_status }}</span>
+              </div>
+              {% else %}
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.email_verified_no }}</span>
+              {% endif %}
+            </td>
             <td class="px-6 py-4">
               {% if u.is_active %}
               <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#1E8E3E]"><span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ t.admin_active }}</span>
