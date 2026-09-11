@@ -101,30 +101,44 @@ async def web_toggle_user(uid: int, request: Request):
     return RedirectResponse(url="/web/admin/users", status_code=303)
 
 @router.get("/web/admin/workspaces", response_class=HTMLResponse)
-async def web_admin_workspaces(request: Request):
+async def web_admin_workspaces(request: Request, sort: str = "last_sync",
+                               dir: str = "desc"):
     try:
         user = get_current_user(request)
         if not user.get("is_admin"):
             return RedirectResponse(url="/web/")
     except:
         return RedirectResponse(url="/web/login")
+    # Sort whitelist -> SQL expression (never interpolate user input raw).
+    SORT_COLUMNS = {
+        "sessions": "session_count",
+        "messages": "message_count",
+        "last_sync": "last_sync_at",
+        "created": "created_at",
+    }
+    sort = sort if sort in SORT_COLUMNS else "last_sync"
+    direction = "ASC" if dir == "asc" else "DESC"
+    col = SORT_COLUMNS[sort]
+    # NULLs (never synced / unknown) always sort last, both directions.
+    order_sql = f"ORDER BY {col} {direction} NULLS LAST, w.id DESC"
     nav_ws = get_nav_workspaces(user["sub"])
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         # api_key intentionally excluded: keys belong to the workspace owner.
-        c.execute("""SELECT w.id, w.name, w.user_id, w.description, w.created_at,
+        c.execute(f"""SELECT w.id, w.name, w.user_id, w.description, w.created_at,
             u.username as owner_username, u.display_name as owner_name,
             (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.id) as session_count,
             (SELECT COUNT(*) FROM messages m WHERE m.workspace_id = w.id) as message_count,
             (SELECT MAX(st.last_sync_at) FROM sync_state st WHERE st.workspace_id = w.id) as last_sync_at
-            FROM workspaces w JOIN users u ON w.user_id = u.id ORDER BY w.created_at DESC""")
+            FROM workspaces w JOIN users u ON w.user_id = u.id {order_sql}""")
         all_ws = [dict(r) for r in c.fetchall()]
         c.execute("SELECT COUNT(*) as cnt FROM sessions")
         ts = c.fetchone()["cnt"]
         c.execute("SELECT COUNT(*) as cnt FROM messages")
         tm = c.fetchone()["cnt"]
     ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_workspaces",
-           "all_workspaces": all_ws, "total_sessions": ts, "total_messages": tm}
+           "all_workspaces": all_ws, "total_sessions": ts, "total_messages": tm,
+           "sort": sort, "dir": direction.lower()}
     return await render_page("admin_workspaces.html", ctx)
 
 @router.get("/web/admin/access", response_class=HTMLResponse)
