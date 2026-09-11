@@ -51,10 +51,24 @@
         <tr class="border-b border-gray-100 bg-[#F9F8FD]">
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_workspace }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_owner }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_sessions_col }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_messages }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.ws_last_sync }}</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_created }}</th>
+          {% set cols = [
+            ('sessions', t.dash_sessions_col),
+            ('messages', t.dash_messages),
+            ('last_sync', t.ws_last_sync),
+            ('created', t.admin_created),
+          ] %}
+          {% for key, label in cols %}
+          {# current column toggles asc/desc; others jump to that column, desc by default #}
+          {% set next_dir = 'asc' if (sort == key and dir == 'desc') else 'desc' %}
+          <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider
+                     {% if sort == key %}text-[#6E56CF]{% else %}text-gray-400{% endif %}">
+            <a href="/web/admin/workspaces?sort={{ key }}&dir={{ next_dir }}"
+               class="inline-flex items-center gap-1 hover:text-[#6E56CF] transition-colors">
+              {{ label }}
+              {% if sort == key %}<span class="text-[10px]">{{ '▲' if dir == 'asc' else '▼' }}</span>{% endif %}
+            </a>
+          </th>
+          {% endfor %}
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
