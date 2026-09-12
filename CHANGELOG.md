@@ -1,4 +1,8 @@
-## [Unreleased]
+## [2026.09.13.1] - 2026-09-13
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.12.5 → **2026.09.13.1**（`mcp/adapters/hermes.py` +
+> `mcp/server.py` 有改动，各端经 `/api/client/manifest` 自动更新，Agent 重启后生效）；服务端仅
+> `client_update.py` 的版本常量，无 schema 变更、无数据迁移。
 
 ### Fixed（hermes 会话在服务端可见却永远拉不下来：`profile_name='default'` 被当成未知档案跳过）
 
