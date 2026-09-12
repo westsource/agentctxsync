@@ -1,3 +1,25 @@
+## [Unreleased]
+
+### Fixed（hermes 会话在服务端可见却永远拉不下来：`profile_name='default'` 被当成未知档案跳过）
+
+- **现象**：服务端可见的 hermes 会话在某台设备的本地库里始终没有；客户端日志出现
+  `skipped N session(s) from profiles/agents not present on this machine`；2026.09.12.5 的完整性
+  修复会每轮把它们重新取回一次（白流量）并误报 `Restored N`（服务端送 N 个、落地 0 个）。
+- **根因**：hermes 本地 `state.db` 自带 `profile_name` 列，字面默认值是 `default`；
+  `canonicalize()` 以本地行为底，于是该字面值随 push 上行并被服务端原样存储。规范里「默认档案」
+  的拼写是 `""`/NULL，而 pull 侧路由表（`{'': 默认库, '<name>': 档案库}`）没有 `default` 键 →
+  `route.get('default')` 为 None → 整行被静默丢弃（只留一行汇总日志）。
+- **修复**（客户端 `mcp/adapters/hermes.py`）：默认档案下 `canonicalize()` 不再把本地列字面值
+  带进 canonical（新 push 不再产生 `default` 行）；`write_sessions()` 把 `default` 当作默认档案
+  别名路由（仅当本地确实没有名为 `default` 的档案时），存量行因此可以落地。
+- **顺带修掉计数说谎**（`mcp/server.py`）：完整性修复的 `restored` 改为按**实际落地数**
+  （`imported + updated`）统计，并新增 `unfiled` 计数与日志——适配器无法归档（未知档案 / 只读库）
+  时不再每轮谎报 `Restored N`。
+- **测试**：`mcp/tests/test_hermes.py` +2（canonicalize 不带字面值、别名路由落地）、
+  `mcp/tests/test_mcp_server.py` +1（无法归档时 `restored=0, unfiled=1`）。
+- **线上验证**：本机 hermes store 缺 3 个可见会话（含 `系统架构设计师复习计划与刷题工具调研`），
+  用修复后代码拉一次 → `imported: 3, new_messages: 420`，3 个会话全部落地（目标会话 169 条消息）。
+
 ## [2026.09.12.5] - 2026-09-12
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.12.4 → **2026.09.12.5**（客户端包有改动，各端经

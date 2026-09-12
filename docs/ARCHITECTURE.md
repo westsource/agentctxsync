@@ -322,6 +322,14 @@ User (admin / user)
 - **hermes 多档案**：适配器扫描 `profiles/` 下所有 state.db 全量同步；default 档案裸 id，
   命名档案的归属走 `profile_name` 字段；外来 agent 会话落在 default 档案、保留 canonical id
   原样往返（round-trip），push 时按 owner 过滤不回推。
+- **`profile_name` 的规范拼写（勿破坏）**：默认档案 = `""` / NULL，命名档案 = 档案名。
+  hermes 本地 `state.db` 那列的字面默认值是 `default`，它**不是**规范拼写：`canonicalize()`
+  必须把它从 canonical 载荷里丢掉（否则 push 上行后服务端原样存储），`write_sessions()` 的路由表
+  以 `''` 为默认档案键，因此 `default` 需按别名落回默认档案（仅当本地确实没有名为 `default`
+  的档案）。破坏这条会让「服务端可见的会话在部分设备上永远拉不下来」——路由表查不到键时整行被
+  静默丢弃，只留一行 `skipped N session(s) …` 汇总日志（决策记录 2026.09.13.1，
+  回归防线 `mcp/tests/test_hermes.py::test_default_profile_does_not_carry_column_literal` /
+  `::test_pull_alias_default_profile_writes_to_default`）。
 - **外来会话 owner 注册表**：`.hermes-sync-foreign.json`（hermes）/ `*-foreign-ids.json`
   （其余 agent）记录 `{id: owner agent}`；pull 写入外来会话时登记，push 时按 owner 打
   `agent_type`，服务端保持归属。旧纯 id 列表格式读取时自动升级为 dict。
