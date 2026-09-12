@@ -293,9 +293,13 @@ def api_call(method, path, data=None):
     url = f"{SYNC_SERVER}{path}"
     headers = {"Authorization": f"Bearer {SYNC_API_KEY}", "Content-Type": "application/json",
                "User-Agent": "hermes-sync-client/1.0"}
-    body = json.dumps(data).encode() if data else None
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
+        # Encoded INSIDE the try: a payload the encoder rejects is a failure of
+        # this one request, reported to the caller like any transport error, so
+        # a bad value cannot abort an entire push/pull cycle (see the
+        # _partition_encodable pre-check, which names the offending field).
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
         resp = urllib.request.urlopen(req, timeout=120)
         return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
@@ -782,20 +786,30 @@ def push_sessions():
     meta = _load_field_meta()
     fp = _load_push_fingerprint()
     try:
-        for chunk in _chunk_sessions(sessions_data):
-            # Skip sessions whose fingerprint is unchanged since the last
-            # successful push (see _session_fingerprint): the server dedupes
-            # re-pushes, but a full store re-upload every cycle is wasteful
-            # (measured 1.6GB/cycle here). Fingerprints update only on
-            # success, so a failed push retries next cycle.
-            changed = [s for s in chunk
-                       if _session_fingerprint(s)
-                       != tuple(fp.get(str(s["id"])) or ())]
-            if not changed:
-                continue
+        # Skip sessions whose fingerprint is unchanged since the last
+        # successful push (see _session_fingerprint): the server dedupes
+        # re-pushes, but a full store re-upload every cycle is wasteful
+        # (measured 1.6GB/cycle here). Fingerprints update only on success,
+        # so a failed push retries next cycle. Filtering BEFORE chunking also
+        # keeps the byte-size measuring (json.dumps per session) off the
+        # unchanged majority.
+        changed = [s for s in sessions_data
+                   if _session_fingerprint(s)
+                   != tuple(fp.get(str(s["id"])) or ())]
+        # A session the encoder cannot serialize must not abort the cycle:
+        # the chunker sizes every session with the same json.dumps, so one
+        # raw bytes value (e.g. a SQLite BLOB column) used to kill the whole
+        # push before anything was sent (CHANGELOG 2026.09.12.4). Isolate it,
+        # name the offending field, and keep the rest of the store syncing.
+        sendable, unsendable = _partition_encodable(changed)
+        if unsendable:
+            log(f"Push skipped {len(unsendable)} session(s) whose payload is "
+                f"not JSON-encodable: {'; '.join(unsendable[:3])}"
+                + ("..." if len(unsendable) > 3 else ""))
+        for chunk in _chunk_sessions(sendable):
             # field-level merge: only dirty/first-contact user-edit fields are
             # asserted (others omitted so this device never clobbers a peer)
-            outgoing = [_annotate_push_session(s, meta) for s in changed]
+            outgoing = [_annotate_push_session(s, meta) for s in chunk]
             result = api_call("POST", "/push",
                               {"device_id": DEVICE_ID,
                                "client_version": CLIENT_VERSION,
@@ -807,8 +821,8 @@ def push_sessions():
                 # so sessions behind the failing one still sync this cycle.
                 result = explain_quota_error(result)
                 err = result.get("error")
-                errors.append(f"{len(changed)} sessions: {err}")
-                log(f"Push chunk failed ({len(changed)} sessions, "
+                errors.append(f"{len(chunk)} sessions: {err}")
+                log(f"Push chunk failed ({len(chunk)} sessions, "
                     f"{len(errors)} failed so far): {err}")
                 continue
             # anchor accepted base/val so these fields stop reading dirty
@@ -816,17 +830,61 @@ def push_sessions():
             for k in ("imported", "updated", "new_messages"):
                 totals[k] += result.get(k, 0)
             totals["sync_at"] = result.get("sync_at", totals["sync_at"])
-            processed += len(changed)
-            for s in changed:
+            processed += len(chunk)
+            for s in chunk:
                 fp[str(s["id"])] = _session_fingerprint(s)
     finally:
         _save_field_meta(meta)
         _save_push_fingerprint(fp)
+    if unsendable:
+        totals["unsendable"] = [r.split(" (", 1)[0] for r in unsendable]
     if errors:
         return {**totals, "error": f"{len(errors)} chunk(s) failed: "
                                 f"{'; '.join(errors[:3])}"
                                 + ("..." if len(errors) > 3 else "")}
     return totals
+
+def _json_offender(value, path: str = "") -> str | None:
+    """First JSON-unencodable value in ``value``, as ``path (type)``.
+
+    Diagnostics only (run for the few sessions that fail to encode): names the
+    exact field so an operator can find what the adapter leaked into the
+    canonical payload.
+    """
+    if isinstance(value, dict):
+        for k, v in value.items():
+            found = _json_offender(v, f"{path}.{k}" if path else str(k))
+            if found:
+                return found
+        return None
+    if isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            found = _json_offender(v, f"{path}[{i}]")
+            if found:
+                return found
+        return None
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return None
+    return f"{path or '<root>'} ({type(value).__name__})"
+
+def _partition_encodable(sessions: list[dict]) -> tuple[list[dict], list[str]]:
+    """Split sessions into (encodable, ``"<id> (<field path>)"`` reasons).
+
+    The push body is JSON; a session holding anything else can never be sent,
+    and both the chunker and the request encoder would raise on it -- which
+    used to abort the WHOLE cycle. Isolating the offenders keeps every other
+    session syncing and gives the operator a named cause.
+    """
+    sendable: list[dict] = []
+    reasons: list[str] = []
+    for s in sessions:
+        try:
+            json.dumps(s, ensure_ascii=False)
+        except (TypeError, ValueError):
+            reasons.append(f"{s.get('id')} ({_json_offender(s) or 'unencodable'})")
+            continue
+        sendable.append(s)
+    return sendable, reasons
 
 def _chunk_sessions(sessions: list[dict],
                     max_sessions: int = 20,

@@ -1,4 +1,5 @@
 """HermesAdapter multi-profile tests."""
+import json
 import os
 import sqlite3
 import tempfile
@@ -379,6 +380,49 @@ class HermesMultiProfileTest(unittest.TestCase):
         row = conn.execute("SELECT 1 FROM projects WHERE id='p_keep'").fetchone()
         conn.close()
         self.assertIsNotNone(row)
+
+
+class BinaryColumnTest(unittest.TestCase):
+    """Hermes 0.20 stores a per-message ``display_identity`` BLOB. Copying it
+    into the canonical message made ``json.dumps`` raise, and because the push
+    chunker sizes sessions with ``json.dumps`` the exception aborted the WHOLE
+    push cycle -- every session behind the poisoned one stopped reaching the
+    server (observed: a 170-message session stuck at ``message_count = 1``).
+    Binary columns carry harness-internal state with no canonical slot."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.env_clean = mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}, clear=False)
+        self.env_clean.start()
+        self.addCleanup(self.env_clean.stop)
+        self.root_patch = mock.patch.object(HermesAdapter, "_platform_root",
+                                            return_value=self.root)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+
+    def _db_with_blob(self) -> Path:
+        db = self.root / "state.db"
+        make_db(db, "20260911_221228_d296a9")
+        conn = sqlite3.connect(str(db))
+        conn.execute("ALTER TABLE messages ADD COLUMN display_identity BLOB")
+        conn.execute("UPDATE messages SET display_identity = ?",
+                     (bytes(range(32)),))
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_blob_column_is_not_copied_into_the_canonical_message(self):
+        self._db_with_blob()
+        sessions = HermesAdapter().read_sessions()
+        self.assertEqual(len(sessions), 1)
+        msg = sessions[0]["messages"][0]
+        self.assertNotIn("display_identity", msg)
+        self.assertEqual(msg["content"], "hi")
+
+    def test_payload_stays_json_encodable(self):
+        self._db_with_blob()
+        sessions = HermesAdapter().read_sessions()
+        json.dumps(sessions)          # the push body must encode
 
 
 class FoldSubagentSessionsTest(unittest.TestCase):

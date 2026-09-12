@@ -494,12 +494,22 @@ class SQLiteAdapter(Adapter):
 
     @staticmethod
     def _map_cols(row: dict, col_map: dict) -> dict:
+        """Map native columns onto the canonical dict, skipping empty and
+        binary values.
+
+        Binary columns are dropped: SQLite returns BLOBs as ``bytes``, the
+        canonical model is JSON, and a payload the client cannot encode kills
+        the whole push cycle (the chunker sizes sessions with ``json.dumps``).
+        Hermes 0.20's ``messages.display_identity`` hash did exactly that --
+        no session behind it reached the server (CHANGELOG 2026.09.12.4).
+        """
         out = {}
         for k, v in row.items():
             canon = col_map.get(k)
             if canon is None:
                 canon = k
-            if canon and v is not None:
+            if canon and v is not None and not isinstance(
+                    v, (bytes, bytearray, memoryview)):
                 out[canon] = v
         return out
 

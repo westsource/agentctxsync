@@ -1,14 +1,15 @@
 """Round-trip tests for the dsh (official DeepSeek Harness) adapter
 (mcp/adapters/dsh.py).
 
-Covers read of the v0 event-log format (session header + user/message +
+Covers read of legacy v0 event logs (session header + user/message +
 assistant/message + session/title), write of foreign sessions into
---<cwd-slug>--/session-<uuid>/session.jsonl (contiguous seq, idmap foreign
-ids), append/dedupe idempotency, _no-cwd fallback, cwd-drift relocation,
-status counts, and (when the zstandard package is present) the compressed
-.jsonl.zstd variant. The workspace domain is owned by dsh's own bootstrap
-(never written by the adapter); the projection-cache doc (list titles) IS
-written, mirroring the desktop's fold output.
+--<cwd-slug>--/session-<uuid>/ in dsh's CURRENT generation (seed head +
+turn/step frames, contiguous seq, idmap foreign ids), append/dedupe
+idempotency, _no-cwd fallback, cwd-drift relocation, status counts, and
+(when the zstandard package is present) the compressed .jsonl.zstd variant.
+The workspace domain is owned by dsh's own bootstrap (never written by the
+adapter); the projection-cache doc (list titles) IS written, mirroring the
+desktop's fold output.
 """
 import json
 import os
@@ -19,8 +20,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.dsh import (DshAdapter, HAVE_ZSTD, _extended, _log_filename,  # noqa: E402
-                          _log_generation, _lp, _slug)
+from adapters.dsh import (DshAdapter, HAVE_ZSTD, _CURRENT_LOG_GENERATION,  # noqa: E402
+                          _extended, _log_filename, _log_generation, _lp,
+                          _slug)
 
 SID = "session-1f2e3d4c-5b6a-4c7d-8e9f-0a1b2c3d4e5f"
 TS_MS = 1787647183000
@@ -146,12 +148,13 @@ class DshAdapterTest(unittest.TestCase):
                 self.assertEqual(src["kind"], "model")
 
     def _session_text(self, a, local_id: str) -> str:
+        """Decoded text of the session's log at the generation dsh opens."""
         from adapters.dsh import HAVE_ZSTD
         proj = next(d for d in (a.sessions_root).iterdir()
                     if d.is_dir() and not d.name.startswith("."))
-        fname = "session.jsonl.zstd" if HAVE_ZSTD else "session.jsonl"
-        raw = (proj / local_id / fname).read_bytes()
-        if HAVE_ZSTD:
+        path = DshAdapter._log_file(proj / local_id)
+        raw = path.read_bytes()
+        if HAVE_ZSTD and path.name.endswith(".zstd"):
             return self._decode_all(raw)
         return raw.decode("utf-8")
 
@@ -216,16 +219,19 @@ class DshAdapterTest(unittest.TestCase):
         s = a.read_sessions()[0]
         self.assertNotIn("title", s)          # the reported broken state
         s["title"] = "Healed title"
+        before = (sdir / "session.jsonl").read_bytes()
         st = a.write_sessions([s])
         self.assertEqual(st["updated"], 1)
         self.assertEqual(st["new_messages"], 0)
         read = a.read_sessions()[0]
         self.assertEqual(read["title"], "Healed title")
         self.assertEqual(len(read["messages"]), 1)
-        # exactly one title event; seq contiguous from 0 (existing plain
-        # file stays plain, so no zstd decode needed here)
+        # the legacy v0 artifact is left byte-identical (dsh never mutates a
+        # published predecessor) and a current-generation successor carries
+        # the update: exactly one title event, seq contiguous from 0
+        self.assertEqual((sdir / "session.jsonl").read_bytes(), before)
         seqs, titles = [], []
-        for ln in (sdir / "session.jsonl").read_text(encoding="utf-8").splitlines():
+        for ln in self._session_text(a, SID).splitlines():
             rec = json.loads(ln)
             if "seq" in rec:
                 seqs.append(rec["seq"])
@@ -247,9 +253,12 @@ class DshAdapterTest(unittest.TestCase):
         local_id = json.loads(
             (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
                 "hermes:20260531_232319_1e131a"]
-        from adapters.dsh import HAVE_ZSTD
-        fname = "session.jsonl.zstd" if HAVE_ZSTD else "session.jsonl"
-        self.assertTrue((self.root / "_no-cwd" / local_id / fname).is_file())
+        # a fresh Session is published in the current generation -- the one
+        # dsh's reader opens without running the legacy migration chain
+        log = DshAdapter._log_file(self.root / "_no-cwd" / local_id)
+        self.assertTrue(log.is_file())
+        self.assertEqual(_log_generation(log.name),
+                         _CURRENT_LOG_GENERATION)
 
     def test_no_cwd_session_skips_projcache_doc(self):
         # DSH Desktop 2.0.5's projcache v5 schema requires identity.cwd to
@@ -331,8 +340,7 @@ class DshAdapterTest(unittest.TestCase):
               "messages": [{"session_id": SID, "role": "user",
                             "content": "q", "timestamp": 2.0}]}
         a.write_sessions([s1])
-        from adapters.dsh import HAVE_ZSTD
-        fname = "session.jsonl.zstd" if HAVE_ZSTD else "session.jsonl"
+        fname = _log_filename(_CURRENT_LOG_GENERATION, HAVE_ZSTD)
         old_dir = self.root / "--E-OpenCode-agentctxsync--" / SID
         self.assertTrue((old_dir / fname).is_file())
         # server-side cwd changed to a different path: no new messages
@@ -361,7 +369,7 @@ class DshAdapterTest(unittest.TestCase):
         s = a.read_sessions()[0]
         self.assertEqual(s["title"], "Dsh Chat")
         self.assertEqual(len(s["messages"]), 2)
-        # new foreign writes land compressed too
+        # new foreign writes land compressed, in the current generation
         st = a.write_sessions([self._session()])
         self.assertEqual(st["imported"], 1)
         # every line is its own zstd frame, and the first frame decodes to
@@ -371,16 +379,18 @@ class DshAdapterTest(unittest.TestCase):
             (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
                 "hermes:20260531_232319_1e131a"]
         raw = (self.root / "--E-OpenCode-agentctxsync--" / local_id /
-               "session.jsonl.zstd").read_bytes()
+               _log_filename(_CURRENT_LOG_GENERATION, True)).read_bytes()
         text = self._decode_all(raw)
         lines = text.splitlines()
         self.assertEqual(raw.count(b"\x28\xb5\x2f\xfd"), len(lines))
         self.assertEqual(json.loads(lines[0]), {
-            "type": "session", "version": 0,
+            "type": "session", "version": _CURRENT_LOG_GENERATION,
             "id": local_id,
             "createdAt": TS_MS,
             "cwd": r"E:\OpenCode\agentctxsync",
-            "delegationDepth": 0})
+            "delegationDepth": 0,
+            "isSeeded": False,
+            "agentPreset": "standard"})
 
     def _decode_all(self, raw: bytes) -> str:
         import adapters.dsh as m
@@ -516,6 +526,181 @@ class LogGenerationTest(unittest.TestCase):
         # and the harness's own generation selection still finds it
         self.assertEqual(DshAdapter._log_file(sdir).name,
                          "session.v3.jsonl.zstd")
+
+
+def _read_log_text(path: Path) -> str:
+    """Decoded text of a session log file (zstd or raw)."""
+    raw = path.read_bytes()
+    if path.name.endswith(".zstd"):
+        import adapters.dsh as m
+        with m._zstd.ZstdDecompressor().stream_reader(raw) as r:
+            return r.read().decode("utf-8")
+    return raw.decode("utf-8")
+
+
+class CurrentGenerationWriteTest(unittest.TestCase):
+    """New Sessions are published in dsh's CURRENT format generation.
+
+    dsh's reader opens the numerically highest generation and migrates older
+    artifacts through v0->v1->v2->v3 — a chain that REFUSES the message-only
+    logs the adapter used to write for new Sessions ("format v2 surface before
+    first step cannot acquire a system head without changing chronology"; a v0
+    artifact additionally rejects ``sourceEventSeqs``). Every synced Session
+    was therefore unopenable in DSH Desktop ("历史加载失败：network error
+    （gateway/internal）"). These tests pin the shape that reader accepts: the
+    seed head, one turn/step frame per conversation row, and the settlement
+    fields an assistant/message must carry.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "sessions"
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, **over):
+        """Write one two-turn Session (second turn has two model steps)."""
+        sess = {"id": "hermes:20260531_232319_1e131a", "started_at": 1.0,
+                "cwd": r"E:\OpenCode\agentctxsync", "title": "Pulled",
+                "model": {"id": "deepseek-v4-flash",
+                          "providerID": "deepseek-official"},
+                "messages": [
+                    {"session_id": "x", "role": "user", "content": "q1",
+                     "timestamp": 2.0},
+                    {"session_id": "x", "role": "assistant", "content": "a1",
+                     "timestamp": 3.0},
+                    {"session_id": "x", "role": "user", "content": "q2",
+                     "timestamp": 4.0},
+                    {"session_id": "x", "role": "assistant", "content": "a2",
+                     "timestamp": 5.0},
+                    {"session_id": "x", "role": "assistant", "content": "a3",
+                     "timestamp": 6.0}]}
+        sess.update(over)
+        a = DshAdapter(sessions_root=self.root)
+        a.write_sessions([sess])
+        local_id = json.loads(
+            (self.root / ".dsh-sync-idmap.json").read_text(encoding="utf-8"))[
+                "hermes:20260531_232319_1e131a"]
+        sdir = next(d for d in self.root.iterdir()
+                    if d.is_dir() and not d.name.startswith(".")) / local_id
+        return a, sdir
+
+    def test_new_session_is_written_in_the_current_generation(self):
+        a, sdir = self._write()
+        log = DshAdapter._log_file(sdir)
+        self.assertEqual(_log_generation(log.name),
+                         _CURRENT_LOG_GENERATION)
+        rows = [json.loads(ln) for ln in _read_log_text(log).splitlines()]
+        header = rows[0]
+        self.assertEqual(header["type"], "session")
+        self.assertEqual(header["version"], _CURRENT_LOG_GENERATION)
+        self.assertEqual(header["id"], sdir.name)
+        self.assertFalse(header["isSeeded"])
+        self.assertEqual(header["agentPreset"], "standard")
+        self.assertEqual(header["delegationDepth"], 0)
+        self.assertEqual(header["cwd"], r"E:\OpenCode\agentctxsync")
+        # dense seq from 0 -- dsh asserts seq == the event's own position
+        self.assertEqual([r["seq"] for r in rows[1:]],
+                         list(range(len(rows) - 1)))
+        # the seed head dsh's migration looks for, then the turn frames
+        self.assertEqual([r["type"] for r in rows[1:5]],
+                         ["permission/preset", "sandbox/mode",
+                          "approval/policy", "turn/start"])
+        self.assertEqual(rows[4]["data"], {"turn": 1})
+        self.assertEqual([r["type"] for r in rows[5:8]],
+                         ["step/start", "system/message", "user/message"])
+        self.assertEqual(rows[6]["data"]["turn"], 1)
+        self.assertEqual(rows[6]["data"]["step"], 1)
+        # title settles with the first user row it names
+        title = next(r for r in rows if r["type"] == "session/title")
+        self.assertEqual(title["data"]["title"], "Pulled")
+        self.assertEqual(title["data"]["messageSeqs"],
+                         [rows[7]["seq"]])
+        # turn 2 holds both model replies as separate, closed steps
+        steps = [(r["type"], r["data"].get("step"))
+                 for r in rows if r["type"] in ("step/start", "step/end")]
+        self.assertEqual(steps, [("step/start", 1), ("step/end", 1),
+                                 ("step/start", 1), ("step/end", 1),
+                                 ("step/start", 2), ("step/end", 2)])
+        turns = [r["data"] for r in rows if r["type"] == "turn/end"]
+        self.assertEqual(turns, [{"turn": 1, "reason": {"kind": "completed"}},
+                                 {"turn": 2, "reason": {"kind": "completed"}}])
+        # round-trip: both messages of every turn survive
+        read = a.read_sessions()[0]
+        self.assertEqual([m["content"] for m in read["messages"]],
+                         ["q1", "a1", "q2", "a2", "a3"])
+
+    def test_assistant_messages_carry_settlement_fields(self):
+        a, sdir = self._write()
+        rows = [json.loads(ln) for ln in
+                _read_log_text(DshAdapter._log_file(sdir)).splitlines()]
+        assistants = [r for r in rows if r["type"] == "assistant/message"]
+        self.assertEqual(len(assistants), 3)
+        for rec in assistants:
+            data = rec["data"]
+            self.assertEqual(sorted(data["usage"]),
+                             ["cacheReadTokens", "inputTokens",
+                              "outputTokens", "reasoningTokens"])
+            self.assertIsInstance(data["stream"], list)
+            # the v0 codec rejects sourceEventSeqs and dsh never writes it
+            self.assertNotIn("sourceEventSeqs", data)
+            self.assertEqual(data["message"]["source"]["kind"], "model")
+
+    def test_legacy_v0_session_gets_a_current_generation_successor(self):
+        """A store pulled before the fix (v0 artifacts only) is repaired by
+        the next sync: the successor carries the log, the predecessor stays
+        byte-identical, and nothing is duplicated."""
+        sdir = write_dsh_fixture(self.root)          # legacy v0, 1 turn
+        before = (sdir / "session.jsonl").read_bytes()
+        a = DshAdapter(sessions_root=self.root)
+        sess = {"id": SID, "started_at": TS_MS / 1000.0, "title": "Dsh Chat",
+                "cwd": r"E:\OpenCode\agentctxsync",
+                "messages": [
+                    {"session_id": SID, "role": "user", "content": "hello dsh",
+                     "timestamp": TS_MS / 1000.0},
+                    {"session_id": SID, "role": "assistant", "content": "hi",
+                     "timestamp": (TS_MS + 1000) / 1000.0}]}
+        stats = a.write_sessions([sess])
+        self.assertEqual(stats["imported"], 0)
+        self.assertEqual(stats["new_messages"], 0)
+        self.assertEqual(stats["updated"], 1)        # the upgrade itself
+        self.assertEqual((sdir / "session.jsonl").read_bytes(), before)
+        log = DshAdapter._log_file(sdir)
+        self.assertEqual(_log_generation(log.name),
+                         _CURRENT_LOG_GENERATION)
+        read = a.read_sessions()[0]
+        self.assertEqual(read["title"], "Dsh Chat")
+        self.assertEqual([m["content"] for m in read["messages"]],
+                         ["hello dsh", "hi"])
+
+
+    def test_text_less_replies_are_not_stored_and_do_not_rewrite(self):
+        """An assistant turn without text (tool calls / reasoning only) must
+        not become an empty conversation row: the reader drops such a row, so
+        it would look new on every pull and rewrite the Session forever."""
+        payload = [
+            {"session_id": "x", "role": "user", "content": "q", "timestamp": 2.0},
+            {"session_id": "x", "role": "assistant", "content": "",
+             "timestamp": 3.0},
+            {"session_id": "x", "role": "assistant", "content": "a",
+             "timestamp": 4.0}]
+        a, sdir = self._write(messages=payload)
+        log = DshAdapter._log_file(sdir)
+        rows = [json.loads(ln) for ln in _read_log_text(log).splitlines()]
+        self.assertEqual(
+            len([r for r in rows if r["type"] == "assistant/message"]), 1)
+        self.assertEqual([m["content"] for m in a.read_sessions()[0]["messages"]],
+                         ["q", "a"])
+        before = log.read_bytes()
+        again = a.write_sessions([{"id": "hermes:20260531_232319_1e131a",
+                                   "started_at": 1.0, "title": "Pulled",
+                                   "cwd": r"E:\OpenCode\agentctxsync",
+                                   "messages": payload}])
+        self.assertEqual(again["new_messages"], 0)
+        self.assertEqual(again["updated"], 0)      # nothing to rewrite
+        self.assertEqual(log.read_bytes(), before)
 
 
 class LongPathHelperTest(unittest.TestCase):

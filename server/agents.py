@@ -493,6 +493,9 @@ AGENTS = {
                 "# 在 ~/.dsh/profiles/<profile>/cordis.patch.yml 顶层数组追加一条 dsh-mcp-client 行\n"
                 "# 注意：新插件必须包在 insert: 之下 —— 裸 `- id:` 行是「覆盖已有条目」语法，\n"
                 "# 命名不存在的 id 只会打一条警告然后被忽略（实测对固定版 dsh 无效）\n"
+                "# cwd 必须指向一个真实存在的目录（解压目录即可）：新版 dsh-mcp-client 的 stdio\n"
+                "# 配置里 cwd 默认空串，空 cwd 交给 spawn 直接 ENOENT，插件启动失败还会被\n"
+                "# failOnStartupError 吞掉——桌面照常启动，但同步静默不跑（无 MCP 子进程/工具）\n"
                 "- insert:\n"
                 "    - id: mcp-hermes-sync\n"
                 "      name: '@deepseek-ai/dsh-mcp-client'\n"
@@ -501,17 +504,23 @@ AGENTS = {
                 "        transport: stdio\n"
                 "        command: '<PYTHON>'\n"
                 "        args: ['<EXTRACT_DIR>/mcp/server.py']\n"
+                "        cwd: '<EXTRACT_DIR>'\n"
                 "        env:\n"
                 "          HERMES_SYNC_AGENT: dsh\n"
                 "          HERMES_SYNC_SERVER: '<SERVER>'\n"
                 "          HERMES_SYNC_API_KEY: '<KEY>'\n"
-                "        failOnStartupError: false"
+                "        failOnStartupError: false   # 改成 true 可在桌面启动页看到插件启动错误"
             ),
             "en": (
                 "# Append one dsh-mcp-client row to the top-level array of\n"
                 "# ~/.dsh/profiles/<profile>/cordis.patch.yml. New plugins MUST sit\n"
                 "# under `insert:` — a bare `- id:` row is the override grammar and a\n"
                 "# name that does not exist is only warned about, then ignored.\n"
+                "# cwd MUST name an existing directory (the extract folder will do):\n"
+                "# the new dsh-mcp-client defaults the stdio cwd to an empty string, and\n"
+                "# an empty cwd makes spawn() fail with ENOENT — a startup failure that\n"
+                "# failOnStartupError then swallows, so the desktop still boots while sync\n"
+                "# silently never runs (no MCP child, no tools).\n"
                 "- insert:\n"
                 "    - id: mcp-hermes-sync\n"
                 "      name: '@deepseek-ai/dsh-mcp-client'\n"
@@ -520,11 +529,12 @@ AGENTS = {
                 "        transport: stdio\n"
                 "        command: '<PYTHON>'\n"
                 "        args: ['<EXTRACT_DIR>/mcp/server.py']\n"
+                "        cwd: '<EXTRACT_DIR>'\n"
                 "        env:\n"
                 "          HERMES_SYNC_AGENT: dsh\n"
                 "          HERMES_SYNC_SERVER: '<SERVER>'\n"
                 "          HERMES_SYNC_API_KEY: '<KEY>'\n"
-                "        failOnStartupError: false"
+                "        failOnStartupError: false   # true surfaces plugin startup errors on the desktop's startup page"
             ),
         },
         "verify": "重启 dsh 后在其会话中调用 hermes_sync_status（工具名 mcp__hermes-sync__sync_status）",
@@ -542,7 +552,7 @@ AGENTS = {
                 {"text": "将压缩包解压到任意目录，例如 <code>C:\\agentctxsync-mcp-client-dsh</code>（解压后 <code>server.py</code> 位于 <code>&lt;EXTRACT_DIR&gt;/mcp/</code> 下）。"},
                 {"text": "运行包内 <code>install-deps.bat</code>（Windows）或 <code>./install-deps.sh</code>（macOS/Linux），自动创建含 <code>mcp</code> 与 <code>zstandard</code> 的 venv 并打印解释器路径；也可使用已装这两个依赖的现有 Python。记下该路径作为 <code>&lt;PYTHON&gt;</code>。"},
                 {"text": "确认 dsh 数据根（默认 <code>~/.dsh</code>，DSH_HOME 可覆盖）与活动 profile（桌面版为 <code>profiles/desktop</code>）。"},
-                {"text": "编辑 <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code>，向顶层数组追加 hermes-sync 行（<code>&lt;PYTHON&gt;</code> 替换为第 2 步解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录）："},
+                {"text": "编辑 <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code>，向顶层数组追加 hermes-sync 行（<code>&lt;PYTHON&gt;</code> 替换为第 2 步解释器路径，<code>&lt;EXTRACT_DIR&gt;</code> 替换为第 1 步目录——它同时作为插件行的 <code>cwd</code>，必须真实存在）："},
                 {"code": "<REGISTER>"},
                 {"text": "重启 dsh / DSH Desktop（新会话生效）。工具以 <code>mcp__hermes-sync__*</code> 暴露（<code>hermes_sync_status</code> 可验证）；启动约 8 秒后增量拉取，之后每 300 秒自动双向同步。首次接入时 dsh 会按会话头自动 bootstrap 工作区归组，并随写入折叠标题缓存——新拉会话在列表中即时显示真实标题。"},
             ],
@@ -550,7 +560,7 @@ AGENTS = {
                 {"text": "Unzip the archive to a folder, e.g. <code>C:\\agentctxsync-mcp-client-dsh</code> (after unzipping, <code>server.py</code> lives under <code>&lt;EXTRACT_DIR&gt;/mcp/</code>)."},
                 {"text": "Run <code>install-deps.bat</code> (Windows) or <code>./install-deps.sh</code> (macOS/Linux) from the archive - it creates a venv with both <code>mcp</code> and <code>zstandard</code> and prints the interpreter path; or use any existing Python that already has both. Note that path as <code>&lt;PYTHON&gt;</code>."},
                 {"text": "Locate the dsh data root (default <code>~/.dsh</code>, DSH_HOME overrides) and the active profile (desktop uses <code>profiles/desktop</code>)."},
-                {"text": "Edit <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code> and append the hermes-sync row to the top-level array (replace <code>&lt;PYTHON&gt;</code> with the interpreter from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1):"},
+                {"text": "Edit <code>~/.dsh/profiles/&lt;profile&gt;/cordis.patch.yml</code> and append the hermes-sync row to the top-level array (replace <code>&lt;PYTHON&gt;</code> with the interpreter from step 2 and <code>&lt;EXTRACT_DIR&gt;</code> with the folder from step 1 — it doubles as the row's <code>cwd</code> and must exist):"},
                 {"code": "<REGISTER>"},
                 {"text": "Restart dsh / DSH Desktop (new sessions pick it up). Tools appear as <code>mcp__hermes-sync__*</code> (verify with <code>hermes_sync_status</code>); an incremental pull runs ~8s after startup, then it syncs both ways every 300s. On first run dsh bootstraps workspace grouping from session headers itself, and title/projection caches are folded on write, so freshly pulled sessions show real titles in the list immediately."},
             ],

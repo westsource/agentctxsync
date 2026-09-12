@@ -43,9 +43,9 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 | 调研项 | 为什么要查 | 已有案例 |
 |--------|-----------|----------|
 | 数据目录 | 可能受环境变量/XDG/APPDATA 影响 | dsh: `~/.dsh/`（`DSH_HOME` 可覆盖）；opencode: `$XDG_DATA_HOME/opencode/storage/`；reasonix: `%APPDATA%\reasonix\`；openclaw: `~/.openclaw/agents/<id>/` |
-| 文件格式与 schema | 决定继承 `SQLiteAdapter` 还是 `JSONLAdapter` 或手写 | hermes: SQLite；dsh: JSONL v0 事件日志（逐行 zstd 帧，需 `zstandard`）；opencode: JSON 文件（session/message/part 各一文件） |
+| 文件格式与 schema | 决定继承 `SQLiteAdapter` 还是 `JSONLAdapter` 或手写 | hermes: SQLite；dsh: 世代化 JSONL 事件日志（`session.vN.jsonl[.zstd]`，当前 v3；逐行 zstd 帧，需 `zstandard`）；opencode: JSON 文件（session/message/part 各一文件） |
 | session id 生成与位置 | canonical id 前缀 + 本地 id 提取 | dsh: 目录名 `session-<uuid>`（外来 id 经 idmap）；reasonix: 文件名主干；opencode: `ses_` 前缀 26 字符 |
-| 写入约束 | **最高风险点** | dsh: append-only v0 事件日志（seq 连续、原子替换、cwd 漂移搬迁目录）；reasonix: append-only + 锁文件 + events 日志权威；opencode: `.tmp`+rename 原子替换 |
+| 写入约束 | **最高风险点** | dsh: 世代化事件日志——写当前世代（v3）、冻结的前代逐字节不动、seq 连续、原子替换、cwd 漂移搬迁目录；reasonix: append-only + 锁文件 + events 日志权威；opencode: `.tmp`+rename 原子替换 |
 | 加密/完整性校验 | 决定能否直接读写 | 历史 codex 前身旧版曾有 XOR 加密；现明文（引擎已移除） |
 | 索引/回填机制 | 写入后 UI 能否立即看到 | dsh: 投影缓存文档写入时折叠（列表标题即时）；opencode 正在运行的实例有内存缓存（写前建议停实例） |
 | 官方 API/MCP 桥 | 也许不用碰文件 | openclaw 提供 `mcp serve` 官方读写桥 |
