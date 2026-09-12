@@ -692,7 +692,7 @@ def _restore_missing_sessions(ids, local_by_id, local_cwd_map, meta, budget=None
         ids = ids[:budget]
     if not ids:
         return None
-    imported = new_messages = restored = 0
+    imported = new_messages = restored = unfiled = 0
     for start in range(0, len(ids), PULL_PAGE):
         chunk = ids[start:start + PULL_PAGE]
         result = api_call("POST", "/pull", {
@@ -711,14 +711,25 @@ def _restore_missing_sessions(ids, local_by_id, local_cwd_map, meta, budget=None
         stats = _apply_pull_page(sessions, local_by_id, local_cwd_map, meta)
         imported += stats.get("imported", 0)
         new_messages += stats.get("new_messages", 0)
-        restored += len(sessions)
+        # Count what actually LANDED, not what the server sent: an adapter
+        # that cannot file a session (unknown profile, read-only store)
+        # returns all-zero stats while the row stays absent -- counting the
+        # request would log "Restored N" every cycle for a store that is
+        # still missing them.
+        written = int(stats.get("imported", 0) or 0) + int(stats.get("updated", 0) or 0)
+        restored += written
+        unfiled += max(0, len(sessions) - written)
         # Keep the snapshot current: the title heal and later chunks see the
         # restored rows as local state (not as missing).
         local_by_id.update({str(s["id"]): s for s in sessions})
     if restored:
         log(f"Restored {restored} session(s) the server still holds")
+    if unfiled:
+        log(f"{unfiled} session(s) the server still holds could not be filed "
+            f"locally (unknown profile / read-only store) -- see the adapter "
+            f"warnings above; they will be requested again next pull")
     return {"imported": imported, "new_messages": new_messages,
-            "restored": restored}
+            "restored": restored, "unfiled": unfiled}
 
 
 def pull_sessions(last_sync_at=None, limit=None):
@@ -749,6 +760,7 @@ def pull_sessions(last_sync_at=None, limit=None):
     imported, new_messages = 0, 0
     total_remote = 0
     restored = 0
+    unfiled = 0
     missing_ids: list[str] = []
     written_ids: set[str] = set()
 
@@ -852,13 +864,14 @@ def pull_sessions(last_sync_at=None, limit=None):
             imported += repair["imported"]
             new_messages += repair["new_messages"]
             restored = repair["restored"]
+            unfiled = repair["unfiled"]
     # Heal any local session whose title the server stopped re-serving
     # before this device ever adopted it (see _reconcile_sidecar_titles).
     healed = _reconcile_sidecar_titles(local_by_id)
     _save_field_meta(meta)
     return {"imported": imported, "new_messages": new_messages,
             "total_remote_sessions": total_remote,
-            "restored": restored, "titles_healed": healed}
+            "restored": restored, "unfiled": unfiled, "titles_healed": healed}
 
 def push_sessions():
     if adapter.discover() is None:

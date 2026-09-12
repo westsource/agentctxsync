@@ -143,6 +143,14 @@ class HermesAdapter(SQLiteAdapter):
         s["id"] = lid
         if name:
             s["profile_name"] = name
+        else:
+            # hermes' own schema has a `profile_name` COLUMN whose literal
+            # default is "default", and canonicalize() starts from the local
+            # row -- so that literal used to travel to the server. It is not
+            # the canonical spelling of the default profile (""/NULL is), and
+            # no machine's routing table has a "default" key, so such a row
+            # was silently skipped on every pull (see write_sessions).
+            s.pop("profile_name", None)
         s["messages"] = [dict(m) for m in s.get("messages", [])]
         for m in s["messages"]:
             m["session_id"] = m.get("session_id") or lid
@@ -271,6 +279,13 @@ class HermesAdapter(SQLiteAdapter):
                     profile = ""
                 elif pfx != "default":
                     profile = pfx
+            if profile == "default" and profile not in route:
+                # Alias for the default profile: hermes' local column literal
+                # ("default") instead of ""/NULL was pushed by older clients
+                # and is still stored server-side. Without this the row
+                # matches no route entry and is silently dropped. An exact
+                # local profile actually named "default" still wins.
+                profile = ""
             target = route.get(profile)  # '' -> default profile
             if target is None:
                 skipped += 1

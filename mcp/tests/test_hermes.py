@@ -72,6 +72,26 @@ class HermesMultiProfileTest(unittest.TestCase):
                               "messages": []})
         self.assertEqual(out["id"], "20260808_180012_0c275f")
 
+    def test_default_profile_does_not_carry_column_literal(self):
+        """hermes' local `profile_name` COLUMN literal ("default") must not
+        leak into the canonical payload: the default profile is spelled
+        ""/NULL on the wire, and a pushed "default" came back as a profile no
+        routing table has, so the session was skipped on every pull (see
+        test_pull_alias_default_profile_writes_to_default)."""
+        make_db(self.root / "state.db", "20260808_180012_0c275f")
+        a = HermesAdapter()
+        out = a.canonicalize({"id": "20260808_180012_0c275f", "started_at": 1.0,
+                              "profile_name": "default", "messages": []})
+        self.assertNotIn("profile_name", out)
+        # a named profile still carries its name
+        magic = self.root / "profiles" / "magic"
+        magic.mkdir(parents=True)
+        make_db(magic / "state.db", "20260808_180013_0c275e")
+        sub = a._sub_adapter("magic", magic / "state.db")
+        out = sub.canonicalize({"id": "20260808_180013_0c275e", "started_at": 1.0,
+                                "profile_name": "default", "messages": []})
+        self.assertEqual(out["profile_name"], "magic")
+
     def test_named_profile_id_bare_with_profile_field(self):
         make_db(self.root / "state.db", "x")
         magic = self.root / "profiles" / "magic"
@@ -158,6 +178,23 @@ class HermesMultiProfileTest(unittest.TestCase):
             "SELECT 1 FROM sessions WHERE id='20260808_180015_0c277e'").fetchone())
         self.assertIsNotNone(c.execute(
             "SELECT 1 FROM sessions WHERE id='20260808_180016_0c278f'").fetchone())
+        c.close()
+
+    def test_pull_alias_default_profile_writes_to_default(self):
+        """`profile_name='default'` (hermes' local column literal, pushed by
+        older clients and still stored server-side) must land in the default
+        profile rather than being skipped as an unknown profile."""
+        make_db(self.root / "state.db", "20260808_180012_0c275f")
+        a = HermesAdapter()
+        stats = a.write_sessions([{
+            "id": "20260808_180014_0c276f", "title": "t", "started_at": 2.0,
+            "profile_name": "default",
+            "messages": [{"session_id": "20260808_180014_0c276f",
+                          "role": "user", "content": "x", "timestamp": 2.0}]}])
+        self.assertEqual(stats["imported"], 1)
+        c = sqlite3.connect(str(self.root / "state.db"))
+        self.assertIsNotNone(c.execute(
+            "SELECT 1 FROM sessions WHERE id='20260808_180014_0c276f'").fetchone())
         c.close()
 
     def test_pull_skips_unknown_profile(self):

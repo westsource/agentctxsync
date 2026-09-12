@@ -484,6 +484,23 @@ class PullCompletenessRepairTest(unittest.TestCase):
         self.assertEqual(result["restored"], 0)
         self.assertEqual([s["id"] for s in received], ["gone"])
 
+    def test_unfiled_session_is_reported_not_counted_as_restored(self):
+        # an adapter that cannot file the row (unknown profile, read-only
+        # store) returns all-zero stats while the session stays absent:
+        # the request must not be reported as a restoration
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}])
+        adapter.write_sessions = lambda sessions: {"imported": 0, "updated": 0,
+                                                  "new_messages": 0}
+        page = {"sessions": [], "sync_at": 9.0, "total_sessions": 2,
+                "missing_ids": ["gone"]}
+        restore = {"sessions": [{"id": "gone", "title": "G", "messages": []}],
+                   "sync_at": 9.0, "total_sessions": 1}
+        result, _ = self._run_pull(adapter, [page, restore])
+        self.assertEqual(result["restored"], 0)
+        self.assertEqual(result["unfiled"], 1)
+        self.assertEqual(result["imported"], 0)
+
     def test_read_only_adapter_never_asks_for_missing_sessions(self):
         # a read-only uploader has no local target for pulled sessions
         received = []
