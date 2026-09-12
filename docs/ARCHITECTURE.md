@@ -138,7 +138,7 @@
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
-| `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，v0 事件日志 `session.jsonl[.zstd]`，逐行 zstd 帧；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
+| `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，世代化事件日志 `session.vN.jsonl[.zstd]`，当前 v3、逐行 zstd 帧、写入发布后继且冻结前代；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析、`model` 列写 `{id, providerID}` JSON）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
@@ -553,12 +553,19 @@ User (admin / user)
 
 ### dsh（官方 DeepSeek Harness，deepseek-ai/dsh）
 
-- **存储布局**：`<DSH_HOME 或 ~/.dsh>/sessions/--<cwd-slug>--/<session-<uuid>>/session.jsonl[.zstd]`
-  （每会话一目录；v0 头 `{"type":"session","version":0,...}` + 事件行；zstd 为**逐行独立帧**
+- **存储布局**：`<DSH_HOME 或 ~/.dsh>/sessions/--<cwd-slug>--/<session-<uuid>>/session.vN.jsonl[.zstd]`
+  （每会话一目录；一代一文件——`session.jsonl` = v0，当前世代 v3；zstd 为**逐行独立帧**
   ——dsh 读器要求首帧解压后恰为一行 header）。`DSH_HOME` 可覆盖数据根。
 - **读取**：`session/title` → 标题、`user/message`/`assistant/message`（assistant
   `source.kind=model`）→ canonical 消息；`seq` 连续；tool/chunk/compaction 事件非对话跳过。
-- **写入**：v0 头 + 连续 seq 事件日志（原子替换）；外来 id 经 idmap 映射 `session-<uuid>`；
+- **写入**：**当前世代**（v3）头 + 种子头（`permission/preset`、`sandbox/mode`、
+  `approval/policy`）+ 每轮 `turn/start`/`step/start` 帧 + 连续 seq 事件（原子替换）；既有
+  旧世代文件**逐字节冻结**、后继写成新文件（dsh 自身写入的约定：读器永远取最高世代）。
+  assistant/message 必须带 `usage`/`stream` 结算块，且**不能**带 `sourceEventSeqs`
+  ——dsh 读器对旧世代产物跑 v0→v1→v2→v3 迁移链，链上**拒绝**只有消息事件的日志
+  （"format v2 surface before first step cannot acquire a system head without changing
+  chronology"），这正是"同步下来的会话在新版桌面打不开（历史加载失败：network
+  error（gateway/internal））"的根因。外来 id 经 idmap 映射 `session-<uuid>`；
   cwd 漂移搬迁目录（Windows NTFS 大小写漂移就地改名）；zstd 需 `zstandard`（缺失时
   跳过压缩文件并计跳过数）。
 - **域分工**：workspace 域由 dsh 首启按会话头 bootstrap（fs.realpath 规范路径），外部不写；

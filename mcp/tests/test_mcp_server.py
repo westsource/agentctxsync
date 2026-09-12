@@ -541,5 +541,80 @@ class SyncLockAndRoleTest(unittest.TestCase):
         self._run(server.periodic_sync())
 
 
+class PushIsolationTest(unittest.TestCase):
+    """A session whose payload cannot be JSON-encoded (raw bytes leaked from
+    a SQLite BLOB column, ...) must not abort the whole push cycle. Both the
+    chunker and the request encoder serialize every session, so one bad value
+    used to kill the cycle before anything was sent -- an entire device
+    stopped syncing (CHANGELOG 2026.09.12.4). The offender is skipped and
+    named; every other session still syncs."""
+
+    @staticmethod
+    def _session(sid: str, blob: bool = False) -> dict:
+        msg = {"session_id": sid, "role": "user", "content": "hi",
+               "timestamp": 1.0}
+        if blob:
+            msg["display_identity"] = bytes(range(32))
+        return {"id": sid, "cwd": "c:/x", "title": "t", "messages": [msg]}
+
+    @staticmethod
+    def _adapter(sessions: list[dict]):
+        class FakeAdapter:
+            agent_type = "workbuddy"
+
+            def discover(self):
+                return "store"
+
+            def read_sessions(self):
+                return sessions
+
+            def _is_foreign(self, sid):
+                return False
+
+            def _foreign_agent(self, sid):
+                return None
+        return FakeAdapter()
+
+    def test_unsendable_session_is_skipped_while_the_rest_syncs(self):
+        sessions = [self._session("bad", blob=True), self._session("good")]
+        calls = []
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            with mock.patch.object(server, "adapter", self._adapter(sessions)), \
+                    mock.patch.object(server, "FIELD_META_PATH",
+                                      td / "meta.json"), \
+                    mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                      td / "fp.json"), \
+                    mock.patch.object(
+                        server, "api_call",
+                        side_effect=lambda *a, **k: calls.append(a) or {
+                            "imported": 0, "updated": 1, "new_messages": 0,
+                            "sync_at": 1.0, "session_revs": {}}):
+                result = server.push_sessions()
+                # the encodable session after the bad one still went out
+                sent = [s["id"] for call in calls
+                        for s in call[2]["sessions"]]
+                self.assertEqual(sent, ["good"])
+                # a skipped session is not a failed cycle
+                self.assertNotIn("error", result)
+                self.assertEqual(result["unsendable"], ["bad"])
+                # and the good one anchored (not re-sent next cycle)
+                self.assertEqual(list(server._load_push_fingerprint()),
+                                 ["good"])
+
+    def test_reason_names_the_offending_field(self):
+        sendable, reasons = server._partition_encodable(
+            [self._session("bad", blob=True), self._session("good")])
+        self.assertEqual([s["id"] for s in sendable], ["good"])
+        self.assertEqual(reasons,
+                         ["bad (messages[0].display_identity (bytes))"])
+
+    def test_api_call_reports_an_unencodable_payload_instead_of_raising(self):
+        result = server.api_call("POST", "/push",
+                                 {"sessions": [{"b": bytes(4)}]})
+        self.assertIn("error", result)
+        self.assertIn("bytes", str(result["error"]))
+
+
 if __name__ == "__main__":
     unittest.main()

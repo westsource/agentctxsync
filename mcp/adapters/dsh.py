@@ -3,20 +3,31 @@ dsh (official DeepSeek Harness, deepseek-ai/deepseek-harness) adapter.
 
 Local store (0.1.2-rc.1 layout, as written by DSH Desktop / dsh):
 
-    <dsh home>/sessions/--<cwd-slug>--/<encoded-session-id>/session.jsonl.zstd
+    <dsh home>/sessions/--<cwd-slug>--/<encoded-session-id>/session.v3.jsonl.zstd
 
     - one session per DIRECTORY named <encoded-session-id> (ids look like
       ``session-<uuid>`` and encode unchanged);
-    - one generation file inside: ``session.jsonl`` (v0 name) or
-      ``session.vN.jsonl``; compressed with zstd when the store is
-      configured for it (the desktop default), suffix ``.zstd``;
-    - file = header line ``{"type":"session","version":0,"id":...,"createdAt":ms,
-      "cwd":...}`` followed by typed event envelopes
-      ``{"type":T,"seq":N,"time":ms,"data":{...}}`` with seq contiguous from 0;
+    - one file per generation inside: ``session.jsonl`` (v0 name) or
+      ``session.vN.jsonl``; compressed with zstd when the store is configured
+      for it (the desktop default), suffix ``.zstd``. The adapter publishes the
+      CURRENT generation (v3) and leaves an older predecessor byte-identical
+      beside it -- the convention dsh's own write path follows;
+    - file = header line ``{"type":"session","version":3,"id":...,"createdAt":ms,
+      "cwd":...,"isSeeded":false,"agentPreset":"standard"}`` followed by typed
+      event envelopes ``{"type":T,"seq":N,"time":ms,"data":{...}}`` with seq
+      contiguous from 0. A written log opens with the seed head
+      (``permission/preset``, ``sandbox/mode``, ``approval/policy``) and one
+      ``turn/start`` + ``step/start`` frame per conversation row: dsh's reader
+      migrates older artifacts through v0->v1->v2->v3 and REFUSES message-only
+      logs ("format v2 surface before first step cannot acquire a system head
+      without changing chronology"), which left every synced Session
+      unopenable in DSH Desktop;
     - conversation text lives in ``user/message`` (data.role='user') and
       ``assistant/message`` (data.message.role='assistant', content = typed
-      blocks incl. ``{type:"text",text}``); reasoning/tool/compaction events
-      are not conversation text and are skipped on read;
+      blocks incl. ``{type:"text",text}``) -- the latter also carries the
+      ``usage``/``stream`` settlement block dsh's validator requires;
+      reasoning/tool/compaction events are not conversation text and are
+      skipped on read;
     - titles arrive as log events ``session/title`` (data.title);
     - the DSH Desktop session list additionally reads
       ``<home>/storages/workspace.json`` (+ a projection cache); external
@@ -67,6 +78,38 @@ _HEX_SEP_RE = re.compile(r"[/\\:]+")
 # publishes a successor while leaving the source byte-identical — so a migrated
 # session's v0 file is frozen history and only its v3 file keeps growing.
 _LOG_FILENAME_RE = re.compile(r"^session(?:\.v(\d+))?\.jsonl(?:\.zstd)?$")
+
+# The generation dsh currently releases (mirrors the toVersion of
+# ``@deepseek-ai/dsh-session-format-v2-to-v3``). New Sessions are published in
+# it: dsh's reader migrates older artifacts through v0->v1->v2->v3, and that
+# chain REFUSES the message-only logs this adapter used to write for new
+# Sessions ("format v2 surface before first step cannot acquire a system head
+# without changing chronology"; a v0 artifact additionally rejects
+# ``sourceEventSeqs``), which left every synced Session unopenable in DSH
+# Desktop ("历史加载失败：network error（gateway/internal）").
+_CURRENT_LOG_GENERATION = 3
+
+# Seed-head events a current-generation Session opens with, and the permission
+# triple they (and the projection-cache ``permissions`` row) carry. Values
+# mirror what DSH Desktop itself writes for an unseeded Session.
+_PERMISSION_PRESET = "workspace-write"
+_SANDBOX_MODE = "workspace-write"
+_APPROVAL_POLICY = "ask"
+_SEED_HEAD_EVENTS = (
+    ("permission/preset", {"preset": _PERMISSION_PRESET}),
+    ("sandbox/mode", {"mode": _SANDBOX_MODE}),
+    ("approval/policy", {"policy": _APPROVAL_POLICY}),
+)
+# The system-message head dsh injects into the first step of a turn; the plugin
+# name marks it as harness-injected (the desktop filters these out of the
+# transcript, and ``_event_message`` ignores role ``system``).
+_SYSTEM_HEAD_PLUGIN = "@deepseek-ai/dsh-system-prompt"
+# dsh's agentPreset default for a Session that was not seeded from a preset.
+_DEFAULT_AGENT_PRESET = "standard"
+# assistant/message settlement block. Token counts are not part of the synced
+# payload, so the block is zeroed rather than invented.
+_ZERO_USAGE = {"inputTokens": 0, "outputTokens": 0,
+               "cacheReadTokens": 0, "reasoningTokens": 0}
 
 
 def _log_generation(name: str) -> int | None:
@@ -472,7 +515,14 @@ class DshAdapter(Adapter):
                 stats["imported"] += 1
                 any_changed = True
             else:
-                if not added and not moved and (
+                # A log from an older generation is upgraded even when nothing
+                # else changed: dsh's reader refuses to migrate the legacy
+                # message-only artifacts this adapter used to write, so those
+                # Sessions stay unopenable until a current-generation successor
+                # is published (see _write_log).
+                legacy = (_log_generation(existing["path"].name) or 0) < \
+                    _CURRENT_LOG_GENERATION
+                if not added and not moved and not legacy and (
                         s.get("title") is None or
                         existing["title"] == s.get("title")):
                     continue
@@ -584,12 +634,23 @@ class DshAdapter(Adapter):
     def _merge_messages(self, existing: list[dict],
                         msgs: list[dict]) -> tuple[list[dict], int]:
         """existing rows + new canonical messages deduped by
-        (role, timestamp-ms); returns (rows in file order, added count)."""
+        (role, timestamp-ms); returns (rows in file order, added count).
+
+        Text-less rows are skipped: an assistant turn that carried only tool
+        calls / reasoning canonicalizes to an empty string, which the log
+        cannot represent as a conversation event (``_event_message`` drops it).
+        Storing it would make the row invisible on read and therefore "new"
+        again on every pull -- every synced Session would be rewritten on every
+        sync cycle forever.
+        """
         seen = {(k["role"], k["ts"]) for k in existing}
         rows = list(existing)
         added = 0
         for m in msgs:
             role = m.get("role")
+            if role in ("user", "assistant") \
+                    and not str(m.get("content") or "").strip():
+                continue
             ts = m.get("timestamp")
             try:
                 ms = int(float(ts) * 1000)
@@ -606,32 +667,42 @@ class DshAdapter(Adapter):
 
     def _write_log(self, sdir: Path, sid: str, cwd, session: dict,
                    existing: dict, rows: list[dict]):
-        """(Re)write one session log atomically: header + contiguous-seq
-        user/message & assistant/message events (seq renumbered from 0 on
-        every rewrite).
+        """(Re)write one session log atomically in dsh's CURRENT generation:
+        the seed head (permission/preset, sandbox/mode, approval/policy), then
+        one turn/step frame per conversation row, with the settlement fields
+        (``usage`` / ``stream``) an assistant/message must carry.
 
-        The session's current canonical generation and encoding are preserved:
-        dsh reads the numerically highest generation, so writing a lower one
-        (or a second file next to it) would be invisible to the harness — the
-        previous behaviour wrote v0 next to a live v3 log. An existing header
-        is kept verbatim apart from identity/cwd fields so generation-specific
-        fields (``isSeeded``, ``agentPreset``, …) survive the rewrite, and the
-        physical header version always equals the filename's generation.
+        dsh's reader opens the numerically highest generation and migrates
+        older artifacts through v0->v1->v2->v3 — but that chain REFUSES the
+        message-only logs this adapter used to publish for new Sessions
+        ("format v2 surface before first step cannot acquire a system head
+        without changing chronology"; a v0 artifact additionally rejects
+        ``sourceEventSeqs``), which made every synced Session unopenable in
+        DSH Desktop ("历史加载失败：network error（gateway/internal）").
+
+        An existing log of the current generation is rewritten in place; a
+        predecessor of an older generation is left byte-identical with a
+        successor published next to it, mirroring dsh's own write path (the
+        reader always takes the highest generation, published predecessors are
+        never mutated). Header fields of a foreign generation are not carried
+        over — ``version`` / ``isSeeded`` / ``agentPreset`` are
+        generation-specific; only identity fields survive.
         """
         src = existing.get("path")
-        generation = _log_generation(src.name) if src is not None else 0
-        if generation is None:  # unreadable name: fall back to the v0 root
-            generation = 0
-        # Compressed unless this generation's log (or the fresh default) is raw.
-        use_zstd = HAVE_ZSTD and (src is None or src.name.endswith(".zstd"))
-        lines = []
-        # seq is the 0-based event index of THIS file, renumbered on every
-        # rewrite. dsh's reader asserts event.seq === its 0-based position in
-        # the expanded event stream; continuing from the previous file's max
-        # seq would shift every rewritten log off zero and make the whole
-        # file unreadable ("complete frame contains a torn JSONL record").
-        seq = 0
+        generation = _CURRENT_LOG_GENERATION
+        if src is not None:
+            prev = _log_generation(src.name)
+            if prev is not None and prev > generation:
+                generation = prev  # a newer artifact exists: never downgrade
+        # Compressed unless the current generation's own log is raw; a fresh
+        # successor follows the platform default (zstd when available).
+        use_zstd = HAVE_ZSTD and (src is None or src.name.endswith(".zstd")
+                                  or (_log_generation(src.name) or 0)
+                                  < generation)
         header = dict(existing.get("header") or {})
+        if header.get("version") != generation:
+            # foreign generation: keep the identity fields only
+            header = {k: header[k] for k in ("createdAt",) if k in header}
         header.update({"type": "session", "version": generation, "id": sid})
         try:
             created = int(float(session.get("started_at") or time.time()) * 1000)
@@ -646,55 +717,119 @@ class DshAdapter(Adapter):
             header["cwd"] = cwd
         header.setdefault("delegationDepth", 0)
         if generation >= 1:
-            # The current format records isSeeded in the physical header (dsh's
-            # v2->v3 header check requires it). A preserved header always has
-            # it; this only covers a synthesized one.
+            # The current format records isSeeded/agentPreset in the physical
+            # header (dsh's v2->v3 header check requires isSeeded). Preserved
+            # headers already carry them; this only covers a synthesized one.
             header.setdefault("isSeeded", False)
-        lines.append(json.dumps(header, ensure_ascii=False))
+            header.setdefault("agentPreset", _DEFAULT_AGENT_PRESET)
+
+        lines = [json.dumps(header, ensure_ascii=False)]
+        # seq is the 0-based event index of THIS file, renumbered on every
+        # rewrite: dsh's reader asserts event.seq === its 0-based position in
+        # the expanded event stream, so continuing a predecessor's numbering
+        # would shift the whole file off zero ("complete frame contains a torn
+        # JSONL record").
+        seq = 0
+
+        def emit(rec: dict, ts: int):
+            """Append one event, assigning the next dense seq."""
+            nonlocal seq
+            rec["seq"] = seq
+            rec.setdefault("time", ts)
+            lines.append(json.dumps(rec, ensure_ascii=False))
+            seq += 1
+
+        base = header["createdAt"]
+        for etype, data in _SEED_HEAD_EVENTS:
+            emit({"type": etype, "data": dict(data)}, base)
 
         title = session.get("title")
-        if isinstance(title, str) and title and existing["title"] != title:
-            lines.append(json.dumps({
-                "type": "session/title", "seq": seq, "time": header["createdAt"],
-                "data": {"title": title, "messageSeqs": [],
-                         "source": {"kind": "user"}},
-            }, ensure_ascii=False))
-            seq += 1
+        if not (isinstance(title, str) and title):
+            # no title in the payload (never titled, or a local edit the pull
+            # deliberately withheld): keep the one the log already carries --
+            # the published successor is the file dsh reads, so dropping the
+            # event would lose the title from the desktop list
+            title = existing["title"]
+        want_title = bool(isinstance(title, str) and title)
+        # One turn/step frame per conversation row, mirroring the chronology
+        # dsh writes: a user row opens a turn and its first step, the model
+        # reply settles inside that step, and any further reply in the same
+        # turn opens the next step.
+        turn = step = 0
+        settled = False        # the open step already carries a model reply
+        last_ts = base
 
-        # turn/step replay from the renumbered file's own rows: the file is
-        # rewritten whole, so display counters restart with it.
-        turn, step = 0, 0
-        last_role = None
+        def close_turn(ts: int):
+            nonlocal settled
+            if turn and settled:
+                emit({"type": "step/end",
+                      "data": {"turn": turn, "step": step}}, ts)
+                emit({"type": "turn/end",
+                      "data": {"turn": turn,
+                               "reason": {"kind": "completed"}}}, ts)
+                settled = False
+
         for r in sorted(rows, key=lambda k: (k["ts"], k["role"] != "user")):
             role, ts, content = r["role"], r["ts"], r["content"]
+            last_ts = ts
             if role == "user":
+                close_turn(ts)
                 turn += 1
+                step = 1
+                emit({"type": "turn/start", "data": {"turn": turn}}, ts)
+                emit({"type": "step/start",
+                      "data": {"turn": turn, "step": step}}, ts)
+                emit({"type": "system/message", "surfaceOp": "append",
+                      "data": {"turn": turn, "step": step,
+                               "message": {
+                                   "id": f"system-{_msg_id()}",
+                                   "role": "system",
+                                   "source": {"kind": "plugin",
+                                              "plugin": _SYSTEM_HEAD_PLUGIN},
+                                   "content": []}}}, ts)
+                emit({"type": "user/message", "surfaceOp": "append",
+                      "data": {"id": f"user-{_msg_id()}", "role": "user",
+                               "content": [{"type": "text", "text": content}],
+                               "source": {"kind": "user"}}}, ts)
+                if want_title:
+                    want_title = False
+                    emit({"type": "session/title",
+                          "data": {"title": title, "messageSeqs": [seq - 1],
+                                   "source": {"kind": "user"}}}, ts)
+                continue
+            if not turn:
+                # a model reply without a preceding user row (defensive)
+                turn = 1
                 step = 0
-            else:
+                emit({"type": "turn/start", "data": {"turn": turn}}, ts)
+            if settled or step == 0:
+                # the step is not open yet: either a further model step in the
+                # same turn (the previous one must be closed) or the defensive
+                # turn above
+                if settled:
+                    emit({"type": "step/end",
+                          "data": {"turn": turn, "step": step}}, ts)
                 step += 1
-            ev = {"type": "user/message" if role == "user"
-                  else "assistant/message",
-                  "seq": seq, "time": ts, "surfaceOp": "append"}
-            if role == "user":
-                ev["data"] = {"id": f"user-{_msg_id()}", "role": "user",
-                              "content": [{"type": "text", "text": content}],
-                              "source": {"kind": "user"}}
-            else:
-                model_s = _model_parts(session.get("model"))
-                ev["data"] = {
-                    "turn": turn, "step": step,
-                    "message": {"id": f"assistant-{_msg_id()}",
-                                "role": "assistant",
-                                "content": [{"type": "text",
-                                             "text": content}],
-                                "source": {"kind": "model",
-                                           "provider": model_s[0],
-                                           "model": model_s[1]}},
-                    "sourceEventSeqs": [],
-                }
-            lines.append(json.dumps(ev, ensure_ascii=False))
-            seq += 1
-            last_role = role
+                emit({"type": "step/start",
+                      "data": {"turn": turn, "step": step}}, ts)
+            model_s = _model_parts(session.get("model"))
+            emit({"type": "assistant/message", "surfaceOp": "append",
+                  "data": {"turn": turn, "step": step,
+                           "message": {"id": f"assistant-{_msg_id()}",
+                                       "role": "assistant",
+                                       "content": [{"type": "text",
+                                                    "text": content}],
+                                       "source": {"kind": "model",
+                                                  "provider": model_s[0],
+                                                  "model": model_s[1]}},
+                           "usage": dict(_ZERO_USAGE),
+                           "stream": []}}, ts)
+            settled = True
+        close_turn(last_ts)
+        if want_title:
+            emit({"type": "session/title",
+                  "data": {"title": title, "messageSeqs": [],
+                           "source": {"kind": "user"}}}, last_ts)
 
         payload = ("\n".join(lines) + "\n").encode("utf-8")
         fname = _log_filename(generation, use_zstd)
@@ -846,7 +981,7 @@ class DshAdapter(Adapter):
             "titleInput": {"ver": 3, "seq": seq, "val": title_input},
             "llmRetry": {"ver": 1, "seq": seq, "val": {}},
             "sandboxMode": {"ver": 1, "seq": seq,
-                            "val": "workspace-write"},
+                            "val": _SANDBOX_MODE},
             "goal": {"ver": 6, "seq": seq,
                      "val": {"current": None, "seenGoalIds": [],
                              "failure": None}},
@@ -883,9 +1018,9 @@ class DshAdapter(Adapter):
                                        "settledMs": 0}},
             "subagent": {"ver": 2, "seq": seq, "val": {}},
             "permissions": {"ver": 2, "seq": seq,
-                            "val": {"preset": "workspace-write",
-                                    "sandbox": "workspace-write",
-                                    "approval": "ask",
+                            "val": {"preset": _PERMISSION_PRESET,
+                                    "sandbox": _SANDBOX_MODE,
+                                    "approval": _APPROVAL_POLICY,
                                     "seeded": True}},
             "modelSelection": {"ver": 2, "seq": seq,
                                "val": {"lastUsed": None,

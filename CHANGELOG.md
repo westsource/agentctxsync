@@ -1,3 +1,94 @@
+## [2026.09.12.4] - 2026-09-12
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.12.3 → **2026.09.12.4**（客户端包有改动，各端经
+> `/api/client/manifest` 自动更新）。服务端仅帮助页内容更新（`server/agents.py` 的 dsh
+> 注册片段），无 schema 变更。
+
+### Fixed（dsh 同步下来的会话在新版桌面里打不开 —— v0 日志过不了 dsh 的迁移链）
+
+- **根因**：dsh 读器对旧世代产物跑 **v0→v1→v2→v3 迁移链**，而 adapter 过去给新会话写的是
+  「header + `session/title` + `user/message` + `assistant/message`」的 v0 日志：链上第一处
+  拒绝是 `format v2 surface before first step cannot acquire a system head without
+  changing chronology`（缺种子头/轮次骨架），补上种子头后下一处是
+  `unexpected member "sourceEventSeqs"`。结果是**所有同步进来的会话**在 DSH Desktop
+  （0.1.5-rc.2 / 桌面 2.0.x）打开时 `session/follow` 直接失败，UI 报
+  「历史加载失败：network error（gateway/internal）」（`network error` 是 Chromium 对中断
+  响应流的文案，`gateway/internal` 是网关错误码），而 dsh 自写的 v3 会话读取正常。
+- **定位（实测）**：用一元 RPC `session/page` 拿到完整错误（同一会话在清空重拉前后报同一
+  错误）；从备份恢复 dsh 原生 v3 会话后 `session/follow` 立刻正常 → 排除读路径与"会话被
+  清空"这一变量；临时把 profile 的 MCP 注册置空重启，错误一字不变 → 与同步插件无关。
+- **修复**：`_write_log` 改为**发布当前世代（v3）日志**——v3 header（`isSeeded:false`、
+  `agentPreset:"standard"`）+ 种子头（`permission/preset`/`sandbox/mode`/`approval/policy`）
+  + 每轮 `turn/start`/`step/start`（同一轮多个模型步各自成步、`step/end` 收束）
+  + assistant/message 带 `usage`/`stream` 结算块、去掉 `sourceEventSeqs`；外来世代只保留身份
+  字段（`version`/`isSeeded`/`agentPreset` 是世代专有）。既有旧世代文件**逐字节冻结**，后继
+  写成新文件；`write_sessions` 对**旧世代日志即使没有新消息也升级**（否则存量 store 永远
+  打不开）；标题事件改为始终随日志发布（后继才是 dsh 读的文件）。
+- **顺带修掉同路径的写入 churn**：`_merge_messages` 不再把**无文本**回复（仅工具调用/推理的
+  assistant 轮）写成空事件——读侧本就不认这类行，写侧却让它在每次拉取里"再新一次"，
+  于是每轮同步都会重写全部会话（实测 25171 条消息事件里 8208 条为空文本）。修复后同一
+  数据集单轮只改写真正有新消息的会话（实测 14/553 个日志）。
+- **端到端验证（用 dsh 自己的读器，非自证）**：修复后对真实 store 跑一次全量拉取
+  （276 个会话目录全部带 v3 文件、0 个 v0-only）；桌面实测三类会话（多轮拉取会话 /
+  超长路径会话 / dsh 原生 v3 会话）`session/page` 全部 `ok`、`session/follow` 正常返回 v3
+  快照，UI 正常渲染出历史（不再显示加载失败）；再跑一轮全量拉取确认幂等（无新消息的会话
+  零改写）。
+- **测试**：`mcp/tests/test_dsh.py` 新增 `CurrentGenerationWriteTest` 4 例（新会话的世代/
+  种子头/轮次骨架/seq 连续、assistant 结算字段且无 `sourceEventSeqs`、存量 v0 会话升级且
+  前代逐字节不变、无文本回复不落盘且不触发重写），并更新受契约影响的既有用例（标题-only
+  升级、cwd 漂移、zstd 往返、`_no-cwd`）；mcp 套件 155 项、server 套件 189 项通过。
+
+### Fixed（dsh 注册片段缺 `cwd` —— 新版桌面静默不起 MCP 客户端）
+
+- **根因**：新版 `@deepseek-ai/dsh-mcp-client`（随 DSH Desktop 0.1.5-rc.2 分发）把 stdio 的
+  `cwd` 定义为 `z.string().default("")`，并**无条件**传给 MCP SDK 的 `spawn()`；Node 对
+  `cwd: ""` 直接抛 `ENOENT`（实测），插件启动失败又被 `failOnStartupError: false`
+  （`registrationFailure: "contain"`）吞掉。表现极具迷惑性：**桌面照常启动、会话列表正常，
+  但同步静默不跑**——没有 MCP 子进程、没有 `mcp__hermes-sync__*` 工具、水位线不动。
+- **修复**：注册行补 `cwd: '<EXTRACT_DIR>'`（指引器解压目录，必须真实存在）；
+  `server/agents.py` 的中英文注册片段与安装说明同步更新，并注明该陷阱与
+  `failOnStartupError` 的取舍（`false` = 不阻塞桌面启动；需要定位启动错误时临时改 `true`，
+  桌面启动页会直接显示合成错误）。
+- **定位手法（可复用）**：把 profile 的 `cordis.patch.yml` 写成非法 YAML → 桌面启动页报
+  `failed to parse overlay …` 证明该文件确实被读取；`failOnStartupError: true` 让被吞掉的
+  插件错误显示在启动页；同环境手工复跑客户端可对照验证（输出
+  `Agent: dsh (local store: ~/.dsh/sessions)` 并接管 `hermes-sync-dsh.lock`）。
+- **验证（实测）**：改前桌面里没有 MCP 子进程；补 `cwd` 后重启，桌面拉起客户端
+  （父进程 = desktop host 的 `node.exe`），客户端成为 primary、持有 `hermes-sync-dsh.lock`
+  并完成启动同步。**注意**：旧 app 进程遗留的客户端会占着锁，新客户端会退化为 standby
+  （整生命周期不同步）——升级/重启桌面时先确认没有遗留的
+  `agentctxsync-mcp-client-*/mcp/server.py` 进程。
+
+### Fixed（hermes 推送被 BLOB 列整轮打断 —— 会话永远停在旧快照）
+
+- **根因**：Hermes 0.20 为每条消息写了 `messages.display_identity`（32 字节 BLOB 哈希）。
+  `SQLiteAdapter._map_cols` 的规则是「非空列全部拷进 canonical 消息」，于是 BLOB 原样变成 Python
+  `bytes`；而推送路径两处都要 `json.dumps` —— 分批前的 `_chunk_sessions._size`（算体积）与
+  `api_call`（编码请求体）。`TypeError: Object of type bytes is not JSON serializable` 从
+  `_chunk_sessions` 直接抛出，于是**整轮 push 中止**（不是跳过单会话）——该设备此后一条都推不上，
+  服务端留着几小时前的旧快照（实测：本地 170 条 vs 服务端 `message_count = 1`）。
+- **修复**：`_map_cols` 不再把二进制列放进 canonical 消息（BLOB 是 harness 内部状态，canonical 模型
+  是 JSON，没有对应槽位就不带）。走 `SQLiteAdapter` 的只有 `HermesAdapter`，影响面即 hermes 一条链。
+- **验证（实测）**：本地该会话 170 条（9 user / 66 assistant / 95 tool，约 1.09 MB）修复后可 JSON 编码、
+  单块推送成功（`imported 2 / updated 11 / new_messages 417`），服务端 `message_count` **1 → 170**、
+  标题同步为真实标题，并顺带补上此前被卡住的另外两个 hermes 会话（202 条 / 43 条）。
+- **测试**：`mcp/tests/test_hermes.py::BinaryColumnTest` 2 例（BLOB 列不进 canonical 消息、整份读结果可
+  `json.dumps`）；mcp 套件 155 项通过。
+
+### Fixed（推送：单个不可编码的会话不再拖垮整轮）
+
+- **背景**：上一条的 BLOB 能造成"整设备停摆"，是因为 `_chunk_sessions` 用 `json.dumps` 算每个会话的体积、
+  `api_call` 又在 `try` 之外编码请求体——任意一个不可序列化的值都会在**发送之前**抛出，整轮 push 直接失败。
+- **修复**：① `push_sessions` 先按指纹过滤、再做可编码性分区（`_partition_encodable`）：不可编码的会话
+  **按会话隔离**，日志点名到字段（`_json_offender` → `… (messages[0].display_identity (bytes))`），其余会话
+  照常分批推送，结果里带 `unsendable: [id...]`；② `api_call` 把请求体编码挪进 `try`，编码失败按普通请求
+  失败返回 `{"error": …}`（单块失败不再中断整轮，push/pull 同等受益）；③ 指纹过滤提前到分块之前，未变化的
+  大多数会话不再参与体积计算（hermes 那种全量上百 MB JSON 的开销省掉）。
+- **验证**：在真实服务端上注入一个含 `bytes` 的探针会话 → 日志点名、无异常抛出、同一轮仍推送了真实变更
+  （`updated 2 / new_messages 6`），结果返回 `unsendable: ["zz-isolation-probe"]`，探针未上云。
+- **测试**：`mcp/tests/test_mcp_server.py::PushIsolationTest` 3 例（坏会话被跳过且其余照推 + 指纹只在成功后
+  落盘、跳过原因点名到字段、`api_call` 对不可编码载荷返回错误而非抛出）；mcp 套件 155 项通过。
+
 ## [2026.09.12.3] - 2026-09-12
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.12.2 → **2026.09.12.3**（客户端包有改动，各端经
