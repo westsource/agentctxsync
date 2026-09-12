@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from datetime import datetime
@@ -53,6 +54,41 @@ VERIFY_ALLOWED = PW_ONLY_ALLOWED | {"/web/verify-email", "/web/email"}
 USERNAME_MAX = 32
 DISPLAY_NAME_MAX = 64
 PASSWORD_MAX = 128
+
+# Username FORMAT. ASCII-only on purpose: login compares the identifier
+# verbatim (users.username UNIQUE, `WHERE username = %s` — case sensitive), so
+# allowing Unicode scripts would let a homograph (`аdmin` with Cyrillic а)
+# impersonate an existing account. Separators are allowed inside the name but
+# not first, so `.`/`..`/`-x` can never be a username.
+# The hyphen is ESCAPED because this same string is served to the browser as
+# an HTML `pattern` attribute: HTML compiles patterns with the `v` flag, where
+# an unescaped `-` inside a class is a syntax error and Chromium then ignores
+# the pattern entirely (silent no-op). Python treats `\-` identically to `-`.
+# NOTE: usernames are write-once (only registration / admin-create write
+# them), so accounts predating this rule — including CJK names — keep working
+# at login and are never forced to rename; only new writes are validated.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,31}$")
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def username_format_ok(value: str) -> bool:
+    """True when *value* is an acceptable username (length is checked
+    separately so callers keep their own too-long message)."""
+    return bool(USERNAME_RE.match(value))
+
+
+def display_name_format_ok(value: str) -> bool:
+    """True when *value* carries no control characters (length checked
+    separately). Newlines/NULs would corrupt logs, CSV exports and headers."""
+    return not CONTROL_CHARS_RE.search(value)
+
+
+def password_format_ok(value: str) -> bool:
+    """True unless the password is empty or made up entirely of whitespace
+    ('      ' passes a length-only check but is an empty credential)."""
+    return bool(value.strip())
+
+
 # PBKDF2-HMAC-SHA256 iterations for NEW hashes (OWASP 2023: 600k). Each stored
 # hash carries its own count (verify_password parses it), so legacy 100k
 # hashes still verify and are upgraded lazily on next successful login.
@@ -356,6 +392,9 @@ async def render_register_page(error, username="", display_name="", code="", ema
                                                "display_name": display_name,
                                                "email": email,
                                                "mail_enabled": smtp_configured(),
+                                               # Client mirror of USERNAME_RE; injected
+                                               # so the HTML pattern cannot drift from it.
+                                               "username_pattern": USERNAME_RE.pattern,
                                                "captcha_id": captcha_id,
                                                "captcha_svg": captcha_svg})
 
@@ -398,12 +437,18 @@ async def web_register_submit(request: Request):
         return await render_register_page("register_username_required", username, display_name, code, email)
     if len(username) > USERNAME_MAX:
         return await render_register_page("register_username_too_long", username, display_name, code, email)
+    if not username_format_ok(username):
+        return await render_register_page("username_invalid", username, display_name, code, email)
     if len(display_name) > DISPLAY_NAME_MAX:
         return await render_register_page("display_too_long", username, display_name, code, email)
+    if not display_name_format_ok(display_name):
+        return await render_register_page("display_invalid", username, display_name, code, email)
     if len(password) < 6:
         return await render_register_page("pwd_short", username, display_name, code, email)
     if len(password) > PASSWORD_MAX:
         return await render_register_page("pwd_too_long", username, display_name, code, email)
+    if not password_format_ok(password):
+        return await render_register_page("pwd_blank", username, display_name, code, email)
     if password != confirm:
         return await render_register_page("pwd_mismatch", username, display_name, code, email)
     # Email is mandatory ONLY while the mail feature is live; otherwise the
@@ -413,6 +458,11 @@ async def web_register_submit(request: Request):
             return await render_register_page("register_email_required", username, display_name, code, email)
         if not email_norm:
             return await render_register_page("register_email_invalid", username, display_name, code, email)
+    # Cheap shape guard before the FOR UPDATE lookup: codes are <= 32 chars by
+    # construction, so anything longer is invalid without a DB round-trip.
+    # (No charset whitelist — legacy codes must keep redeeming.)
+    if len(code) > 32:
+        return await render_register_page("register_invalid_code", username, display_name, code, email)
     now = datetime.now().timestamp()
     # Adopt the guest's landing-page language choice (mirrors login) so the
     # account preference and the auto-created workspace name match it.
@@ -899,6 +949,9 @@ async def web_reset_submit(request: Request):
     if len(new_pw) > PASSWORD_MAX:
         return await render_page("reset.html",
                                  {"mode": "form", "token": raw, "error": "pwd_too_long"})
+    if not password_format_ok(new_pw):
+        return await render_page("reset.html",
+                                 {"mode": "form", "token": raw, "error": "pwd_blank"})
     if new_pw != confirm:
         return await render_page("reset.html",
                                  {"mode": "form", "token": raw, "error": "pwd_mismatch"})
@@ -968,6 +1021,10 @@ async def web_change_password(request: Request):
         if local_next:
             return RedirectResponse(url=f"{nxt}?error=pwd_too_long", status_code=303)
         return RedirectResponse(url="/web/change-password?forced=1&error=pwd_too_long", status_code=303)
+    if not password_format_ok(new_pw):
+        if local_next:
+            return RedirectResponse(url=f"{nxt}?error=pwd_blank", status_code=303)
+        return RedirectResponse(url="/web/change-password?forced=1&error=pwd_blank", status_code=303)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("SELECT password_hash FROM users WHERE id = %s", (user["sub"],))
@@ -994,6 +1051,8 @@ async def web_update_profile(request: Request):
     display_name = body.get("display_name", "").strip()
     if len(display_name) > DISPLAY_NAME_MAX:
         return RedirectResponse(url="/web/?error=display_too_long", status_code=303)
+    if not display_name_format_ok(display_name):
+        return RedirectResponse(url="/web/?error=display_invalid", status_code=303)
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("UPDATE users SET display_name = %s WHERE id = %s",
@@ -1044,12 +1103,18 @@ async def api_register(request: Request, user: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Username is required")
     if len(username) > USERNAME_MAX:
         raise HTTPException(status_code=400, detail=f"Username must be at most {USERNAME_MAX} characters")
+    if not username_format_ok(username):
+        raise HTTPException(status_code=400, detail="Username may only contain letters, digits, dot, underscore and hyphen, and must start with a letter or digit")
     if len(display_name) > DISPLAY_NAME_MAX:
         raise HTTPException(status_code=400, detail=f"Display name must be at most {DISPLAY_NAME_MAX} characters")
+    if not display_name_format_ok(display_name):
+        raise HTTPException(status_code=400, detail="Display name must not contain control characters")
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     if len(password) > PASSWORD_MAX:
         raise HTTPException(status_code=400, detail=f"Password must be at most {PASSWORD_MAX} characters")
+    if not password_format_ok(password):
+        raise HTTPException(status_code=400, detail="Password must not be blank")
     now = datetime.now().timestamp()
     with get_conn() as conn:
         c = conn.cursor()

@@ -256,6 +256,47 @@ class RegisterSubmitTest(unittest.TestCase):
         self.assertEqual(rendered[0]["error"], "pwd_too_long")
         self.assertEqual(cursor.executed, [])
 
+    def test_username_format_rejected_before_db(self):
+        # Space / homograph ('а' U+0430) / CJK are refused at write time. The
+        # ASCII rule is deliberate (login matches the identifier verbatim);
+        # accounts that already hold such names keep logging in.
+        for bad in ("alice bob", "аlice", "阿里", "-alice", "alice@example.com"):
+            resp, cursor, conn, rendered, _ = self._submit(
+                valid_form(username=bad))
+            self.assertEqual(rendered[0]["error"], "username_invalid", bad)
+            self.assertEqual(cursor.executed, [], bad)
+
+    def test_username_separators_and_max_length_accepted(self):
+        name = "a" * 32
+        resp, cursor, conn, rendered, _ = self._submit(
+            valid_form(username=name), rows=[(7,), (1,)])
+        self.assertEqual(resp.status_code, 303)
+        self.assertEqual(rendered, [])
+        self.assertEqual(self._user_insert(cursor)[1][0], name)
+        resp, cursor, conn, rendered, _ = self._submit(
+            valid_form(username="a.b_c-1"), rows=[(7,), (1,)])
+        self.assertEqual(resp.status_code, 303)
+
+    def test_display_name_control_chars_rejected(self):
+        resp, cursor, conn, rendered, _ = self._submit(
+            valid_form(display_name="Alice\nInjected: x"))
+        self.assertEqual(rendered[0]["error"], "display_invalid")
+        self.assertEqual(cursor.executed, [])
+
+    def test_blank_password_rejected(self):
+        # 6 spaces clears the length gate; it is still an empty credential.
+        resp, cursor, conn, rendered, _ = self._submit(
+            valid_form(password=" " * 6, confirm_password=" " * 6))
+        self.assertEqual(rendered[0]["error"], "pwd_blank")
+        self.assertEqual(cursor.executed, [])
+
+    def test_over_long_invite_code_rejected_without_lookup(self):
+        # Shape guard runs before the FOR UPDATE invite lookup.
+        resp, cursor, conn, rendered, _ = self._submit(
+            valid_form(invite_code="H" * 33))
+        self.assertEqual(rendered[0]["error"], "register_invalid_code")
+        self.assertEqual(cursor.executed, [])
+
     def test_rate_limited_ip_gets_error_before_any_work(self):
         resp, cursor, conn, rendered, allow_calls = self._submit(
             valid_form(), rate_ok=False)

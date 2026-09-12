@@ -28,7 +28,7 @@
 | L3 | 低 | JWT 无撤销机制；改密不使旧 token 失效；`JWT_SECRET` 未配置时每进程随机 | `server/server.py:33`、`create_jwt` |
 | L4 | 低 | `/health` 失败时回显数据库异常细节 | `server/server.py:2168` |
 | L5 | 低 | systemd 服务以 root 运行；初始管理员密码/API key 打印到日志 | `scripts/deploy-server.sh`、`server/server.py:367` |
-| L6 | 低 | 用户名无字符/长度限制（注册枚举、显示污染）（2026-09-08：自助注册/资料路径限长——用户名 ≤ 32、显示名 ≤ 64、密码 ≤ 128；字符集未限制） | `server/auth.py` |
+| L6 | 低 | 用户名无字符/长度限制（注册枚举、显示污染）（2026-09-08：自助注册/资料路径限长——用户名 ≤ 32、显示名 ≤ 64、密码 ≤ 128；2026-09-12：新建/改名入口字符集收紧为 ASCII 白名单，显示名禁控制字符、密码禁全空白，存量账户含中文用户名不受影响） | `server/auth.py` |
 
 ---
 
@@ -194,7 +194,7 @@
 | L3 | `server/server.py:33,506-540` | `JWT_SECRET` 未配置时每进程 `secrets.token_hex(32)`：重启/多 worker 全部登出（可用性）；无 `jti`/`token_version`，改密不使旧 token 失效；密码重置类操作无吊销能力 | 强制要求配置 `HERMES_SYNC_JWT_SECRET`（缺失即启动失败，与 PG DSN/master key 同策略）；JWT 加 `token_version`（见 M1） |
 | L4 | `server/server.py:2174` | `/health` 异常时 `{"detail": str(e)}` 回显 psycopg2 异常，可能含主机/库名等连接细节 | 只返回 `{"status":"error"}`，细节写日志 |
 | L5 | `scripts/deploy-server.sh:44-60`、`server/server.py:367-370` | systemd 无 `User=`（root 运行）；初始 admin 密码与工作空间 key `print` 到 stdout（进 systemd journal） | `User=agentctxsync` + 专用低权用户；初始凭证写一次性文件（`chmod 600`）并提示删除，或强制首次登录改密后轮换 |
-| L6 | `server/server.py:676` | 用户名无字符/长度限制 | 限制长度（如 ≤ 64）、字符集（如 `[A-Za-z0-9_.-]`）；登录失败统一提示避免枚举 |
+| L6 | `server/auth.py`（单文件时代为 `server/server.py:676`） | 用户名无字符/长度限制 | **2026-09-12 已修**：`USERNAME_RE = ^[A-Za-z0-9][A-Za-z0-9._\-]{0,31}$`（ASCII 白名单、首字符须字母/数字），在 8 个写入口统一执法（注册 Web/API、重置、Web/REST 改密、改资料、管理员建号/编辑）；显示名禁控制字符、密码禁全空白。用户名写一次即不可改，存量账户（含中文用户名）登录与使用不受影响；登录失败统一提示避免枚举（既有） |
 
 ---
 

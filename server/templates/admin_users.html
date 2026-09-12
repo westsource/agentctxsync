@@ -104,17 +104,18 @@
       <form method="POST" action="/web/admin/user/create" class="px-6 py-5">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_username }}</label>
-          <input type="text" name="username" required
+          <input type="text" name="username" required maxlength="32"
+                 pattern="{{ username_pattern }}" title="{{ t.username_invalid }}"
                  class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
-          <input type="text" name="display_name"
+          <input type="text" name="display_name" maxlength="64"
                  class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_password }}</label>
-          <input type="password" name="password" required minlength="6"
+          <input type="password" name="password" required minlength="6" maxlength="128"
                  class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-6">
@@ -143,12 +144,12 @@
       <form id="editForm" method="POST" action="" class="px-6 py-5">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
-          <input type="text" name="display_name" id="editDisplayName"
+          <input type="text" name="display_name" id="editDisplayName" maxlength="64"
                  class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_new_password }}</label>
-          <input type="password" name="new_password" placeholder="{{ t.admin_leave_empty }}"
+          <input type="password" name="new_password" minlength="6" maxlength="128" placeholder="{{ t.admin_leave_empty }}"
                  class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
         </div>
         <div class="mb-6">
