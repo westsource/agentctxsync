@@ -235,6 +235,13 @@ class Adapter(abc.ABC):
     #: agent key, must match an entry in AGENT_PREFIXES and ADAPTERS.
     agent_type: str = ""
 
+    #: True when ``write_sessions`` stores pulled (shared-pool) sessions in
+    #: this agent's local store. A read-only uploader (chatgpt) has no local
+    #: target for them, so the pull-side completeness repair must not ask
+    #: the server for sessions it can never write (mcp/server.py
+    #: ``_restore_missing_sessions``).
+    stores_pulled_sessions: bool = True
+
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------

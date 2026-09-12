@@ -649,6 +649,96 @@ class PullTest(unittest.TestCase):
         self.assertEqual({s["id"] for s in resp["sessions"]}, {"a", "b"})
 
 
+class PullCompletenessTest(unittest.TestCase):
+    """Completeness report + targeted restore fetch (2026.09.12.5).
+
+    A session deleted locally must come back while the server still holds it
+    visible: the client reports the ids it has (``known_ids``), the server
+    answers with the visible ids it lacks (``missing_ids``), and the client
+    asks for exactly those (``ids``). A soft-hidden session is excluded from
+    both directions — hiding is the server-side way to retire a session, and
+    a hidden row must never be resurrected on a device that deleted it.
+    """
+
+    def _cursor(self, sessions, messages_by_sid, missing=()):
+        return (ScriptedCursor()
+                .add(r"SELECT COUNT\(\*\) AS cnt", [{"cnt": len(sessions)}])
+                .add(r"SELECT id FROM sessions", [{"id": i} for i in missing])
+                .add(r"FROM sessions", sessions)
+                .add(r"FROM messages",
+                     {"all": [dict(m, session_id=sid)
+                              for sid, ms in messages_by_sid.items() for m in ms]},
+                     key=lambda p: "all"))
+
+    def _pull(self, body, sessions, messages_by_sid=None, missing=()):
+        cur = self._cursor(sessions, messages_by_sid or {}, missing)
+        conn = FakeConn(cur)
+        with mock.patch.object(sync, "get_conn", return_value=FakeCtx(conn)):
+            return run(sync.pull(JsonRequest(body),
+                                 {"workspace_id": 1, "user_id": None})), cur
+
+    def test_first_page_reports_visible_ids_the_client_lacks(self):
+        body = {"device_id": "d", "last_sync_at": 5.0,
+                "known_ids": ["a", "held"]}
+        # the scripted rows are the VISIBLE server ids; "a" is held by the
+        # client, "held" does not exist server-side, "gone" is what's missing
+        resp, cur = self._pull(body, [{"id": "a", "title": "A"}],
+                               {"a": []}, missing=["a", "gone"])
+        self.assertEqual(resp["missing_ids"], ["gone"])
+        diff_sql = [s for s, _ in cur.executed if "SELECT id FROM sessions" in s][0]
+        # the diff stays a plain indexed id scan plus a Python set difference:
+        # an `id <> ALL(array)` filter cannot use the (workspace_id, id) PK
+        # and would cost O(visible x |known_ids|) on every pull, and hidden
+        # rows are outside the visible scan so they can never be "missing"
+        self.assertIn("COALESCE(hidden,0) = 0", diff_sql)
+        self.assertEqual([p for s, p in cur.executed
+                          if "SELECT id FROM sessions" in s][0], (1,))
+
+    def test_missing_report_is_first_page_only(self):
+        # the inventory is sent once per pull; later pages must not re-diff
+        body = {"device_id": "d", "last_sync_at": 5.0,
+                "known_ids": ["a"], "offset": 15}
+        resp, cur = self._pull(body, [{"id": "a", "title": "A"}],
+                               {"a": []}, missing=["gone"])
+        self.assertEqual(resp["missing_ids"], [])
+        self.assertFalse([s for s, _ in cur.executed
+                          if "SELECT id FROM sessions" in s])
+
+    def test_client_without_known_ids_gets_plain_incremental(self):
+        # legacy client (or a fresh store): unchanged behavior, no diff query
+        resp, cur = self._pull({"device_id": "d", "last_sync_at": 5.0},
+                               [{"id": "a", "title": "A"}],
+                               {"a": []}, missing=["gone"])
+        self.assertEqual(resp["missing_ids"], [])
+        self.assertFalse([s for s, _ in cur.executed
+                          if "SELECT id FROM sessions" in s])
+        sess_sql = [s for s, _ in cur.executed
+                    if "FROM sessions" in s and "ORDER BY" in s][0]
+        self.assertIn("last_synced_at >", sess_sql)
+
+    def test_ids_fetch_returns_full_sessions_ignoring_cutoff(self):
+        msgs = {"gone": [{"role": "user", "content": "old", "timestamp": 1.0}]}
+        resp, cur = self._pull({"device_id": "d", "ids": ["gone"], "limit": 15},
+                               [{"id": "gone", "title": "G", "started_at": 10.0}],
+                               msgs)
+        sess_sql = [s for s, _ in cur.executed
+                    if "FROM sessions" in s and "ORDER BY" in s][0]
+        self.assertIn("id = ANY", sess_sql)
+        self.assertIn("COALESCE(hidden,0) = 0", sess_sql)
+        self.assertNotIn("last_synced_at >", sess_sql)
+        self.assertEqual([s["id"] for s in resp["sessions"]], ["gone"])
+        self.assertEqual([m["content"] for m in resp["sessions"][0]["messages"]],
+                         ["old"])
+        self.assertEqual(resp["total_sessions"], 1)
+
+    def test_id_payload_junk_is_dropped(self):
+        # a NULL element would make every `id <> ALL(...)` comparison NULL and
+        # silently hide a missing session; a non-list means "not requested".
+        self.assertEqual(sync._clean_ids(None), [])
+        self.assertEqual(sync._clean_ids("a,b"), [])
+        self.assertEqual(sync._clean_ids(["a", None, "", 3, "b"]), ["a", "b"])
+
+
 class ProjectsPullTest(unittest.TestCase):
     def test_projects_pull_full_pool_ignores_agent(self):
         # /api/projects/pull serves every visible project (all agents) no

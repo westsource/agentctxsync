@@ -52,6 +52,21 @@ def _trunc_ms(ts: float | None) -> float | None:
         return float(ts)
 
 
+def _clean_ids(value) -> list[str]:
+    """Normalize a client-supplied id list -> list of non-empty strings.
+
+    Anything that is not a list (missing field, legacy client, garbage)
+    yields an empty list = "feature not requested" -- never "the client holds
+    nothing". Junk elements are dropped: for ``known_ids`` the list becomes
+    the Python set the missing-id diff is computed against, and for ``ids``
+    it becomes a SQL array parameter, so a non-string would only bloat the
+    payload or reach the database as a value no id can ever equal.
+    """
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, str) and v]
+
+
 @router.get("/health")
 async def health():
     try:
@@ -87,24 +102,62 @@ def pull_sync(body, ws):
     Restoring agent-based filtering on pull is a regression — see
     docs/ARCHITECTURE.md "全池拉取契约（Full-Pool Pull）" for the rationale
     and the tests that pin the contract (test_agent_param_ignored_full_pool).
+
+    Two optional body fields turn the pull into a completeness check (see
+    docs/ARCHITECTURE.md "本地删除不是删除信号"): ``known_ids`` (the ids the
+    calling device already holds, sent on its first page) makes the response
+    name every VISIBLE session that device is missing, and ``ids`` fetches
+    exactly those sessions in full, ignoring the incremental cutoff. Both are
+    additive: a client that sends neither gets the historical behavior, and a
+    server that ignores them leaves the client on the historical behavior.
     """
     device_id = body.get("device_id", "unknown")
     last_sync_at = body.get("last_sync_at", 0)
     limit = body.get("limit", 50)
     offset = body.get("offset", 0)
+    known_ids = _clean_ids(body.get("known_ids"))
+    ids = _clean_ids(body.get("ids"))
     wid = ws["workspace_id"]
+    missing_ids = []
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0",
-                  (wid,))
-        total_sessions = c.fetchone()["cnt"]
-        if last_sync_at == 0:
-            c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 ORDER BY started_at DESC LIMIT %s OFFSET %s",
-                      (wid, limit, offset))
+        if ids:
+            # Targeted restore fetch: exactly these ids, in full. The
+            # incremental cutoff does not apply (the client is asking for
+            # sessions it already knows it lost), but the visibility filter
+            # does -- a soft-hidden session is never delivered, so it can
+            # never be restored locally either.
+            c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 AND id = ANY(%s)",
+                      (wid, ids))
+            total_sessions = c.fetchone()["cnt"]
+            c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 AND id = ANY(%s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
+                      (wid, ids, limit, offset))
         else:
-            c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 AND (last_synced_at > %s OR started_at > %s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
-                      (wid, last_sync_at, last_sync_at, limit, offset))
+            c.execute("SELECT COUNT(*) AS cnt FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0",
+                      (wid,))
+            total_sessions = c.fetchone()["cnt"]
+            if last_sync_at == 0:
+                c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 ORDER BY started_at DESC LIMIT %s OFFSET %s",
+                          (wid, limit, offset))
+            else:
+                c.execute("SELECT * FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0 AND (last_synced_at > %s OR started_at > %s) ORDER BY started_at DESC LIMIT %s OFFSET %s",
+                          (wid, last_sync_at, last_sync_at, limit, offset))
         sessions = [dict(r) for r in c.fetchall()]
+        # Completeness report, first page only (the caller sends its whole
+        # inventory once per pull; repeating it per page would be pure
+        # overhead). The diff runs HERE, not in SQL: `id <> ALL(%s)` is a
+        # per-row array scan the planner cannot index, so it costs
+        # O(visible x |known_ids|) on every pull -- a plain indexed id scan
+        # plus a Python set difference is O(visible) and keeps the inventory
+        # out of the query. Ids are compared against the VISIBLE set: a
+        # soft-hidden session must never be reported missing, or clients
+        # would pull back exactly what the Web UI hid.
+        if known_ids and offset == 0:
+            c.execute("SELECT id FROM sessions WHERE workspace_id = %s AND COALESCE(hidden,0) = 0",
+                      (wid,))
+            known = set(known_ids)
+            missing_ids = [r["id"] for r in c.fetchall()
+                           if r["id"] not in known]
         # One query for ALL page messages instead of an N+1 loop per session;
         # grouped in memory by session (ORDER BY session_id keeps each
         # session's own messages timestamp-ordered, matching the old per-
@@ -154,6 +207,7 @@ def pull_sync(body, ws):
     now = datetime.now().timestamp()
     return {"sync_at": now, "session_count": len(sessions),
             "total_sessions": total_sessions,
+            "missing_ids": missing_ids,
             "message_count": sum(len(s["messages"]) for s in sessions), "sessions": sessions}
 
 @router.post("/push")

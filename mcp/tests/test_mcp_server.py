@@ -411,6 +411,116 @@ class PullTitleAdoptTest(unittest.TestCase):
         self.assertEqual(received[0]["title"], "Server title")
 
 
+class PullCompletenessRepairTest(unittest.TestCase):
+    """A session deleted locally comes back on the next pull while the server
+    still holds it visible (docs/ARCHITECTURE.md "本地删除不是删除信号"): the
+    first page carries this device's inventory, the server answers with the
+    visible ids we lack, and those are fetched by id and written like any
+    other pulled page."""
+
+    def _fake_adapter(self, received, local, stores_pulled=True,
+                      watermark=1700000000.0):
+        class FakeAdapter:
+            agent_type = "dsh"
+            stores_pulled_sessions = stores_pulled
+
+            def discover(self):
+                return "store"
+
+            def last_synced_at(self):
+                return watermark
+
+            def save_sync_watermark(self, ts):
+                pass
+
+            def read_sessions(self):
+                return [dict(s) for s in local]
+
+            def write_sessions(self, sessions):
+                received.extend(sessions)
+                return {"imported": len(sessions), "updated": 0,
+                        "new_messages": 0}
+        return FakeAdapter()
+
+    def _run_pull(self, adapter, responses, limit=None):
+        calls = []
+
+        def fake_api(method, path, data=None):
+            calls.append(data)
+            return responses.pop(0)
+
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(server, "adapter", adapter), \
+                    mock.patch.object(server, "FIELD_META_PATH",
+                                      Path(td) / "meta.json"), \
+                    mock.patch.object(server, "api_call", side_effect=fake_api):
+                return server.pull_sessions(limit=limit), calls
+
+    def test_deleted_session_is_restored_on_next_pull(self):
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}])
+        page = {"sessions": [], "sync_at": 9.0, "total_sessions": 2,
+                "missing_ids": ["gone"]}
+        restore = {"sessions": [{"id": "gone", "title": "G",
+                                 "messages": [{"role": "user",
+                                               "content": "old",
+                                               "timestamp": 1.0}]}],
+                   "sync_at": 9.0, "total_sessions": 1}
+        result, calls = self._run_pull(adapter, [page, restore])
+        self.assertEqual(calls[0]["known_ids"], ["kept"])
+        self.assertNotIn("known_ids", calls[1])
+        self.assertEqual(calls[1]["ids"], ["gone"])
+        self.assertEqual([s["id"] for s in received], ["gone"])
+        self.assertEqual(result["restored"], 1)
+        self.assertEqual(result["imported"], 1)
+
+    def test_session_delivered_by_the_page_is_not_fetched_twice(self):
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}])
+        page = {"sessions": [{"id": "gone", "messages": []}], "sync_at": 9.0,
+                "total_sessions": 2, "missing_ids": ["gone"]}
+        result, calls = self._run_pull(adapter, [page])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["restored"], 0)
+        self.assertEqual([s["id"] for s in received], ["gone"])
+
+    def test_read_only_adapter_never_asks_for_missing_sessions(self):
+        # a read-only uploader has no local target for pulled sessions
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}],
+                                     stores_pulled=False)
+        page = {"sessions": [], "sync_at": 9.0, "total_sessions": 2,
+                "missing_ids": ["gone"]}
+        result, calls = self._run_pull(adapter, [page])
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("known_ids", calls[0])
+        self.assertEqual(result["restored"], 0)
+
+    def test_full_pull_does_not_report_its_inventory(self):
+        # a full pull already delivers every visible session; reporting the
+        # pre-pull inventory as missing would download the store twice
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}],
+                                     watermark=0.0)
+        page = {"sessions": [], "sync_at": 9.0, "total_sessions": 2,
+                "missing_ids": ["gone"]}
+        result, calls = self._run_pull(adapter, [page])
+        self.assertNotIn("known_ids", calls[0])
+        self.assertEqual(calls[0]["last_sync_at"], 0)
+        self.assertEqual(result["restored"], 0)
+
+    def test_capped_pull_spends_its_limit_before_restoring(self):
+        # `limit` stays authoritative: a capped pull never pulls more
+        # sessions than the caller asked for
+        received = []
+        adapter = self._fake_adapter(received, [{"id": "kept", "messages": []}])
+        page = {"sessions": [{"id": "new", "messages": []}], "sync_at": 9.0,
+                "total_sessions": 2, "missing_ids": ["gone"]}
+        result, calls = self._run_pull(adapter, [page], limit=1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["restored"], 0)
+
+
 class ProjectFieldMergeTest(unittest.TestCase):
     """Field-level optimistic merge for project scalar fields (Phase 2)."""
 
