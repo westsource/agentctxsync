@@ -1,3 +1,35 @@
+## [2026.09.12.1] - 2026-09-12
+
+> 服务端专用发布：无客户端改动（mcp 版本保持 `2026.09.08.1`）。
+
+### Changed（字段格式校验：注册 / 改密 / 管理端同一套规则，8 个写入口一次收口）
+- **用户名 ASCII 白名单**：`USERNAME_RE = ^[A-Za-z0-9][A-Za-z0-9._\-]{0,31}$`
+  （首字符须字母/数字；禁空格、`@`、`/`、控制字符与全部非 ASCII）。动机：登录按
+  `WHERE username = %s` 逐字比对，放开 Unicode 即可用同形字（西里尔 `аlice`）
+  冒充既有账号。
+- **存量账户豁免**：用户名写一次即不可改（仅注册 / 管理员建号会写），因此规则上线前
+  的账号（含**中文用户名**）登录、展示、同步一切照常，不强制改名、不迁移数据。
+- **显示名**：新增控制字符（`\x00-\x1f\x7f`）拒绝——此前可写入换行 / NUL，污染日志、
+  导出与响应头；长度 ≤ 64 不变。
+- **密码**：新增「不得全为空白」（6 个空格此前可注册成功）；长度 6–128 不变，不引入
+  复杂度要求（沿用既有产品决策）。
+- **入口（8）**：`/web/register`、`/api/auth/register`、`/web/reset`、
+  `/web/change-password`、`/api/me/change-password`、`/web/update-profile`、
+  `/web/admin/user/create`、`/web/admin/user/{uid}/edit`。管理员建号此前除「非空 +
+  密码 ≥ 6」外零校验；编辑页短密码被静默忽略（现在直接拒绝）。改密 / 重置 / REST
+  与注册同口径，堵住「注册合规密码后改成空白」的绕过。
+- **邀请码**：新增 ≤ 32 字符形状守卫，在 `FOR UPDATE` 查询前短路；**不加**字符集白名单
+  以免误杀历史码。
+- **前端镜像**：注册页与管理端用户名输入框的 `pattern` 由服务端 `USERNAME_RE.pattern`
+  注入（单一事实源，杜绝漂移），管理端建号 / 编辑表单补 `maxlength`。注意正则里的
+  `-` **必须转义**：HTML 的 `pattern` 以 `v` 标志编译，字符类中未转义的 `-` 是语法错误，
+  Chromium 会静默忽略整个 pattern（浏览器实测 `checkValidity()` 全 `true` 才暴露）。
+- 邮箱沿用 `emailverify.normalize_email`（>254 拒绝 + OWASP 宽松结构），未改动。
+- i18n 新增 `username_invalid` / `display_invalid` / `pwd_blank`（zh-CN / en 对齐）。
+- 测试：新增 `server/tests/test_field_validation.py`（谓词边界、各写入口拦截行为、
+  词条齐全），`test_register.py` 补注册路由用例；server 全量 189 用例通过（本次新增
+  19 个：`test_field_validation` 14 + `test_register` 5）。
+
 ## [2026.09.11.1] - 2026-09-11
 
 > 服务端专用发布：客户端 mcp 版本保持 `2026.09.08.1` 不变（本次无客户端改动）。

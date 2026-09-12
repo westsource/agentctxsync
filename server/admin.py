@@ -6,7 +6,9 @@ import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from auth import get_current_user, hash_password, require_admin
+from auth import (DISPLAY_NAME_MAX, PASSWORD_MAX, USERNAME_MAX, USERNAME_RE,
+                  display_name_format_ok, get_current_user, hash_password,
+                  password_format_ok, require_admin, username_format_ok)
 from db import get_conn, get_nav_workspaces
 from render import render_page
 
@@ -24,7 +26,8 @@ async def web_admin_users(request: Request):
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("SELECT u.*, COUNT(w.id) as ws_count FROM users u LEFT JOIN workspaces w ON w.user_id = u.id GROUP BY u.id ORDER BY u.created_at DESC")
         users = [dict(r) for r in c.fetchall()]
-    ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_users", "users": users}
+    ctx = {"user": user, "workspaces": nav_ws, "active_page": "admin_users",
+           "users": users, "username_pattern": USERNAME_RE.pattern}
     return await render_page("admin_users.html", ctx)
 
 @router.post("/web/admin/user/create", response_class=HTMLResponse)
@@ -40,7 +43,14 @@ async def web_create_user(request: Request):
     display_name = body.get("display_name", "").strip() or username
     password = body.get("password", "")
     is_admin = body.get("is_admin") == "true"
-    if not username or len(password) < 6:
+    # Same field contract as self-service registration: without it an admin
+    # could mint usernames the register form rejects (spaces, CJK, homographs)
+    # and unbounded display names that bloat the JWT.
+    if not username or not username_format_ok(username) or len(username) > USERNAME_MAX:
+        return RedirectResponse(url="/web/admin/users", status_code=303)
+    if len(display_name) > DISPLAY_NAME_MAX or not display_name_format_ok(display_name):
+        return RedirectResponse(url="/web/admin/users", status_code=303)
+    if len(password) < 6 or len(password) > PASSWORD_MAX or not password_format_ok(password):
         return RedirectResponse(url="/web/admin/users", status_code=303)
     with get_conn() as conn:
         c = conn.cursor()
@@ -73,13 +83,20 @@ async def web_edit_user(uid: int, request: Request):
     display_name = body.get("display_name", "").strip()
     new_password = body.get("new_password", "").strip()
     is_admin = body.get("is_admin") == "true"
+    if len(display_name) > DISPLAY_NAME_MAX or not display_name_format_ok(display_name):
+        return RedirectResponse(url="/web/admin/users", status_code=303)
+    # Empty = "leave the password unchanged" (strip() collapses whitespace-only
+    # input into that branch); a supplied one must satisfy the shared policy
+    # instead of silently not being applied as before.
+    if new_password and not (6 <= len(new_password) <= PASSWORD_MAX):
+        return RedirectResponse(url="/web/admin/users", status_code=303)
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("SELECT username FROM users WHERE id = %s", (uid,))
         target = c.fetchone()
         if target and target[0] == "admin":
             is_admin = True
-        if new_password and len(new_password) >= 6:
+        if new_password:
             c.execute("UPDATE users SET display_name = %s, password_hash = %s, is_admin = %s WHERE id = %s",
                       (display_name, hash_password(new_password), is_admin, uid))
         else:

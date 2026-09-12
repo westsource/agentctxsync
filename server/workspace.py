@@ -13,7 +13,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from agents import AGENTS
 from auth import (PASSWORD_MAX, email_action_allowed, generate_api_key,
-                  get_current_user, hash_password, verify_password)
+                  get_current_user, hash_password, password_format_ok,
+                  verify_password)
 from db import (_pg_val, get_conn, get_nav_workspaces,
                get_user_workspaces, rel_sync_label)
 from render import get_lang, get_translations, make_flash, render_page
@@ -923,6 +924,8 @@ async def api_change_password(request: Request, user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     if len(new_pw) > PASSWORD_MAX:
         raise HTTPException(status_code=400, detail=f"New password must be at most {PASSWORD_MAX} characters")
+    if not password_format_ok(new_pw):
+        raise HTTPException(status_code=400, detail="New password must not be blank")
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("SELECT password_hash FROM users WHERE id = %s", (user["sub"],))
