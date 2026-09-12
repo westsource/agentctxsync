@@ -74,6 +74,10 @@ mcp/tests/test_<name>.py      # fixture 往返单测
      （SQLite BLOB → Python `bytes`）不要拷进 canonical：push 的分块与请求编码都要
      `json.dumps`，一个不可编码的值曾让整台设备的推送全部失败。`SQLiteAdapter._map_cols`
      已统一丢弃 bytes/bytearray/memoryview，自写 SQL 读取的 adapter 需自行保证。
+   - **只读上传型适配器**（`write_sessions` 是 no-op、不写回本地库，如 `chatgpt`）必须声明
+     `stores_pulled_sessions = False`：pull 的完整性修复按 id 补回本地缺失的可见会话
+     （见 ARCHITECTURE「本地删除不是删除信号」），只读适配器本地没有承载共享池会话的目标，
+     不声明就会每轮把整个池子拉下来再丢弃。
 
 ## 第 3 步：注册
 

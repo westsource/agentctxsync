@@ -378,6 +378,49 @@ User (admin / user)
   照常推送。`api_call` 另把请求体编码放进 `try`：编码失败按普通请求失败返回 `{"error": …}`，
   于是"单块失败不影响其余"对编码错误同样成立（push/pull 一致）。
 - 拉取范围见「全池拉取契约」：agent 参数不参与过滤。
+- **本地删除不是删除信号**：增量截断之外，第一页另带本机 id 清单做完整性对账（缺的行当轮补回），
+  见下节「本地删除不是删除信号（Pull 完整性修复）」。
+
+### 本地删除不是删除信号（Pull 完整性修复，决策记录 2026.09.12.5）
+
+> 背景：pull 是**增量**的（服务端 `last_synced_at > 水位线`），而「本地少一行」与「这行还没拉过」
+> 在增量协议里无法区分。于是本地删掉的会话在服务端仍可见时，行为取决于它上次被推送的时刻：
+> 落在 5 分钟宽限窗内 → 下一轮被重新投递（复活）；早于宽限窗 → 永远不再出现，直到**别的**设备
+> 改动它（push 会刷新 `last_synced_at`）。同一根因还覆盖两类"静默漏拉"：水位线过新（切换服务器
+> 后的残留水位线、或会话在隐藏期间被创建/解禁）让可见会话永远低于截断线。
+
+**规则**：服务端**可见**（`hidden=0`）的会话集合 = 每台客户端本地存储应收敛到的集合。本地缺哪一行，
+下一轮 pull 补哪一行；`hidden=1`（Web 软删除 / 回收站）是**唯一**的服务端退休信号——隐藏的会话
+两个方向都不下发，也从不被报告为缺失。
+
+**机制**（两个可选字段，双向兼容）：
+
+- `known_ids`（客户端 → 服务端，仅第一页携带）：本机已有的会话 id 清单。
+- `missing_ids`（服务端 → 客户端，仅第一页响应）：工作空间内可见但不在 `known_ids` 中的 id。
+- `ids`（客户端 → 服务端）：按 id 点名取回，**忽略增量截断**（`last_synced_at/started_at` 不参与），
+  仍走 `hidden=0` 过滤并按 `limit/offset` 分页。客户端据此按 `PULL_PAGE=15` 分块取回缺失会话，
+  写入路径与普通拉取页**完全一致**（字段级合并 → 去重写入 → sidecar 锚定）；失败按尽力而为处理
+  （记日志、下轮重试），绝不让修复失败连累整轮同步。
+
+**成本**：稳态零额外请求、零额外下行（缺失集通常为空）；代价是每轮 pull 上行一份 id 清单（千级
+会话约 45 B/id ≈ 44 KiB/轮，300s 间隔约 12 MiB/天）。服务端对账是**一次索引 id 扫描 + Python
+集合差**（`SELECT id ... WHERE workspace_id=%s AND hidden=0`，O(可见会话数)）——**不要**写成
+SQL 侧数组过滤：`id <> ALL($1)` 无法走 `(workspace_id, id)` 主键，退化成按行扫数组的
+O(可见 × |清单|)。
+
+**有意不触发的场景**：`last_synced_at == 0` 的全量拉取（本就下发全部可见会话，再报"缺失"会把库
+拉两遍）；本地库为空；`limit` 显式限流时修复只花剩余额度（`limit` 始终权威）；只读上传型适配器
+（`Adapter.stores_pulled_sessions = False`，chatgpt——本地没有承载共享池会话的目标）。
+
+**不做的事**：本地删除**不会**反推服务端（push 无删除语义、无 tombstone）。要让会话彻底消失，
+用 Web 软删除；想让本地删除"保持删掉"，先 Web 隐藏再删本地。
+
+**兼容**：旧服务端忽略新字段、旧客户端不发新字段，双方都退化为原增量语义，无需版本协商。
+
+**落地位置**：`server/sync.py::pull_sync`（`known_ids`/`ids`/`missing_ids` + `_clean_ids`）、
+`mcp/server.py::pull_sessions`（清单上行 + `_restore_missing_sessions` 修复）、
+`mcp/adapters/base.py::Adapter.stores_pulled_sessions`；回归防线
+`server/tests/test_sync.py::PullCompletenessTest`、`mcp/tests/test_mcp_server.py::PullCompletenessRepairTest`。
 
 ### 字段级乐观并发 + 惰性 bootstrap（Field-Level Optimistic Concurrency，决策记录）
 
@@ -808,6 +851,8 @@ User (admin / user)
 ```
 GET  /health                    # 健康检查
 POST /pull                      # 拉取会话（limit/offset 分页、last_sync_at 增量；全量池——见下方「全池拉取契约」）
+                                # 可选 completeness：known_ids（本机清单，第一页）→ missing_ids（缺的可见 id）
+                                # 可选 ids=[...] 按 id 点名取回（忽略增量截断；见「本地删除不是删除信号」）
 POST /push                      # 推送会话（upsert + 消息去重；按服务端真实列过滤；agent_type/meta；配额执法）
 GET  /status/{device_id}        # 同步状态（设备最近同步时间、会话/消息总数）
 GET  /sessions                  # 列出会话（最近 50 条，含 agent_type）
@@ -839,7 +884,8 @@ owner 注册表打 `agent_type`，见 `mcp/adapters/*.py` 的 foreign 路由）�
 
 **仍然生效的过滤（与 agent 无关，勿一并移除）**：`hidden=1` 的会话与消息（软删除/回收站、
 子 agent 折叠后隐藏的孤儿行）不下发；`/pull` 增量分支按 `last_synced_at/started_at` 水位线、
-消息按 `timestamp` 增量过滤；分页按 `limit/offset`。
+消息按 `timestamp` 增量过滤；分页按 `limit/offset`。唯一例外是按 `ids` 点名的修复取回
+（见「本地删除不是删除信号」）：它绕过水位线截断以便补回本地删掉的行，但 `hidden=0` 过滤照旧。
 
 **落地位置**：`server/sync.py::pull_sync`（docstring）、`server/tests/test_sync.py`
 （`test_agent_param_ignored_full_pool`、`ProjectsPullTest`）为回归防线；客户端

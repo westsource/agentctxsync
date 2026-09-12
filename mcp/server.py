@@ -608,6 +608,119 @@ def _reconcile_sidecar_titles(local_by_id: dict) -> int:
     return healed
 
 
+#: Sessions per /pull request. One request returns FULL sessions (all
+#: messages), so a big batch is slow and risks the HTTP timeout (observed:
+#: ~60s for a 50-session page). Keep pages small so a full resync never
+#: times out; the missing-session repair pages the same way.
+PULL_PAGE = 15
+
+
+def _apply_pull_page(sessions, local_by_id, local_cwd_map, meta):
+    """Write one received page to the local store and anchor its sidecar.
+
+    Field-level merge BEFORE writing: never overwrite a user-edit field this
+    device changed locally since its last sync (dirty). The server stays
+    authoritative for both unanchored fields (no sidecar entry) and fields we
+    do not locally differ on -- those we adopt here. Shared by the
+    incremental pull and the missing-session repair, so a restored session
+    goes through exactly the same merge/dedupe/anchor path as a normal page.
+
+    Returns the adapter's write stats dict.
+    """
+    for s in sessions:
+        sid = str(s["id"])
+        fr = s.get("field_rev") or {}
+        sm = meta.get(sid) or {}
+        local = local_by_id.get(sid, {})
+        for f in USER_EDIT_FIELDS:
+            if f in s and isinstance(s.get(f), str):
+                entry = sm.get(f)
+                if entry is not None and _field_dirty(
+                        f, local.get(f), entry.get("val")):
+                    s.pop(f, None)   # locally edited since last sync
+        # Align pull-side path fields (cwd/git_repo_root) to the local
+        # separator spelling where a local path already exists with only
+        # a different separator — keeps local storage consistent and
+        # merges instead of splitting the same path.
+        for _pk in ("cwd", "git_repo_root"):
+            if isinstance(s.get(_pk), str) and s[_pk]:
+                s[_pk] = align_path_to_local(s[_pk], local_cwd_map)
+    # Retry the write a few times when the local store is locked by the
+    # host agent (Hermes on SQLite < 3.51.3 uses journal_mode=DELETE,
+    # where a write contends with concurrent readers). Each attempt
+    # fails fast (busy_timeout=5s); short gaps between attempts catch
+    # brief idle windows instead of deferring to the next sync cycle.
+    stats = None
+    for gap in (0, 2, 5, 10):
+        if gap:
+            log(f"Local store locked during pull write; "
+                f"retrying in {gap}s...")
+            time.sleep(gap)
+        try:
+            stats = adapter.write_sessions(sessions)
+            break
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or gap == 10:
+                raise
+    # Anchor sidecar base/val for fields adopted from the server (they
+    # now read clean), so this device stops treating them as dirty and
+    # does not needlessly re-push them.
+    for s in sessions:
+        sid = str(s["id"])
+        fr = s.get("field_rev") or {}
+        for f in USER_EDIT_FIELDS:
+            if f in s and isinstance(s.get(f), str) and f in fr:
+                meta.setdefault(sid, {})[f] = {"base": fr[f], "val": s[f]}
+    return stats
+
+
+def _restore_missing_sessions(ids, local_by_id, local_cwd_map, meta, budget=None):
+    """Put back sessions the server still holds but the local store lost.
+
+    A local delete is not a delete signal: `hidden` is the server-side way
+    to retire a session, so a row the server keeps visible is restored on
+    the next pull instead of staying absent locally -- and then being
+    re-pushed by this device. ``ids`` come from the server's completeness
+    report (see pull_sessions); each request asks for at most one page of
+    them, and the server answers with the ones it still has visible.
+
+    Best-effort by design: a failing chunk is logged and ends the pass
+    (the next pull retries) rather than failing the whole sync.
+    """
+    ids = [i for i in dict.fromkeys(ids) if isinstance(i, str) and i]
+    if budget is not None:
+        ids = ids[:budget]
+    if not ids:
+        return None
+    imported = new_messages = restored = 0
+    for start in range(0, len(ids), PULL_PAGE):
+        chunk = ids[start:start + PULL_PAGE]
+        result = api_call("POST", "/pull", {
+            "device_id": DEVICE_ID,
+            "client_version": CLIENT_VERSION,
+            "agent": AGENT,
+            "ids": chunk, "limit": len(chunk),
+        })
+        if "error" in result:
+            log(f"Session restore failed for {len(chunk)} id(s): "
+                f"{result['error']}")
+            break
+        sessions = result.get("sessions") or []
+        if not sessions:
+            continue
+        stats = _apply_pull_page(sessions, local_by_id, local_cwd_map, meta)
+        imported += stats.get("imported", 0)
+        new_messages += stats.get("new_messages", 0)
+        restored += len(sessions)
+        # Keep the snapshot current: the title heal and later chunks see the
+        # restored rows as local state (not as missing).
+        local_by_id.update({str(s["id"]): s for s in sessions})
+    if restored:
+        log(f"Restored {restored} session(s) the server still holds")
+    return {"imported": imported, "new_messages": new_messages,
+            "restored": restored}
+
+
 def pull_sessions(last_sync_at=None, limit=None):
     """Pull remote sessions into the local store via the agent adapter.
 
@@ -617,6 +730,12 @@ def pull_sessions(last_sync_at=None, limit=None):
     caps the total (the MCP tool uses this). Each page is written with
     stable (session_id, role, timestamp) dedupe in the adapter; remote
     message ids are dropped so the local store assigns fresh ids.
+
+    The store converges on the server's VISIBLE session set: the first page
+    reports this device's inventory, the server answers with the visible ids
+    we are missing, and those are fetched afterwards -- a session deleted
+    locally comes back instead of staying absent until a peer re-pushes it
+    (docs/ARCHITECTURE.md "本地删除不是删除信号").
     """
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
@@ -629,27 +748,38 @@ def pull_sessions(last_sync_at=None, limit=None):
 
     imported, new_messages = 0, 0
     total_remote = 0
+    restored = 0
+    missing_ids: list[str] = []
+    written_ids: set[str] = set()
 
-    # One pull request returns `limit` FULL sessions (all messages); a big
-    # batch is slow and risks the HTTP timeout (observed: ~60s for a 50-
-    # session page). Keep pages small so a full resync never times out.
-    PAGE = 15
+    # One pull request returns `limit` FULL sessions (all messages) -- see
+    # PULL_PAGE for the page-size rationale.
     fetched = 0
     prev_page_ids = None
     meta = _load_field_meta()
     # Snapshot local user-edit values once: a pull must NEVER overwrite a
     # field this device edited locally since its last sync (dirty == local
     # value != sidecar last-known). The same read also feeds the
-    # path-separator alignment below.
+    # path-separator alignment below, and it IS the inventory the
+    # completeness check is computed against.
     _local = adapter.read_sessions()
     local_by_id = {str(s["id"]): s for s in _local}
     local_cwd_map = build_path_map(
         s.get("cwd") for s in _local if isinstance(s.get("cwd"), str))
+    # Ask the server what we are missing only when the answer can be acted
+    # on: an incremental pull (a full pull delivers every visible session
+    # anyway, and reporting the pre-pull inventory as missing would fetch the
+    # store twice), a non-empty local store, and an adapter that stores
+    # pulled sessions at all (a read-only uploader has no local target for
+    # them -- see Adapter.stores_pulled_sessions).
+    known_ids = list(local_by_id) \
+        if last_sync_at and local_by_id and adapter.stores_pulled_sessions \
+        else None
     while True:
-        page_limit = PAGE if limit is None else max(min(PAGE, limit - fetched), 0)
+        page_limit = PULL_PAGE if limit is None else max(min(PULL_PAGE, limit - fetched), 0)
         if page_limit <= 0:
             break
-        result = api_call("POST", "/pull", {
+        body = {
             "device_id": DEVICE_ID,
             "client_version": CLIENT_VERSION,
             "agent": AGENT,
@@ -660,7 +790,10 @@ def pull_sessions(last_sync_at=None, limit=None):
             # own; the server deliberately ignores the `agent` field on pull
             # and merges by canonical id. Do NOT rely on it to filter — it is
             # sent for device/version reporting only.
-        })
+        }
+        if known_ids and fetched == 0:
+            body["known_ids"] = known_ids
+        result = api_call("POST", "/pull", body)
         if "error" in result:
             if fetched == 0:
                 _save_field_meta(meta)
@@ -672,6 +805,13 @@ def pull_sessions(last_sync_at=None, limit=None):
 
         sessions = result.get("sessions", [])
         total_remote = result.get("total_sessions") or result.get("session_count") or 0
+        if fetched == 0 and known_ids is not None:
+            # Completeness report (see known_ids above): visible server
+            # sessions this device does not hold. Only meaningful for the
+            # inventory we actually sent -- a response we did not ask for
+            # must not start a repair pass.
+            missing_ids = [i for i in (result.get("missing_ids") or [])
+                           if isinstance(i, str) and i]
         if not sessions:
             break
         # Guard against a server that ignores `offset` and repeats the same
@@ -681,57 +821,10 @@ def pull_sessions(last_sync_at=None, limit=None):
             break
         prev_page_ids = page_ids
 
-        # Field-level merge BEFORE writing: never overwrite a user-edit field
-        # this device changed locally since its last sync (dirty). The server
-        # stays authoritative for both unanchored fields (no sidecar entry)
-        # and fields we do not locally differ on -- those we adopt here.
-        for s in sessions:
-            sid = str(s["id"])
-            fr = s.get("field_rev") or {}
-            sm = meta.get(sid) or {}
-            local = local_by_id.get(sid, {})
-            for f in USER_EDIT_FIELDS:
-                if f in s and isinstance(s.get(f), str):
-                    entry = sm.get(f)
-                    if entry is not None and _field_dirty(
-                            f, local.get(f), entry.get("val")):
-                        s.pop(f, None)   # locally edited since last sync
-            # Align pull-side path fields (cwd/git_repo_root) to the local
-            # separator spelling where a local path already exists with only
-            # a different separator — keeps local storage consistent and
-            # merges instead of splitting the same path.
-            for _pk in ("cwd", "git_repo_root"):
-                if isinstance(s.get(_pk), str) and s[_pk]:
-                    s[_pk] = align_path_to_local(s[_pk], local_cwd_map)
-        # Retry the write a few times when the local store is locked by the
-        # host agent (Hermes on SQLite < 3.51.3 uses journal_mode=DELETE,
-        # where a write contends with concurrent readers). Each attempt
-        # fails fast (busy_timeout=5s); short gaps between attempts catch
-        # brief idle windows instead of deferring to the next sync cycle.
-        stats = None
-        for gap in (0, 2, 5, 10):
-            if gap:
-                log(f"Local store locked during pull write; "
-                    f"retrying in {gap}s...")
-                time.sleep(gap)
-            try:
-                stats = adapter.write_sessions(sessions)
-                break
-            except sqlite3.OperationalError as e:
-                if "locked" not in str(e).lower() or gap == 10:
-                    raise
+        stats = _apply_pull_page(sessions, local_by_id, local_cwd_map, meta)
         imported += stats.get("imported", 0)
         new_messages += stats.get("new_messages", 0)
-
-        # Anchor sidecar base/val for fields adopted from the server (they
-        # now read clean), so this device stops treating them as dirty and
-        # does not needlessly re-push them.
-        for s in sessions:
-            sid = str(s["id"])
-            fr = s.get("field_rev") or {}
-            for f in USER_EDIT_FIELDS:
-                if f in s and isinstance(s.get(f), str) and f in fr:
-                    meta.setdefault(sid, {})[f] = {"base": fr[f], "val": s[f]}
+        written_ids.update(str(s["id"]) for s in sessions)
 
         fetched += len(sessions)
         if len(sessions) < page_limit:
@@ -741,13 +834,31 @@ def pull_sessions(last_sync_at=None, limit=None):
 
     if "error" not in result and result.get("sync_at"):
         adapter.save_sync_watermark(result["sync_at"])
+    # Completeness repair: restore the sessions the server still holds (and
+    # has not soft-hidden) whose local rows are gone. Sessions this pull
+    # already delivered are dropped from the list first. ``limit`` stays
+    # authoritative: an explicitly capped pull restores at most its
+    # remaining budget, never more than the caller asked for.
+    budget = None if limit is None else max(0, limit - fetched)
+    pending = [i for i in missing_ids if i not in written_ids]
+    if pending and (budget is None or budget > 0):
+        try:
+            repair = _restore_missing_sessions(
+                pending, local_by_id, local_cwd_map, meta, budget)
+        except Exception as e:  # repair is best-effort; never fail the pull
+            log(f"Session restore failed: {e}")
+            repair = None
+        if repair:
+            imported += repair["imported"]
+            new_messages += repair["new_messages"]
+            restored = repair["restored"]
     # Heal any local session whose title the server stopped re-serving
     # before this device ever adopted it (see _reconcile_sidecar_titles).
     healed = _reconcile_sidecar_titles(local_by_id)
     _save_field_meta(meta)
     return {"imported": imported, "new_messages": new_messages,
             "total_remote_sessions": total_remote,
-            "titles_healed": healed}
+            "restored": restored, "titles_healed": healed}
 
 def push_sessions():
     if adapter.discover() is None:
@@ -1024,7 +1135,7 @@ def pull_projects():
 # for existing Hermes registrations.
 TOOL_SPECS = [
     ("sync_status", "Show sync status: local store totals and remote server status."),
-    ("sync_pull", "Pull latest sessions from remote server into the local store.",
+    ("sync_pull", "Pull latest sessions from remote server into the local store (a session deleted locally comes back while the server still holds it and it is not soft-hidden).",
      {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50; a full pull is uncapped unless set)"},
       "full": {"type": "boolean", "description": "Full pull ignoring the sync watermark (default: false)"}}),
     ("sync_push", "Push local sessions to remote server."),
