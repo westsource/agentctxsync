@@ -1,3 +1,34 @@
+## [2026.09.12.2] - 2026-09-12
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.08.1 → **2026.09.12.2**（客户端包有改动，
+> 各端会经 `/api/client/manifest` 自动更新）。服务端无 schema 变更。
+
+### Fixed（dsh 拉取在 Windows 长路径上整体中断 —— 实测影响首次同步）
+- **根因**：dsh 的 cwd slug 把每个非 ASCII 字节转义成 `~XXXX`，中文 cwd 很容易把
+  `<home>/sessions/--<slug>--/<id>/session.jsonl.zstd` 顶到 MAX_PATH 附近；adapter 的
+  「临时文件 + 原子改名」因多出 `.tmp` 后缀正好越界（实测 237 字符目录 + 23 字符临时名
+  = **260**，`LongPathsEnabled=0`），`open` 抛 `FileNotFoundError`，异常顺着
+  `write_sessions` 冒出去 → **整个 pull 中止**（275 个会话只进来 9 个）。
+- **修复**：`mcp/adapters/dsh.py` 新增 `_extended()`（纯函数）/`_lp()`，对 Windows 上
+  ≥240 字符的绝对路径使用 `\\?\` 扩展长度形式（无需机器级 LongPathsEnabled 策略；
+  UNC 保持原样，因其需 `\\?\UNC\` 形式），应用于写入/原子改名/读取/mkdir/目录搬迁/
+  临时文件清理各点。实测：同一环境同一命令，修复后 `imported: 265 / new_messages: 24091`。
+- **回归测试**：`mcp/tests/test_dsh.py::LongPathHelperTest`（短路径不变、≥260 加前缀、
+  分隔符归一、UNC/已加前缀不动、非 Windows 为普通 abspath）。
+
+### Fixed（dsh 注册片段语法失效，导致会话"同步了但看不见"）
+- `server/agents.py` 的 dsh 接入片段原为裸 `- id:` 行；在固定版 dsh 的 loader patch
+  语法里那是**覆盖已有条目**，命名不存在的 id 只打警告然后被忽略（实测重启后无任何拉取）。
+  已改为 `insert:` 包裹形式（zh/en 两处），并加注说明。
+
+### Known issue（未修，需产品决策）
+- 同步下来的会话**默认不出现在 DSH Desktop 会话列表**：会话落盘在共享存储
+  `$DSH_HOME/sessions/`（无 profile 层），但列表依赖 dsh 自己的 workspace 索引域
+  `storages/workspace.json`，且该域只在**首次初始化**从会话 header 扫描（`initialized: true`
+  后重启不重扫，实测 md5 不变）。本次通过手动重建索引验证：1 工作区/3 会话 → 33/256。
+- 另：header `cwd` 在本机**不存在**的会话不会被分组显示（dsh 用 `fs.realpath` 归一化失败
+  即跳过；实测 20 个 `c:/users/x1` 来源的会话）。
+
 ## [2026.09.12.1] - 2026-09-12
 
 > 服务端专用发布：无客户端改动（mcp 版本保持 `2026.09.08.1`）。

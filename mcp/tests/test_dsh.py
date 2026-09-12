@@ -11,6 +11,7 @@ status counts, and (when the zstandard package is present) the compressed
 written, mirroring the desktop's fold output.
 """
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -18,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.dsh import DshAdapter, HAVE_ZSTD, _slug  # noqa: E402
+from adapters.dsh import DshAdapter, HAVE_ZSTD, _extended, _lp, _slug  # noqa: E402
 
 SID = "session-1f2e3d4c-5b6a-4c7d-8e9f-0a1b2c3d4e5f"
 TS_MS = 1787647183000
@@ -384,6 +385,47 @@ class DshAdapterTest(unittest.TestCase):
         import adapters.dsh as m
         with m._zstd.ZstdDecompressor().stream_reader(raw) as r:
             return r.read().decode("utf-8")
+
+
+class LongPathHelperTest(unittest.TestCase):
+    """Windows MAX_PATH (260): one CJK cwd slug pushed the atomic write's
+    ``session.jsonl.zstd.tmp`` to exactly 260 chars, the open raised
+    FileNotFoundError, and the whole pull aborted (9 of 275 sessions
+    imported). ``_extended`` supplies the ``\\?\`` form that lifts the limit
+    without the machine-wide LongPathsEnabled policy."""
+
+    def test_short_path_untouched(self):
+        p = r"C:\Users\me\.dsh\sessions\--a--\session-1\session.jsonl"
+        self.assertLess(len(p), 240)
+        self.assertEqual(_extended(p), p)
+
+    def test_long_path_gets_extended_prefix(self):
+        # the observed failure shape: 237-char dir + 23-char temp name
+        p = "C:\\Users\\me\\.dsh\\sessions\\--" + "x" * 250 + "\\session.jsonl.zstd.tmp"
+        self.assertGreaterEqual(len(p), 260)
+        self.assertEqual(_extended(p), "\\\\?\\" + p)
+
+    def test_separators_normalized_before_prefix(self):
+        p = "C:/Users/me/.dsh/sessions/--" + "x" * 250 + "/session.jsonl"
+        self.assertEqual(_extended(p), "\\\\?\\" + p.replace("/", "\\"))
+
+    def test_unc_and_already_prefixed_paths_left_alone(self):
+        unc = "\\\\server\\share\\" + "x" * 300
+        self.assertEqual(_extended(unc), unc)
+        already = "\\\\?\\C:\\" + "x" * 300
+        self.assertEqual(_extended(already), already)
+
+    def test_lp_applies_extended_form_only_on_windows(self):
+        # A real absolute temp path, long enough to cross the threshold, so the
+        # assertion reflects the host's actual contract rather than POSIX.
+        p = os.path.join(tempfile.gettempdir(), "y" * 300)
+        plain = os.path.abspath(p)
+        out = _lp(p)
+        if os.name == "nt":
+            self.assertTrue(out.startswith("\\\\?\\"))
+            self.assertEqual(out[4:], plain.replace("/", "\\"))
+        else:
+            self.assertEqual(out, plain)
 
 
 if __name__ == "__main__":

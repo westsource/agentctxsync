@@ -60,6 +60,29 @@ _SESSION_ID_RE = re.compile(r"^session-[0-9a-fA-F-]{10,}$")
 _HEX_ESCAPE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _HEX_SEP_RE = re.compile(r"[/\\:]+")
 
+# Windows MAX_PATH (260) applies to the whole file path. The cwd slug escapes
+# every non-ASCII byte as ``~XXXX``, so a CJK cwd easily pushes
+# ``<home>/sessions/--<slug>--/<id>/session.jsonl.zstd`` past the limit: the
+# plain API then fails with FileNotFoundError even though the parent exists,
+# and one such session aborted the entire pull. ``\\?\`` lifts the limit
+# without the machine-wide LongPathsEnabled policy (UNC roots are left alone —
+# they would need the ``\\?\UNC\`` form, and ``DSH_HOME`` is local here).
+_LONG_PATH_MIN = 240
+
+
+def _extended(abspath: str) -> str:
+    """Extended-length form of an absolute path (pure, platform-free)."""
+    if len(abspath) < _LONG_PATH_MIN or abspath.startswith("\\\\"):
+        return abspath
+    s = abspath.replace("/", "\\")
+    return s if s.startswith("\\\\?\\") else "\\\\?\\" + s
+
+
+def _lp(path) -> str:
+    """Long-path-safe string for open()/os.* on Windows, plain text elsewhere."""
+    s = os.path.abspath(str(path))
+    return _extended(s) if os.name == "nt" else s
+
 
 def _msg_id() -> str:
     return "".join(secrets.choice(_MSG_ID_ALPHABET) for _ in range(8))
@@ -258,7 +281,7 @@ class DshAdapter(Adapter):
     def _read_session_file(self, path: Path, local_id: str,
                            own_to_canon: dict) -> dict | None:
         try:
-            raw = path.read_bytes()
+            raw = Path(_lp(path)).read_bytes()
         except OSError:
             return None
         if path.name.endswith(".zstd"):
@@ -389,8 +412,8 @@ class DshAdapter(Adapter):
                 # dsh's identity check (dir == slug(header cwd)) stays true.
                 target = self.sessions_root / _slug(cwd) / _encode_id(sid)
                 try:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(sdir, target)
+                    Path(_lp(target.parent)).mkdir(parents=True, exist_ok=True)
+                    os.replace(_lp(sdir), _lp(target))
                     moved = True
                 except OSError:
                     # Windows NTFS is case-insensitive: a case-only drift
@@ -399,7 +422,7 @@ class DshAdapter(Adapter):
                     try:
                         if str(sdir.parent.name).lower() == \
                                 str(_slug(cwd)).lower():
-                            os.rename(sdir, target)
+                            os.rename(_lp(sdir), _lp(target))
                             moved = True
                     except OSError:
                         pass  # keep in place; next pull reconciles
@@ -408,7 +431,7 @@ class DshAdapter(Adapter):
                 existing = self._load_log(sdir)
             merged, added = self._merge_messages(existing["msgs"], msgs)
             if existing["path"] is None:
-                sdir.mkdir(parents=True, exist_ok=True)
+                Path(_lp(sdir)).mkdir(parents=True, exist_ok=True)
                 stats["imported"] += 1
                 any_changed = True
             else:
@@ -424,7 +447,7 @@ class DshAdapter(Adapter):
             except PermissionError:
                 for tname in ("session.jsonl.zstd.tmp", "session.jsonl.tmp"):
                     try:
-                        (sdir / tname).unlink()
+                        Path(_lp(sdir / tname)).unlink()
                     except OSError:
                         pass
                 stats.setdefault("skipped", 0)
@@ -466,7 +489,7 @@ class DshAdapter(Adapter):
         if path is None:
             return out
         try:
-            raw = path.read_bytes()
+            raw = Path(_lp(path)).read_bytes()
         except OSError:
             return out
         if path.name.endswith(".zstd"):
@@ -616,8 +639,8 @@ class DshAdapter(Adapter):
         else:
             fname = "session.jsonl"
         tmp = sdir / (fname + ".tmp")
-        tmp.write_bytes(payload)
-        os.replace(tmp, sdir / fname)
+        Path(_lp(tmp)).write_bytes(payload)
+        os.replace(_lp(tmp), _lp(sdir / fname))
 
     # ------------------------------------------------------------------
     # session projection cache (storages/session_projcache): the DSH
