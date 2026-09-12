@@ -1,3 +1,32 @@
+## [2026.09.12.3] - 2026-09-12
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.12.2 → **2026.09.12.3**（客户端包有改动，各端经
+> `/api/client/manifest` 自动更新）。服务端无 schema 变更。
+
+### Fixed（dsh 世代选择方向反了 —— 迁移过的会话会读到冻结的旧日志）
+
+- **根因**：dsh 的会话日志有**世代**：`session.jsonl[.zstd]` = v0，`session.vN.jsonl[.zstd]` = vN
+  （当前为 v3）。`dsh-session-persistence-jsonl` 明确规定：运行期读与写都选**数值最高的世代**；
+  写入发布后继代并**保持源文件逐字节不变**（所以迁移过的 v0 从此冻结，只有 v3 继续增长），
+  且保留的前代**不提供降级读取**。
+- 旧 `_log_file` 先试 `session.jsonl`/`session.jsonl.zstd`、找不到才回退 vN —— 方向正好相反：
+  对迁移过的会话会**永久读到冻结的 v0**（丢失后续轮次与标题），而写入落进 v0，
+  那是一个 dsh 永不读取的文件（写入等于无效，还在存储里留了个误导性的副本）。
+- **修复**：`_log_file` 改为镜像 dsh 的规则（按 `(世代, 压缩优先, mtime)` 取最高世代）；
+  `_write_log` **保持会话既有的世代与编码**（`_log_filename(gen, zstd)`），不再在 vN 会话旁写 v0；
+  并**原样保留既有 header**（`isSeeded` / `agentPreset` 等世代专有字段据此存活），
+  物理 header 的 `version` 恒等于文件名世代；对合成的 vN header 兜底补 `isSeeded`
+  （dsh 的 v2→v3 header 校验要求该字段）。读取侧无需改动：`_event_message` 本就同时支持
+  v3 行形态（`data.{role,content}` 与 `data.message.{role,content}`）。
+- **验证用 dsh 自己的编解码器（非自证）**：在真实 v3 会话上执行一次写入后，
+  `@deepseek-ai/dsh-session-format` 的 `readHeader` 返回 `current`（stored 3 → target 3），
+  `encodeCurrentEvent` **逐行接受全部 9 个事件**；且写入后目录中只有 v3 文件被改写
+  （冻结的 v0 保持逐字节不变）。命名侧与 dsh 的 `parseSessionFormatLogFilename` 逐例一致
+  （去掉 `.zstd` 后 0/1/3/12 全等，垃圾名同样拒绝）。
+- **测试**：`mcp/tests/test_dsh.py::LogGenerationTest` 6 例（命名解析与往返、最高世代优先、
+  缺失时回退到现有世代、读取取活动世代而非冻结 v0、写入保持世代与 header、不产生 v0 旁文件）；
+  mcp 套件 146 项、server 套件 189 项通过。
+
 ## [2026.09.12.2] - 2026-09-12
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.08.1 → **2026.09.12.2**（客户端包有改动，

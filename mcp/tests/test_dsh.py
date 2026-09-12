@@ -19,7 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.dsh import DshAdapter, HAVE_ZSTD, _extended, _lp, _slug  # noqa: E402
+from adapters.dsh import (DshAdapter, HAVE_ZSTD, _extended, _log_filename,  # noqa: E402
+                          _log_generation, _lp, _slug)
 
 SID = "session-1f2e3d4c-5b6a-4c7d-8e9f-0a1b2c3d4e5f"
 TS_MS = 1787647183000
@@ -385,6 +386,136 @@ class DshAdapterTest(unittest.TestCase):
         import adapters.dsh as m
         with m._zstd.ZstdDecompressor().stream_reader(raw) as r:
             return r.read().decode("utf-8")
+
+
+def write_v3_fixture(sdir: Path, sid: str, cwd: str, title: str,
+                     messages: list[str]):
+    """dsh v3 (current) generation: header version 3 + v3-shaped rows."""
+    from adapters.dsh import _compress_zstd
+    lines: list[dict] = [{
+        "type": "session", "version": 3, "id": sid, "createdAt": TS_MS,
+        "cwd": cwd, "isSeeded": False, "delegationDepth": 0,
+        "agentPreset": "standard"}]
+    seq, turn = 0, 0
+    lines.append({"type": "session/title", "seq": seq, "time": TS_MS,
+                  "data": {"title": title, "messageSeqs": [],
+                           "source": {"kind": "user"}}})
+    seq += 1
+    for i, text in enumerate(messages, start=1):
+        if i % 2:                      # user row: data.{content,source,role,id}
+            turn += 1
+            lines.append({"type": "turn/start", "seq": seq, "time": TS_MS + i,
+                          "data": {"turn": turn}})
+            seq += 1
+            lines.append({"type": "user/message", "seq": seq, "time": TS_MS + i,
+                          "surfaceOp": "append",
+                          "data": {"content": [{"type": "text", "text": text}],
+                                   "source": {"kind": "user"},
+                                   "role": "user", "id": f"user-{i}"}})
+        else:                          # assistant row: data.message.{role,content}
+            lines.append({"type": "assistant/message", "seq": seq,
+                          "time": TS_MS + i,
+                          "data": {"turn": turn, "step": 1,
+                                   "message": {"role": "assistant", "content": [
+                                       {"type": "text", "text": text}]}}})
+        seq += 1
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "session.v3.jsonl.zstd").write_bytes(
+        _compress_zstd(("\n".join(json.dumps(x) for x in lines) + "\n").encode()))
+    return sdir
+
+
+class LogGenerationTest(unittest.TestCase):
+    """dsh selects the numerically highest canonical generation for read AND
+    write (`session.jsonl[.zstd]` is v0). Preferring the v0 root — the previous
+    behaviour — went permanently stale for migrated sessions, whose v0 file is
+    frozen history while the successor keeps receiving events."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "sessions"
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_generation_of_canonical_names(self):
+        cases = {"session.jsonl": 0, "session.jsonl.zstd": 0,
+                 "session.v1.jsonl": 1, "session.v3.jsonl.zstd": 3,
+                 "session.v12.jsonl": 12}
+        for name, gen in cases.items():
+            self.assertEqual(_log_generation(name), gen, name)
+        for name in ("session.jsonl.bak", "notes.txt", "session.v.jsonl",
+                     "session.v3.jsonl.zstd.tmp"):
+            self.assertIsNone(_log_generation(name), name)
+
+    def test_filename_round_trip(self):
+        for gen in (0, 1, 3, 12):
+            for zstd in (True, False):
+                name = _log_filename(gen, zstd)
+                self.assertEqual(_log_generation(name), gen, name)
+                self.assertEqual(name.endswith(".zstd"), zstd, name)
+
+    def test_highest_generation_wins_over_frozen_root(self):
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        sdir.mkdir(parents=True, exist_ok=True)
+        (sdir / "session.jsonl.zstd").write_bytes(b"{}\n")
+        (sdir / "session.v3.jsonl.zstd").write_bytes(b"{}\n")
+        self.assertEqual(DshAdapter._log_file(sdir).name,
+                         "session.v3.jsonl.zstd")
+
+    def test_falls_back_to_the_only_present_generation(self):
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        sdir.mkdir(parents=True, exist_ok=True)
+        (sdir / "session.v2.jsonl.zstd").write_bytes(b"{}\n")
+        (sdir / "session.jsonl.zstd").write_bytes(b"{}\n")
+        self.assertEqual(DshAdapter._log_file(sdir).name, "session.v2.jsonl.zstd")
+        (sdir / "session.v2.jsonl.zstd").unlink()
+        self.assertEqual(DshAdapter._log_file(sdir).name, "session.jsonl.zstd")
+
+    def test_read_uses_the_live_generation_not_the_root(self):
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        write_dsh_fixture(self.root)                    # frozen v0: 1 msg
+        write_v3_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
+                         "renamed after migration", ["one", "two"])  # live v3
+        sessions = DshAdapter(sessions_root=self.root).read_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["title"], "renamed after migration")
+        self.assertEqual([m["role"] for m in sessions[0]["messages"]],
+                         ["user", "assistant"])
+        self.assertEqual(sessions[0]["message_count"], 2)
+
+    def test_write_keeps_the_sessions_generation_and_header(self):
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        write_v3_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
+                         "v3 session", ["hello"])       # one v3 user message
+        a = DshAdapter(sessions_root=self.root)
+        stats = a.write_sessions([{
+            "id": SID, "started_at": TS_MS / 1000.0,
+            "cwd": r"E:\OpenCode\agentctxsync", "title": "v3 session",
+            "messages": [
+                # same instant as the fixture row -> deduped, not re-added
+                {"session_id": SID, "role": "user", "content": "hello",
+                 "timestamp": (TS_MS + 1) / 1000.0},
+                {"session_id": SID, "role": "assistant", "content": "world",
+                 "timestamp": (TS_MS + 9) / 1000.0}]}])
+        self.assertEqual(stats["new_messages"], 1)
+        # still the v3 generation, and no v0 file was created beside it
+        self.assertTrue((sdir / "session.v3.jsonl.zstd").is_file())
+        self.assertFalse((sdir / "session.jsonl.zstd").exists())
+        self.assertFalse((sdir / "session.jsonl").exists())
+        raw = a._load_log(sdir)
+        header = raw["header"]
+        self.assertEqual(header["version"], 3)
+        self.assertEqual(header["id"], SID)
+        self.assertEqual(header["isSeeded"], False)          # preserved
+        self.assertEqual(header["agentPreset"], "standard")  # preserved
+        self.assertEqual(header["cwd"], r"E:\OpenCode\agentctxsync")
+        self.assertEqual([m["role"] for m in raw["msgs"]],
+                         ["user", "assistant"])
+        # and the harness's own generation selection still finds it
+        self.assertEqual(DshAdapter._log_file(sdir).name,
+                         "session.v3.jsonl.zstd")
 
 
 class LongPathHelperTest(unittest.TestCase):

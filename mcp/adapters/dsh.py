@@ -60,6 +60,29 @@ _SESSION_ID_RE = re.compile(r"^session-[0-9a-fA-F-]{10,}$")
 _HEX_ESCAPE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _HEX_SEP_RE = re.compile(r"[/\\:]+")
 
+# Canonical log generations (dsh-session-persistence-jsonl): the unreleased
+# ``session.jsonl[.zstd]`` root is v0 and ``session.vN.jsonl[.zstd]`` is the
+# vN generation, whose physical header carries that same version. dsh selects
+# the NUMERICALLY HIGHEST generation for both read and write, and a write open
+# publishes a successor while leaving the source byte-identical — so a migrated
+# session's v0 file is frozen history and only its v3 file keeps growing.
+_LOG_FILENAME_RE = re.compile(r"^session(?:\.v(\d+))?\.jsonl(?:\.zstd)?$")
+
+
+def _log_generation(name: str) -> int | None:
+    """Generation of a canonical log filename (``session.jsonl`` -> 0)."""
+    m = _LOG_FILENAME_RE.fullmatch(name)
+    if m is None:
+        return None
+    return int(m.group(1)) if m.group(1) is not None else 0
+
+
+def _log_filename(generation: int, zstd: bool) -> str:
+    """Canonical filename for one generation (header version == generation)."""
+    stem = "session" if generation == 0 else f"session.v{generation}"
+    return stem + (".jsonl.zstd" if zstd else ".jsonl")
+
+
 # Windows MAX_PATH (260) applies to the whole file path. The cwd slug escapes
 # every non-ASCII byte as ``~XXXX``, so a CJK cwd easily pushes
 # ``<home>/sessions/--<slug>--/<id>/session.jsonl.zstd`` past the limit: the
@@ -246,21 +269,35 @@ class DshAdapter(Adapter):
 
     @staticmethod
     def _log_file(sdir: Path) -> Path | None:
+        """The log dsh itself would open: the highest canonical generation.
+
+        Mirrors ``dsh-session-persistence-jsonl`` ("runtime operations select
+        the numerically highest canonical generation"). A migrated session
+        keeps its predecessors byte-identical while the successor keeps
+        growing, so picking the legacy ``session.jsonl[.zstd]`` reader-first
+        (the previous behaviour) went permanently stale. Within one generation
+        the compressed root wins over the raw one; mtime breaks any remaining
+        tie.
+        """
         if not sdir.is_dir():
             return None
-        for name in ("session.jsonl", "session.jsonl.zstd"):
-            p = sdir / name
-            if p.is_file():
-                return p
         try:
-            entries = sorted(sdir.iterdir())
+            entries = [p for p in sdir.iterdir() if p.is_file()]
         except OSError:
             return None
+        best: tuple[tuple[int, int, float], Path] | None = None
         for p in entries:
-            if p.is_file() and re.fullmatch(
-                    r"session\.v\d+\.jsonl(?:\.zstd)?", p.name):
-                return p
-        return None
+            generation = _log_generation(p.name)
+            if generation is None:
+                continue
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            key = (generation, 1 if p.name.endswith(".zstd") else 0, mtime)
+            if best is None or key > best[0]:
+                best = (key, p)
+        return best[1] if best is not None else None
 
     # ------------------------------------------------------------------
     # reading: files -> canonical
@@ -445,9 +482,17 @@ class DshAdapter(Adapter):
             try:
                 self._write_log(sdir, sid, cwd, s, existing, merged)
             except PermissionError:
-                for tname in ("session.jsonl.zstd.tmp", "session.jsonl.tmp"):
+                # the atomic write's temp sibling, whose name follows the
+                # session's generation (session[.vN].jsonl[.zstd].tmp)
+                try:
+                    stale = [p for p in sdir.iterdir()
+                             if p.name.endswith(".tmp")
+                             and _log_generation(p.name[:-4]) is not None]
+                except OSError:
+                    stale = []
+                for p in stale:
                     try:
-                        Path(_lp(sdir / tname)).unlink()
+                        Path(_lp(p)).unlink()
                     except OSError:
                         pass
                 stats.setdefault("skipped", 0)
@@ -484,8 +529,8 @@ class DshAdapter(Adapter):
         """Parse an existing session log (if any): header/title/message
         (role, ts-ms), event counters, file path."""
         path = self._log_file(sdir)
-        out = {"path": path, "title": None, "cwd": None, "msgs": [],
-               "seq": -1, "turn": -1, "step": -1}
+        out = {"path": path, "header": None, "title": None, "cwd": None,
+               "msgs": [], "seq": -1, "turn": -1, "step": -1}
         if path is None:
             return out
         try:
@@ -513,6 +558,10 @@ class DshAdapter(Adapter):
                 out["seq"] = seq
             if t == "session" and isinstance(rec.get("cwd"), str):
                 out["cwd"] = rec["cwd"]
+            if t == "session" and out["header"] is None:
+                # kept verbatim so a rewrite preserves generation-specific
+                # fields (version, isSeeded, agentPreset, …) we do not model
+                out["header"] = rec
             data = rec.get("data")
             if isinstance(data, dict):
                 turn = data.get("turn")
@@ -557,10 +606,24 @@ class DshAdapter(Adapter):
 
     def _write_log(self, sdir: Path, sid: str, cwd, session: dict,
                    existing: dict, rows: list[dict]):
-        """(Re)write one session log atomically: v0 header + contiguous-seq
+        """(Re)write one session log atomically: header + contiguous-seq
         user/message & assistant/message events (seq renumbered from 0 on
-        every rewrite). Compressed .zstd unless the store already uses plain
-        .jsonl."""
+        every rewrite).
+
+        The session's current canonical generation and encoding are preserved:
+        dsh reads the numerically highest generation, so writing a lower one
+        (or a second file next to it) would be invisible to the harness — the
+        previous behaviour wrote v0 next to a live v3 log. An existing header
+        is kept verbatim apart from identity/cwd fields so generation-specific
+        fields (``isSeeded``, ``agentPreset``, …) survive the rewrite, and the
+        physical header version always equals the filename's generation.
+        """
+        src = existing.get("path")
+        generation = _log_generation(src.name) if src is not None else 0
+        if generation is None:  # unreadable name: fall back to the v0 root
+            generation = 0
+        # Compressed unless this generation's log (or the fresh default) is raw.
+        use_zstd = HAVE_ZSTD and (src is None or src.name.endswith(".zstd"))
         lines = []
         # seq is the 0-based event index of THIS file, renumbered on every
         # rewrite. dsh's reader asserts event.seq === its 0-based position in
@@ -568,15 +631,25 @@ class DshAdapter(Adapter):
         # seq would shift every rewritten log off zero and make the whole
         # file unreadable ("complete frame contains a torn JSONL record").
         seq = 0
-        header = {"type": "session", "version": 0, "id": sid}
+        header = dict(existing.get("header") or {})
+        header.update({"type": "session", "version": generation, "id": sid})
         try:
-            header["createdAt"] = int(float(
-                session.get("started_at") or time.time()) * 1000)
+            created = int(float(session.get("started_at") or time.time()) * 1000)
         except (TypeError, ValueError):
-            header["createdAt"] = int(time.time() * 1000)
+            created = int(time.time() * 1000)
+        header.setdefault("createdAt", created)
+        if not isinstance(header.get("createdAt"), (int, float)):
+            header["createdAt"] = created
+        header["createdAt"] = int(header["createdAt"])
+        header.pop("cwd", None)
         if isinstance(cwd, str) and cwd:
             header["cwd"] = cwd
-        header["delegationDepth"] = 0
+        header.setdefault("delegationDepth", 0)
+        if generation >= 1:
+            # The current format records isSeeded in the physical header (dsh's
+            # v2->v3 header check requires it). A preserved header always has
+            # it; this only covers a synthesized one.
+            header.setdefault("isSeeded", False)
         lines.append(json.dumps(header, ensure_ascii=False))
 
         title = session.get("title")
@@ -624,9 +697,7 @@ class DshAdapter(Adapter):
             last_role = role
 
         payload = ("\n".join(lines) + "\n").encode("utf-8")
-        use_zstd = HAVE_ZSTD and not (
-            existing["path"] is not None
-            and not existing["path"].name.endswith(".zstd"))
+        fname = _log_filename(generation, use_zstd)
         if use_zstd:
             # dsh's own reader asserts the FIRST zstd frame decompresses to
             # exactly the one header line; its append writer emits a frame
@@ -635,9 +706,6 @@ class DshAdapter(Adapter):
             # every frame's content a whole number of lines.
             payload = b"".join(
                 _compress_zstd(line) for line in payload.splitlines(keepends=True))
-            fname = "session.jsonl.zstd"
-        else:
-            fname = "session.jsonl"
         tmp = sdir / (fname + ".tmp")
         Path(_lp(tmp)).write_bytes(payload)
         os.replace(_lp(tmp), _lp(sdir / fname))
