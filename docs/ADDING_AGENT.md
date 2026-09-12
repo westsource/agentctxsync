@@ -70,6 +70,10 @@ mcp/tests/test_<name>.py      # fixture 往返单测
    - 消息去重键 `(session_id, role, timestamp)`；**永远不要复用远端消息 id**
    - 特有字段放 `meta`，键必须带 agent 前缀（如 `"<name>:foo"`）避免跨 agent 冲突
    - reasoning 内容统一映射到消息的 `reasoning` 字段
+   - **canonical 值必须可 JSON 编码**（str/int/float/bool/None/dict/list）。原生库里的二进制列
+     （SQLite BLOB → Python `bytes`）不要拷进 canonical：push 的分块与请求编码都要
+     `json.dumps`，一个不可编码的值曾让整台设备的推送全部失败。`SQLiteAdapter._map_cols`
+     已统一丢弃 bytes/bytearray/memoryview，自写 SQL 读取的 adapter 需自行保证。
 
 ## 第 3 步：注册
 

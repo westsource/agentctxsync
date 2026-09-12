@@ -57,8 +57,9 @@ existing deployments upgrade in place).
 - i18n: every new user-facing string needs **both** a `zh-CN` and an `en`
   key in `server/translations.py`. Keys must stay paired; the UI is bilingual.
 - Client changes: if the MCP client code changes, bump `CLIENT_VERSION` in
-  **both** `server/server.py` and `mcp/server.py` so connected agents
-  auto-update after the server deploy.
+  **both** `mcp/updater.py` and `server/client_update.py` so connected agents
+  auto-update after the server deploy (`server.py` only reads the constant
+  through `updater.local_version`).
 
 ## Adding a new agent
 

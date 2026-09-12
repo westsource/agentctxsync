@@ -169,7 +169,9 @@
   `session_id`/`role`/`content`/`timestamp`，可选 `reasoning`/`tool_*`/`display_*`/
   `compacted`/`meta`。**特有字段一律进 `meta` 且键带 agent 前缀**（`<agent>:foo`）防跨
   agent 冲突；去重键统一为 `(session_id, role, timestamp)` 三元组（客户端与服务端同规则，
-  详见「消息身份与幂等去重」）。
+  详见「消息身份与幂等去重」）。**canonical 值必须是 JSON 可编码类型**（str/int/float/
+  bool/None/dict/list）：二进制列（SQLite BLOB → `bytes`）没有对应槽位就**不要带进来**——
+  push 的分块与请求编码都要 `json.dumps`，一个不可编码的值会让整轮同步失败。
 - **后台任务**（`server.py`）：启动 8s 增量拉取 → bootstrap push（首次配对）→ 每 300s
   周期同步（push → pull → projects push/pull）→ 自动更新（启动 60s 后、每小时）；单写者锁
   （后台循环 + 写工具共用）+ 更新锁，多副本时仅启动赢家（主）跑后台同步、其余 standby 只应答
@@ -368,8 +370,13 @@ User (admin / user)
   （`base.Adapter.session_mtime`，workbuddy 已实现——取该会话所有副本的最新 mtime，pull 触及的
   副本也会失效指纹）；无 field-meta 的 agent 回退全量推送（原行为）。
 - **push 分块字节上限（B4，客户端）**：`_chunk_sessions` 在会话数/消息数之外增加 `max_bytes`
-  （默认 8MB）上限，单会话超限单独成块；单块失败（413/配额/超时）不再中止整个推送循环，
-  记录错误继续，结束时汇总返回。
+  （默认 8MB）上限，单会话超限单独成块；单块失败（413/配额/超时/编码失败）不再中止整个推送
+  循环，记录错误继续，结束时汇总返回。
+- **推送隔离与可编码性（客户端）**：指纹过滤在**分块之前**完成（未变化的会话连体积计算都不做）；
+  随后 `_partition_encodable` 把不可 JSON 编码的会话单独摘出——按会话隔离、日志点名到字段
+  （`_json_offender` → `messages[i].<col> (bytes)`）、随结果返回 `unsendable: [id...]`，其余会话
+  照常推送。`api_call` 另把请求体编码放进 `try`：编码失败按普通请求失败返回 `{"error": …}`，
+  于是"单块失败不影响其余"对编码错误同样成立（push/pull 一致）。
 - 拉取范围见「全池拉取契约」：agent 参数不参与过滤。
 
 ### 字段级乐观并发 + 惰性 bootstrap（Field-Level Optimistic Concurrency，决策记录）
