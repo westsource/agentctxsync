@@ -380,6 +380,34 @@ class HermesMultiProfileTest(unittest.TestCase):
         self.assertEqual(by_id["p_a"].get("profile"), "")
         self.assertEqual(by_id["p_b"].get("profile"), "magic")
 
+    def test_last_activity_at_roundtrips(self):
+        """`last_activity_at` is a canonical field now (2026.09.13.3): the
+        Hermes desktop shows it, so a pulled session must land with the
+        server's value instead of a NULL/now placeholder. It is derived, not
+        user-editable, so it is written like ended_at (no field-level merge).
+        """
+        db = self.root / "state.db"
+        make_db(db, "20260911_221228_d296a9")
+        conn = sqlite3.connect(str(db))
+        conn.execute("ALTER TABLE sessions ADD COLUMN ended_at REAL")
+        conn.execute("ALTER TABLE sessions ADD COLUMN last_activity_at REAL")
+        conn.commit()
+        conn.close()
+        a = HermesAdapter()
+        res = a.write_sessions([{
+            "id": "pulled-1", "started_at": 1_700_000_000.0,
+            "last_activity_at": 1_700_000_500.0,
+            "messages": [{"session_id": "pulled-1", "role": "user",
+                          "content": "hi", "timestamp": 1_700_000_100.0}]}])
+        self.assertEqual(res["imported"], 1)
+        conn = sqlite3.connect(str(db))
+        stored = conn.execute("SELECT last_activity_at FROM sessions WHERE id=?",
+                              ("pulled-1",)).fetchone()[0]
+        conn.close()
+        self.assertEqual(stored, 1_700_000_500.0)
+        back = {s["id"]: s for s in a.read_sessions()}["pulled-1"]
+        self.assertEqual(back["last_activity_at"], 1_700_000_500.0)
+
     def test_write_projects_routes_and_slug_dedupe(self):
         self._make_projects_db(self.root, [{"id": "p_a", "slug": "same", "name": "A"}])
         magic = self.root / "profiles" / "magic"

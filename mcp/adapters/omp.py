@@ -34,7 +34,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .base import Adapter, validate_local_id
+from .base import Adapter, session_last_activity, validate_local_id
 
 _IDMAP = ".omp-sync-idmap.json"          # canonical id -> local uuid
 _VERSION = 3                             # CURRENT_SESSION_VERSION in omp
@@ -327,6 +327,11 @@ class OmpAdapter(Adapter):
         for session in sessions:
             s = dict(session)
             msgs = s.pop("messages", [])
+            # The session's real last activity (server-derived value, else the
+            # newest message in this payload) -- drives the title slot's
+            # updatedAt, omp's list clock. Never the sync instant
+            # (decision record 2026.09.13.3).
+            last_act = session_last_activity({**s, "messages": msgs})
             canonical = str(s.get("id", ""))
             sid = self._local_id_for(canonical)
             cwd = s.get("cwd")
@@ -369,7 +374,7 @@ class OmpAdapter(Adapter):
                     # pull a no-op for already-synced sessions.
                     continue
             try:
-                self._write_file(path, sid, resolved_cwd, s, merged)
+                self._write_file(path, sid, resolved_cwd, s, merged, last_act)
             except PermissionError:
                 # The running harness holds this session's file open
                 # (Windows: no FILE_SHARE_DELETE), so the atomic replace
@@ -500,9 +505,14 @@ class OmpAdapter(Adapter):
         return merged
 
     def _write_file(self, path: Path, sid: str, cwd: str,
-                    session: dict, msgs: list[dict]):
+                    session: dict, msgs: list[dict],
+                    last_act: float | None = None):
         title = session.get("title") or ""
-        updated_at = _now_iso()
+        # updatedAt = the session's real last activity, not the sync instant
+        # (omp's list shows it; writing `now` made every pulled session read
+        # as "just now" -- decision record 2026.09.13.3). `now` stays as the
+        # fallback for a session with no usable timestamp.
+        updated_at = (_epoch_to_iso(last_act) if last_act else None) or _now_iso()
         started = session.get("started_at")
         try:
             started_iso = _epoch_to_iso(float(started)) if started else updated_at

@@ -233,6 +233,9 @@ User (admin / user)
 复合主键: `(workspace_id, id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 多 Agent 扩展列: `agent_type`（默认 `hermes`，存量数据自动归为 hermes）、`meta` (JSONB)
 数据保留/排序扩展列: `hidden`/`hidden_at`（软删除，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
+派生列: `last_activity_at`（会话真实最后活动时间 = 最新一条可见消息的 `timestamp`，
+**服务端在每次 push 时从本次载荷的消息派生**，客户端只消费不回写——见「会话最后活动时间」
+决策记录；存量行为 NULL，`scripts/backfill-last-activity.py` 一次性补齐）
 多端字段合并扩展列: `rev`（会话级全局递增版本，默认 0）、`field_rev`（JSONB，
 每字段最后被接受的 `rev`，默认 `{}`）——见「字段级乐观并发」决策记录
 
@@ -528,6 +531,50 @@ O(可见 × |清单|)。
 - 回归防线：`server/tests/test_sync.py` `ProjectsPushMergeTest`
   （`test_existing_id_renamed_slug_keeps_server_name` /
   `test_existing_id_renamed_slug_new_client_preserves_name`）。
+
+#### 会话最后活动时间（last_activity_at，决策记录 2026.09.13.3）
+
+> **触发**：从远端拉取的会话在本地"最后更新/最后活动"上显示成**同步时刻**，不是最新消息时间。
+> 例如 WorkBuddy 列表（`ORDER BY COALESCE(updated_at, created_at) DESC`）里，一次同步把被触碰的
+> 会话全部塌到同一时刻后顶到最前；Hermes 桌面端的 `last_activity_at` 对同步创建的会话是 NULL；
+> omp 的 title slot `updatedAt`、OpenClaw 索引的 `updatedAt`/`lastInteractionAt`/`lastActivityAt`
+> 都恒为 `now`。
+>
+> **结论**：`last_activity_at` 提升为 canonical 字段 + 服务端**派生**列——值由**服务端**从
+> 消息算（每次 push 取本次载荷里最新的消息时间戳），客户端只**消费**（写进各自本地的
+> "最后更新"字段）并回读，客户端自算只作 fallback。
+
+- **为什么不由各 agent 自己算**：`ended_at` 各 agent 语义不一致（2026-09-13 实测 40 条拉取会话：
+  **5 条缺失**、只有 **3 条**等于最新消息时间；hermes 的 `ended_at` 常比最新消息早几千秒，omp 有几条
+  为空），而"最新消息时间"只有一个权威来源——消息本身，服务端已持有全部消息（Web 早就在用
+  `MAX(m.timestamp)` 做 `last_msg_at`/`synced_at` 排序）。放服务端=一处规则、跨 agent 一致、存量
+  可回填；放客户端=每个 adapter 各写一套、且老客户端永远是错的。
+- **服务端机制**（`server/sync.py::push`）：每个会话在装配行数据前，用它**本次载荷的消息**取
+  `max(timestamp)` 写入 `last_activity_at`（客户端送来的同名字段被覆盖）；**没有消息的元数据型
+  push**（例如只改标题）没有可派生来源，客户端值原样透传（不清空）。与 `message_count` 同规则：
+  payload 是权威，陈旧客户端可能把值往回带（下一次新鲜 push 修正）。
+- **客户端机制**（`base.session_last_activity()` 共享助手，规则一处定义）：
+  `last_activity_at`（服务端派生值）→ 本次载荷最新消息时间 → `ended_at`；都没有才退回 `now`。
+  - **workbuddy**：`sessions.updated_at` 与 `last_activity_at` 都写这个值（不再 `max(..., now)` 钳制，
+    只保留 `>= created_at` 的下界）；读回 `last_activity_at`。
+  - **omp**：title slot 的 `updatedAt`（列表时钟）用这个值；无可用时间戳时才是 `now`。
+  - **openclaw**：索引 `updatedAt`/`lastInteractionAt`/`lastActivityAt` 用这个值；读回
+    `lastActivityAt`。
+  - **hermes**：无需改代码——`state.db` 本就有 `last_activity_at` 列（nullable），加入
+    `CANONICAL_SESSION_FIELDS` 后 1:1 映射（`col_map` 空=同名）自动读写；此前该列不在 canonical
+    里，同步创建的会话落成 NULL。
+  - **opencode**：`session.time_updated` 已用 `ended_at`（缺失才回退 now），无该列，不改。
+  - **dsh / reasonix**：JSONL 事件日志，无"最后更新"元数据，天然按最后事件排序，不改。
+  - **chatgpt**：只读上传，不写本地，不改。
+- **为什么不是 user-edit 字段**：它由消息派生，不参与字段级乐观并发（不进 `USER_EDIT_FIELDS`）；
+  客户端"脏值"没有意义——消息才是事实。
+- **存量数据**：列为 NULL 的行由 `scripts/backfill-last-activity.py` 一次性按
+  `MAX(m.timestamp)`（只看可见消息）补齐；dry-run 默认、幂等。未补齐也不会错，只是那几行不会
+  被任何客户端重新 push 时保持"无最后活动"。
+- 回归防线：`mcp/tests/test_base.py::SessionLastActivityTest`（规则优先级）、
+  `test_workbuddy.py`（落库时间 = 最新消息时间 / 服务端值优先 / 无时间戳才 now）、
+  `test_omp.py`（title slot）、`test_openclaw.py`（索引 + 读回）、`test_hermes.py`（列往返）、
+  `server/tests/test_sync.py`（push 派生覆盖客户端断言 / 元数据型 push 透传）。
 
 #### 根目录（home / 盘符根）不入共享项目池（决策记录 2026.09.13.2）
 

@@ -85,7 +85,7 @@ import uuid
 from pathlib import Path
 
 from .base import (Adapter, _path_key, is_root_project_path,
-                   split_agent_prefix, validate_local_id)
+                   session_last_activity, split_agent_prefix, validate_local_id)
 
 #: user id fallback order: existing record in db -> env -> placeholder
 _ENV_USER_ID = "WORKBUDDY_USER_ID"
@@ -405,6 +405,8 @@ class WorkBuddyAdapter(Adapter):
                 s["meta"] = {"workbuddy:mode": str(row["mode"])}
             if row.get("updated_at"):
                 s["ended_at"] = float(row["updated_at"]) / 1000.0
+            if row.get("last_activity_at"):
+                s["last_activity_at"] = float(row["last_activity_at"]) / 1000.0
             s["message_count"] = len(msgs)
             sessions.append(self.canonicalize(s))
         return sessions
@@ -425,6 +427,10 @@ class WorkBuddyAdapter(Adapter):
         for session in sessions:
             s = self.localize(session, strict=False)
             local_id = str(s["id"])
+            # The session's real last activity (server-derived value or the
+            # newest message) -- computed while the messages are still in the
+            # dict, and used for both updated_at and last_activity_at below.
+            last_act = session_last_activity(s)
             # Strip a foreign agent prefix (codex:/opencode:/...) so the id is
             # a legal Windows file name; remember it so read round-trips the
             # bare id unchanged (same semantics as hermes bare ids).
@@ -453,8 +459,13 @@ class WorkBuddyAdapter(Adapter):
             new_messages += stats[0]
             duplicates += stats[1]
             created_ms = int((s.get("started_at") or now_ms / 1000) * 1000)
-            updated_ms = int((s.get("ended_at") or now_ms / 1000) * 1000)
-            updated_ms = max(updated_ms, created_ms, now_ms)
+            # Last activity = the newest message (or the server-derived
+            # value), NOT the sync instant: WorkBuddy orders its list by
+            # COALESCE(updated_at, created_at), so writing `now` made every
+            # pulled session read as "just now" and collapse onto the same
+            # timestamp (decision record 2026.09.13.3). `now` survives only as
+            # the fallback for a session with no usable timestamp at all.
+            updated_ms = max(int((last_act or now_ms / 1000) * 1000), created_ms)
             title = s.get("title")
             model = s.get("model")
             mode = (s.get("meta") or {}).get("workbuddy:mode")
@@ -466,7 +477,7 @@ class WorkBuddyAdapter(Adapter):
             foreign = session.get("agent_type") not in (None, "workbuddy")
             was_new = self._upsert_session(local_id, cwd, user_id, title,
                                            model, mode, created_ms,
-                                           updated_ms, now_ms,
+                                           updated_ms,
                                            preserve_cwd=not foreign)
             if was_new:
                 imported += 1
@@ -580,8 +591,12 @@ class WorkBuddyAdapter(Adapter):
 
     def _upsert_session(self, local_id: str, cwd: str, user_id: str | None,
                         title, model, mode, created_ms: int, updated_ms: int,
-                        now_ms: int, preserve_cwd: bool = False) -> bool:
+                        preserve_cwd: bool = False) -> bool:
         """Upsert one row in workbuddy.db sessions. Returns True if new.
+
+        ``updated_at`` and ``last_activity_at`` both carry the session's real
+        last activity (see ``write_sessions``) -- the app's list orders by
+        them, so the sync instant must never be written here.
 
         ``preserve_cwd`` (locally-owned sessions): keep the row's existing
         cwd on UPDATE so a peer-supplied value can never repoint the read
@@ -595,7 +610,7 @@ class WorkBuddyAdapter(Adapter):
                                  (local_id,)).fetchone()
             if exists:
                 sets = ["updated_at = ?", "last_activity_at = ?"]
-                vals = [updated_ms, now_ms]
+                vals = [updated_ms, updated_ms]
                 if not preserve_cwd:
                     sets.append("cwd = ?")
                     vals.append(cwd)
@@ -623,7 +638,7 @@ class WorkBuddyAdapter(Adapter):
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (local_id, cwd, user_id, title or "Imported session",
                  "completed", created_ms, updated_ms, 0,
-                 mode or "craft", model, now_ms))
+                 mode or "craft", model, updated_ms))
             conn.commit()
             return True
         finally:

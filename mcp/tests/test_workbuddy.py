@@ -10,6 +10,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -297,6 +298,48 @@ class WorkBuddyWriteTest(unittest.TestCase):
             self.assertEqual(msgs[-1]["content"], "second answer")
             timestamps = [m["timestamp"] for m in msgs]
             self.assertEqual(timestamps, sorted(timestamps))
+
+    def test_write_sessions_stamps_real_last_activity(self):
+        """A pulled session must land with its newest message time, not the
+        sync instant: WorkBuddy's list orders by COALESCE(updated_at,
+        created_at), so `now` made every pulled session read as "just now"
+        and collapse onto one timestamp (decision record 2026.09.13.3)."""
+        with tempfile.TemporaryDirectory() as td:
+            a, home, cwd = new_adapter(Path(td))
+            a.write_sessions([self._canonical(cwd)])
+            newest_ms = TS_MS + 3000          # newest message in the fixture
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            row = conn.execute("SELECT created_at, updated_at, last_activity_at"
+                               " FROM sessions WHERE id=?", (SID,)).fetchone()
+            conn.close()
+            self.assertEqual(row[1], newest_ms)                  # updated_at
+            self.assertEqual(row[2], newest_ms)                  # last_activity
+            self.assertLess(row[2], int(time.time() * 1000) - 60_000)
+
+            # the server-derived value wins when the pull carries it (the
+            # server computes it from the stored messages); it is clamped to
+            # the session's own start so updated_at never precedes created_at
+            pulled = dict(self._canonical(cwd), id="foreign-1",
+                          agent_type="hermes",
+                          last_activity_at=(TS_MS + 600_000) / 1000.0,
+                          messages=[])
+            a.write_sessions([pulled])
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            row = conn.execute("SELECT updated_at, last_activity_at FROM sessions"
+                               " WHERE id=?", ("foreign-1",)).fetchone()
+            conn.close()
+            self.assertEqual(row, (TS_MS + 600_000, TS_MS + 600_000))
+
+    def test_write_sessions_falls_back_to_now_without_timestamps(self):
+        with tempfile.TemporaryDirectory() as td:
+            a, home, cwd = new_adapter(Path(td))
+            a.write_sessions([{"id": "no-ts", "cwd": cwd, "title": "x",
+                               "messages": []}])
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            row = conn.execute("SELECT updated_at FROM sessions WHERE id=?",
+                               ("no-ts",)).fetchone()
+            conn.close()
+            self.assertGreater(row[0], int(time.time() * 1000) - 60_000)
 
     def test_foreign_id_kept(self):
         """A codex:-prefixed session must keep its bare id locally."""

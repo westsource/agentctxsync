@@ -15,7 +15,7 @@ Required:
 
 Common (optional) fields -- shared by most agents, stored as first-class
 columns on the server:
-    title, model, ended_at, end_reason, message_count,
+    title, model, ended_at, end_reason, message_count, last_activity_at,
     parent_session_id, user_id, source, cwd, git_branch, git_repo_root,
     input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
     cache_write_tokens, estimated_cost_usd, actual_cost_usd,
@@ -86,7 +86,8 @@ AGENT_PREFIXES = {
 
 CANONICAL_SESSION_FIELDS = (
     "id", "started_at", "title", "model", "ended_at", "end_reason",
-    "message_count", "parent_session_id", "user_id", "source", "cwd",
+    "message_count", "last_activity_at", "parent_session_id", "user_id",
+    "source", "cwd",
     "git_branch", "git_repo_root", "input_tokens", "output_tokens",
     "reasoning_tokens", "cache_read_tokens", "cache_write_tokens",
     "estimated_cost_usd", "actual_cost_usd", "display_name", "session_key",
@@ -119,6 +120,31 @@ CANONICAL_MESSAGE_FIELDS = (
     "finish_reason", "reasoning", "tool_call_id", "tool_name", "tool_calls",
     "display_kind", "display_metadata", "observed", "active", "compacted",
 )
+
+
+def session_last_activity(session: dict) -> float | None:
+    """The session's real last-activity time (epoch seconds) or None.
+
+    Order: the server-derived ``last_activity_at`` (canonical field, computed
+    from the stored messages) -> the newest message timestamp in this payload
+    -> ``ended_at``.
+
+    ``ended_at`` alone is NOT the last-activity time: agents disagree on it
+    (measured 2026-09-13 over 40 pulled sessions -- missing in 5, equal to
+    the newest message time in only 3). It is only a last resort, because a
+    store whose "last updated" column falls back to the sync instant shows
+    every pulled session as "just now" (decision record 2026.09.13.3).
+    """
+    v = session.get("last_activity_at")
+    if isinstance(v, (int, float)) and v > 0:
+        return float(v)
+    ts = [m["timestamp"] for m in (session.get("messages") or [])
+          if isinstance(m, dict)
+          and isinstance(m.get("timestamp"), (int, float))]
+    if ts:
+        return float(max(ts))
+    v = session.get("ended_at")
+    return float(v) if isinstance(v, (int, float)) and v > 0 else None
 
 
 def canonical_id(agent_type: str, local_id) -> str:
