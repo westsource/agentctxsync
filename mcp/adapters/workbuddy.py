@@ -10,6 +10,13 @@ adapter prefers whichever exists, .workbuddy-ai first)
   - session metadata : workbuddy.db (SQLite, ``sessions`` table: id, cwd,
     user_id, title, status, created_at/updated_at in epoch MILLISECONDS,
     is_playground, mode, model, ...)
+  - project list     : workbuddy.db (SQLite, ``workspaces`` table: path,
+    last_opened_at in epoch ms) -- the directories the desktop app has
+    opened. It carries no id/slug/name column, so the canonical project
+    identity per path lives in the ``.workbuddy-sync-projects.json``
+    sidecar: recorded by ``write_projects()`` from the server's project,
+    and minted deterministically (``wb_<sha1(path)>``) for a path the
+    server has never seen (see the projects section below).
   - sync mapping     : edge-sync-mapping-v2.db (WorkBuddy maintains this;
     we must NOT touch it -- WorkBuddy's startup MIGRATE creates the
     convmsg:<userId> mapping for every local session, including sessions
@@ -45,8 +52,30 @@ metadata/title is synced to the cloud; message CONTENT is not uploaded
 desktop app CAN open and continue sessions written by this adapter.
 Also: the cwd directory of a written session MUST exist or WorkBuddy fails
 to open it ("工作目录可能已被重命名或删除") -- this adapter creates it.
+
+Projects (the shared project pool, ``workspaces`` table):
+  - read_projects() serves WorkBuddy's own workspace list -- one canonical
+    project per path. A path the server already knows (recorded in the
+    sidecar by a previous pull) is served with the SERVER's id/slug/name/
+    folders, so a push never re-asserts a derived name and never creates a
+    second project for a directory another agent already pushed. A path the
+    server has never seen gets a deterministic ``wb_<sha1(key)>`` id, a
+    slug from ``slugify()`` (the flattening is unique per path) and a name
+    from the directory name.
+  - Root-shaped workspaces (``D:\\``, ``C:\\Users\\<name>`` -- see
+    ``base.is_root_project_path``) are NOT projects: they express no project
+    boundary, so they are skipped here and pruned from the sidecar. The
+    client drops them on push/pull for every agent; this adapter only keeps
+    its own id registry clean. They stay ordinary WorkBuddy workspaces
+    locally.
+  - write_projects() records the pulled identity per path in the sidecar
+    (rebuilt on every pull, so merged/remapped projects converge by
+    themselves) and materialises every project path as a workspace row
+    (creating the directory WorkBuddy needs). Rows are only added, never
+    removed or re-dated: ``last_opened_at`` is the app's own clock.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -55,7 +84,8 @@ import time
 import uuid
 from pathlib import Path
 
-from .base import Adapter, split_agent_prefix, validate_local_id
+from .base import (Adapter, _path_key, is_root_project_path,
+                   split_agent_prefix, validate_local_id)
 
 #: user id fallback order: existing record in db -> env -> placeholder
 _ENV_USER_ID = "WORKBUDDY_USER_ID"
@@ -84,6 +114,10 @@ class WorkBuddyAdapter(Adapter):
     """WorkBuddy desktop adapter (canonical ids prefixed ``workbuddy:``)."""
 
     agent_type = "workbuddy"
+
+    #: workbuddy.db ``workspaces`` + the ``.workbuddy-sync-projects.json``
+    #: sidecar (see the Projects section in the module docstring)
+    supports_projects = True
 
     def __init__(self, workbuddy_home: Path | str | None = None):
         self.home = Path(workbuddy_home) if workbuddy_home else self.discover()
@@ -539,6 +573,10 @@ class WorkBuddyAdapter(Adapter):
             "CREATE TABLE IF NOT EXISTS __workbuddy_drizzle_migrations ("
             " id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL,"
             " created_at INTEGER)")
+        # project list (path PK + the app's own last-opened clock)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspaces ("
+            " path TEXT PRIMARY KEY, last_opened_at INTEGER NOT NULL)")
 
     def _upsert_session(self, local_id: str, cwd: str, user_id: str | None,
                         title, model, mode, created_ms: int, updated_ms: int,
@@ -592,6 +630,229 @@ class WorkBuddyAdapter(Adapter):
             conn.close()
 
     # ------------------------------------------------------------------
+    # projects (workbuddy.db ``workspaces`` + identity sidecar)
+    # ------------------------------------------------------------------
+    def _project_map_file(self) -> Path | None:
+        if self.home:
+            return self.home / ".workbuddy-sync-projects.json"
+        return None
+
+    def _workspace_rows(self) -> list[tuple[str, int]]:
+        """[(path, last_opened_at ms)] -- WorkBuddy's own project list."""
+        db = self._db()
+        if not db.exists():
+            return []
+        conn = self._conn(db)
+        try:
+            rows = conn.execute(
+                "SELECT path, last_opened_at FROM workspaces").fetchall()
+        except sqlite3.Error:
+            return []          # pre-5.3 store without the table: no projects
+        finally:
+            conn.close()
+        return [(str(r[0]), int(r[1] or 0)) for r in rows if r[0]]
+
+    def _load_project_map(self) -> dict:
+        """{comparison key -> canonical project} recorded by the last pull.
+
+        The key is ``_path_key`` (separator-normalized, case-folded on
+        Windows), so the app's own spelling of a path matches the server's.
+        """
+        f = self._project_map_file()
+        if f is None or not f.exists():
+            return {}
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        paths = data.get("paths") if isinstance(data, dict) else None
+        if not isinstance(paths, dict):
+            return {}
+        return {str(k): v for k, v in paths.items() if isinstance(v, dict)}
+
+    def _save_project_map(self, paths: dict):
+        f = self._project_map_file()
+        if f is None:
+            return
+        # a root-shaped key is never a project (see read_projects); drop any
+        # left over from before that rule so the sidecar stays an id registry
+        # of real projects only
+        paths = {k: v for k, v in paths.items()
+                 if not is_root_project_path(k)}
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps({"version": 1, "paths": paths},
+                                    ensure_ascii=False, sort_keys=True),
+                         encoding="utf-8")
+        except OSError:
+            pass
+
+    @staticmethod
+    def _canonical_project(entry: dict) -> dict:
+        """Canonical project from a sidecar entry (server-written or minted)."""
+        proj = {k: entry.get(k) for k in
+                ("id", "slug", "name", "description", "created_at", "archived")}
+        proj["primary_path"] = entry.get("primary_path")
+        proj["folders"] = [dict(f) for f in (entry.get("folders") or [])
+                           if isinstance(f, dict)]
+        return proj
+
+    @staticmethod
+    def _project_name(path: str) -> str:
+        """Display name for a workspace path (``D:\\`` -> ``D:``, the drive)."""
+        clean = str(path).rstrip("\\/")
+        name = Path(clean).name if clean else ""
+        return name or clean or str(path)
+
+    @staticmethod
+    def _project_paths(p: dict) -> list[str]:
+        """Every distinct path a canonical project covers (primary first)."""
+        out: list[str] = []
+        seen: set[str] = set()
+        cands = [p.get("primary_path")] + [
+            f.get("path") for f in (p.get("folders") or [])
+            if isinstance(f, dict)]
+        for c in cands:
+            if not isinstance(c, str) or not c.strip():
+                continue
+            k = _path_key(c)
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            out.append(c)
+        return out
+
+    def _mint_project(self, path: str, last_ms: int) -> dict:
+        """Canonical project for a workspace path the server never saw.
+
+        The id derives from the path, so a lost sidecar (or a second device
+        with the same directory) converges on the same project instead of
+        minting a duplicate.
+        """
+        key = _path_key(path) or path
+        created = (int(last_ms) / 1000.0) if last_ms else time.time()
+        return {
+            "id": "wb_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12],
+            # slugify() flattens the WHOLE path (drive included), so two
+            # different directories can never share a slug and get merged
+            # into one project by the server's slug-merge.
+            "slug": self.slugify(path) or "project",
+            "name": self._project_name(path),
+            "primary_path": path,
+            "created_at": created,
+            "archived": 0,
+            "folders": [{"path": path, "label": None, "is_primary": 1,
+                         "added_at": created}],
+        }
+
+    def read_projects(self) -> list[dict]:
+        """Push view: WorkBuddy's workspace list as canonical projects.
+
+        Paths the server already knows are served with the server's own
+        id/slug/name/folders (sidecar), never with a derived name -- an
+        adopt-then-rename would otherwise look like a local edit and
+        overwrite a peer's project name on every push.
+        """
+        if not self.home or not self.home.is_dir():
+            return []
+        rows = self._workspace_rows()
+        if not rows:
+            return []
+        pmap = self._load_project_map()
+        out: dict[str, dict] = {}
+        minted = False
+        for path, last_ms in rows:
+            key = _path_key(path)
+            # Root-shaped workspaces (a drive root, the user home) stay a
+            # WorkBuddy workspace but are never a project: they express no
+            # project boundary and every path below them would match. The
+            # client's push/pull filter drops them anyway (base.py
+            # is_root_project_path) -- skipping here keeps the identity
+            # sidecar free of ids that can never be pushed.
+            if is_root_project_path(path):
+                continue
+            entry = pmap.get(key)
+            if entry is not None:
+                pid = str(entry.get("id") or "")
+                if pid and pid not in out:
+                    out[pid] = self._canonical_project(entry)
+                continue
+            proj = self._mint_project(path, last_ms)
+            out[proj["id"]] = proj
+            # the workspace row cannot hold id/slug/name: remember the mint
+            # so the path keeps this identity on every later push
+            pmap[key] = proj
+            minted = True
+        if minted:
+            self._save_project_map(pmap)
+        return sorted(out.values(),
+                      key=lambda p: p.get("created_at") or 0, reverse=True)
+
+    def _add_workspace(self, path: str, created_at) -> bool:
+        """Add one workspace row (and the directory it points at).
+
+        Returns True only when the row was inserted. Existing rows are never
+        re-dated: ``last_opened_at`` is the app's own "the user opened this"
+        clock, not sync data. ``created_at`` (when the project was created
+        upstream) keeps a pulled project in its original list position
+        instead of jumping to the top."""
+        try:
+            Path(path).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False       # drive/dir unavailable here: leave it remote
+        ms = int((created_at or 0) * 1000) or _now_ms()
+        conn = self._conn(self._db())
+        try:
+            self._ensure_schema(conn)
+            cur = conn.execute(
+                "INSERT INTO workspaces (path, last_opened_at) VALUES (?, ?) "
+                "ON CONFLICT(path) DO NOTHING", (path, ms))
+            conn.commit()
+            return cur.rowcount > 0
+        except sqlite3.Error:
+            return False
+        finally:
+            conn.close()
+
+    def write_projects(self, projects: list[dict],
+                       remaps: list[dict] | None = None) -> dict:
+        """Pull view: record the pulled identity per path, then make every
+        project path a WorkBuddy workspace.
+
+        The sidecar is rebuilt from this pull, so a project the server
+        merged (remap) or renamed converges by itself and no remap
+        migration is needed -- WorkBuddy has no id-keyed project store.
+        Nothing is ever removed locally: a workspace the user opened stays
+        opened.
+        """
+        if not self.home:
+            return {"imported": 0}
+        local = {_path_key(p) for p, _ in self._workspace_rows()}
+        paths: dict[str, dict] = {}
+        imported = 0
+        for p in projects or []:
+            pid = str(p.get("id") or "")
+            if not pid:
+                continue
+            entry = self._canonical_project(p)
+            for path in self._project_paths(p):
+                # Root-shaped paths are not project boundaries: never adopt
+                # one as a local workspace or as this path's identity, even if
+                # a caller hands it over directly (the client filters them
+                # first -- see read_projects).
+                if is_root_project_path(path):
+                    continue
+                key = _path_key(path)
+                paths[key] = entry
+                if key in local:
+                    continue
+                if self._add_workspace(path, p.get("created_at")):
+                    local.add(key)
+                    imported += 1
+        self._save_project_map(paths)
+        return {"imported": imported}
+
+    # ------------------------------------------------------------------
     # status
     # ------------------------------------------------------------------
     def status(self) -> dict:
@@ -619,3 +880,4 @@ if __name__ == "__main__":
     print("discover:", a.discover())
     print("status:", a.status())
     print("sessions:", len(a.read_sessions(limit=5)))
+    print("projects:", len(a.read_projects()))

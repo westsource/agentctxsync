@@ -1,3 +1,71 @@
+## [2026.09.13.2] - 2026-09-13
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.13.1 → **2026.09.13.2**（`mcp/adapters/workbuddy.py` +
+> `mcp/adapters/base.py` + `mcp/server.py` 有改动，各端经 `/api/client/manifest` 自动更新，
+> Agent 重启后生效）；服务端仅 `client_update.py` 的版本常量，无 schema 变更、无数据迁移。
+
+### Added（workbuddy 项目清单接入共享项目池：本机项目列表与服务端项目卡片对齐）
+
+- **背景**：项目是工作空间级共享池（`/api/projects/pull` 返回全部可见项目，与 `agent` 无关），
+  但此前只有 hermes 在推。WorkBuddy 桌面端的项目列表（`workbuddy.db` 的 `workspaces` 表：
+  `path` + `last_opened_at`）完全未上行——服务端 10 个项目全是 hermes 的，本机 WorkBuddy 的
+  8 条 workspace 一条都不在服务端；网站的项目卡片按 `cwd` 前缀关联会话，因此 WorkBuddy 会话
+  也大量落在项目之外（实测 286 条会话中 191 条所在目录不属于任何服务端项目文件夹）。
+- **实现**（`mcp/adapters/workbuddy.py`，新增 `supports_projects = True`）：
+  - **read（push 视图）**：`workspaces` 每条路径 = 一个项目。路径已由上次 pull 记入身份侧车
+    `.workbuddy-sync-projects.json` → 原样使用**服务端**的 id/slug/name/folders（若改用目录名等
+    派生值，pull 后本地值与锚定 base 不等，会被判为"本地脏"、每轮 push 覆盖对端项目名）；
+    服务端未见过的路径 → 铸 `wb_<sha1(_path_key(path))>`（确定性：丢侧车或第二台设备同路径
+    收敛到同一项目）+ `slugify(path)` 做 slug（整路径压平 ⇒ 逐路径唯一，不会触发服务端同名
+    合并）+ 目录名做 name，并立即写入侧车（`workspaces` 表放不下 id，侧车即本地 id 注册表）。
+  - **write（pull 视图）**：按本次 pull **全量重建**侧车，并为每个项目路径补一条 `workspaces`
+    行（同时建目录）。已有行只保留、不再定日期——`last_opened_at` 是 app 自己的"用户打开过"
+    时钟，不是同步数据；本地行**永不删除**。remap 无需本地迁移：本地项目库不以 id 为键，
+    合并后的项目随本次 pull 直接重建为存活 id。
+- **能力位**（`mcp/adapters/base.py` + `mcp/server.py`）：新增 `supports_projects`（默认 False，
+  hermes/workbuddy 为 True）。没有本地项目库的适配器（opencode/dsh/omp/reasonix/openclaw/
+  chatgpt）在周期同步里直接跳过项目阶段，工具面返回 `Agent X has no local project store …`——
+  此前它们每轮同步都记一条 `Projects sync error: … has no attribute 'read_projects'` 日志。
+- **文档**：ARCHITECTURE（workbuddy 适配器"项目"小节 + 修正此前"workbuddy 无独立项目实体"的
+  分析记录）、SUPPORTED_AGENTS（项目池与能力位）、ADDING_AGENT（第 5 条：可选项目契约）。
+- **测试**：`mcp/tests/test_workbuddy.py` +4（铸造身份稳定且逐路径唯一、pull 采纳服务端身份且
+  不把目录名当本地改名、既有行不定日期 + 本地独有路径保留铸造 id + 重复 pull 幂等、空库）。
+- **线上验证**（本机真实 WorkBuddy store ↔ 线上工作区 4，用 workbuddy 部署的 key）：
+  pull 落地 8 条 `workspaces`（含为 `C:/Users/rong/Documents/对话分析` 建目录）、采纳 9 个服务端
+  项目身份；push 服务端 10 → **13** 个（新增 `D:`、`rong`、`开发库`），既有 10 个项目**零字段
+  改动**（`imported:3, updated:9, merged:0`，逐字段比对 name/slug/primary_path/archived/folders
+  全部一致）；二次 push `imported:0, merged:0`（幂等）。收敛结果：本地 12 ↔ 服务端 13，唯一差异
+  是 `2026下半年软考`（`F:/软考/2026下半年`，本机无 F: 盘 → 无法落地，属预期；该路径不会再被
+  铸成第二个项目）。
+
+### Added（根目录不入共享项目池：识别根形状路径并排除，退役已上行的根卡）
+
+- **背景**：上一条上线后 workbuddy 的 `D:\`、`C:\Users\rong` 这类"根"条目被如实推成项目卡。
+  Web 的项目↔会话关联是 `cwd` **前缀匹配**项目 folder（任意深度、不排他），根是万物祖先 ⇒
+  卡片变**兜底桶**（实测：`rong` 吞 99 条、`D:` 吞 27 条，合计 **110/286**，其中 62 条是
+  `~/hermes-sync-foreign` 合成目录）；且服务端 `project_folders` **只并集、无删除 API**、项目也
+  **没有 Web 隐藏/删除入口** ⇒ 一旦上行即永久。因此"各 agent 拉到时把本机 home 并进根项目"的
+  方案被否决（详见 ARCHITECTURE 决策记录 2026.09.13.2，含全部四条理由与被保留的服务端 alias 备选）。
+- **实现**：新增 `mcp/adapters/base.py::is_root_project_path`（盘符/filesystem 根、
+  `/home`·`/Users`·`C:/Users` 及其子项 `/home/<n>`）与 `strip_root_project_paths`；
+  `push_projects`/`pull_projects` 在边界统一过滤（纯根项目整条不上行/不落地；根 `primary_path`
+  只置 `None`，**绝不改写**——它是 per-field LWW 字段，改写会与对端逐周期互推覆盖）；
+  workbuddy 适配器的 `read_projects`/`write_projects`/侧车另做清理，保证不铸永不上的 id。
+  本地路径**全保留**（`D:\` 仍是 WorkBuddy 的 workspace；hermes `projects.db` 不动）。
+- **退役已上行的两张卡**：新增 `scripts/hide-root-projects.py`（默认 dry-run；`--apply` 置
+  `hidden=1`，`--undo` 还原）。`hidden` 同时被 `/api/projects/pull` 与 Web 项目列表过滤，
+  且 push 的 UPDATE 分支从不写 `hidden` ⇒ **不会被客户端复活**（与"push 不复活隐藏会话"同规则）。
+- **实测影响**（生产 workspace 4 + 本机 workbuddy store）：服务端 13 → **11** 张卡；本机参与
+  同步的 workspace 键 15 → 13；本机会话归组 207/286 → **97/286**。**诚实结论**：本次项目同步
+  对本机会话分组的净收益≈0（97 vs 加项目同步前的 95），因为本机 workbuddy 会话大多住在
+  `C:\Users\X1`(54)、`~/hermes-sync-foreign`(71)、`c:/tmp`(7) 等非项目目录；真实收益是
+  "项目清单对齐 + 其他机器/agent 的会话能归入这些项目"。差异由"1 条（不可落地的 `F:` 项目）"
+  变为"3 条（+2 条根形状，属策略声明）"。
+- **测试**：`mcp/tests/test_project_roots.py`（谓词正/反例表、`strip_root_project_paths` 语义、
+  **运维脚本谓词与 base 谓词一致性**）、`mcp/tests/test_mcp_server.py::RootProjectFilterTest`
+  （push 丢根/纯根不上行、pull 不落地）、`mcp/tests/test_workbuddy.py` +1（根 workspace 不铸号、
+  根项目不落地、重启稳定）。
+
 ## [2026.09.13.1] - 2026-09-13
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.12.5 → **2026.09.13.1**（`mcp/adapters/hermes.py` +

@@ -55,6 +55,7 @@ Identity & dedupe semantics
 import abc
 import json
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -79,6 +80,7 @@ AGENT_PREFIXES = {
     "openclaw": "openclaw:",
     "workbuddy": "workbuddy:",
     "omp": None,
+    "chatgpt": None,       # ChatGPT 桌面版 / codex rollout（只读上传，bare id）
     "dsh": None,           # official DeepSeek Harness (deepseek-ai/dsh)
 }
 
@@ -225,6 +227,70 @@ def split_agent_prefix(canonical: str):
     return None, canonical
 
 
+#: Root-shaped directory paths: a filesystem/drive root, or a home root and
+#: its ancestors (`C:/Users`, `/home`, `/Users`, `/root`, `C:/Users/<name>`,
+#: `/home/<name>`). These carry no project boundary -- see
+#: ``is_root_project_path``.
+_HOME_ANCESTOR_RE = re.compile(
+    r"^(?:[a-z]:)?/(?:users|home)(?:/[^/]+)?$", re.IGNORECASE)
+_ROOT_PATH_RE = re.compile(r"^[a-z]:$", re.IGNORECASE)
+
+
+def is_root_project_path(path) -> bool:
+    """True for a path that must never enter the shared project pool.
+
+    A project is a set of folders the Web prefix-matches sessions against
+    (``server/workspace.py::_session_for_project_match``); a root-shaped
+    path is an ancestor of everything, so it would turn its project card
+    into a catch-all bucket, and its per-machine meaning differs (``C:/Users/
+    rong`` on one machine is ``C:/Users/x1`` on another) while the server's
+    ``project_folders`` can only ever be unioned, never removed. Clients
+    therefore drop root-shaped paths on both push and pull: the paths stay
+    local, the shared pool keeps only real project boundaries. Decision
+    record: docs/ARCHITECTURE.md "根目录不入共享项目池".
+    """
+    if not isinstance(path, str):
+        return False
+    k = _path_key(path)
+    if not k:
+        return False
+    k = k.rstrip("/")
+    if k == "" or k == "/root":          # POSIX root, and /root
+        return True
+    if _ROOT_PATH_RE.match(k):           # C: / D: (drive root)
+        return True
+    return bool(_HOME_ANCESTOR_RE.match(k))
+
+
+def strip_root_project_paths(p: dict) -> dict | None:
+    """Project payload without root-shaped paths (None = drop the project).
+
+    ``primary_path`` and ``folders`` are filtered independently; a project
+    whose paths were ALL root-shaped has no boundary left to sync and is
+    dropped entirely. A project that carried no path at all is passed
+    through unchanged (filtering must not invent a new drop rule for it).
+
+    A root-shaped ``primary_path`` becomes None instead of being rewritten:
+    ``primary_path`` is a per-field LWW user-edit value, and inventing a
+    replacement would look like a local edit and overwrite the peer's value
+    on every push.
+    """
+    if not isinstance(p, dict):
+        return None
+    out = dict(p)
+    primary = p.get("primary_path")
+    had_paths = bool(primary) or bool(p.get("folders"))
+    if primary and is_root_project_path(primary):
+        out["primary_path"] = None
+    folders = [f for f in (p.get("folders") or [])
+               if isinstance(f, dict) and f.get("path")
+               and not is_root_project_path(f["path"])]
+    out["folders"] = folders
+    if had_paths and not out.get("primary_path") and not folders:
+        return None
+    return out
+
+
 class Adapter(abc.ABC):
     """Interface every local agent store adapter must implement.
 
@@ -241,6 +307,13 @@ class Adapter(abc.ABC):
     #: the server for sessions it can never write (mcp/server.py
     #: ``_restore_missing_sessions``).
     stores_pulled_sessions: bool = True
+
+    #: True when the adapter implements ``read_projects`` / ``write_projects``
+    #: (a local project store that can carry the shared project pool). Agents
+    #: without one (only hermes and workbuddy have a project list today) make
+    #: the project tools report that instead of raising AttributeError every
+    #: sync cycle.
+    supports_projects: bool = False
 
     # ------------------------------------------------------------------
     # Discovery

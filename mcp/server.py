@@ -42,7 +42,8 @@ SDK_V2 = not hasattr(Server, "list_tools")
 from adapters import get_adapter, available_agents
 from adapters.base import (AGENT_PREFIXES, PROJECT_USER_EDIT_FIELDS,
                            USER_EDIT_FIELDS, _path_key,
-                           align_path_to_local, build_path_map)
+                           align_path_to_local, build_path_map,
+                           strip_root_project_paths)
 import updater
 
 
@@ -1058,14 +1059,21 @@ def full_sync():
 def push_projects():
     """Push local projects (all profiles) to the server.
 
-    Field-level optimistic merge (Phase 2): only dirty / first-contact scalar
+    field_meta (Phase 2): only dirty / first-contact scalar
     user-edit project fields (name/primary_path/archived/description) are
     asserted, tagged with their base. Non-dirty fields and folders are omitted
     so this device never overwrites a peer's newer metadata; folders remain
     server-merged by union (multidevice coexist)."""
+    if not adapter.supports_projects:
+        return {"error": f"Agent {AGENT} has no local project store to push"}
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
-    projects = adapter.read_projects()
+    # Root-shaped paths never enter the shared pool (see base.py
+    # is_root_project_path): a folder the Web prefix-matches sessions against
+    # must express a project boundary, and a root is every session's ancestor.
+    # A project left without any path is a pure root entry -> not pushed.
+    projects = [p for p in (strip_root_project_paths(p)
+                            for p in adapter.read_projects()) if p]
     if not projects:
         return {"message": "No local projects to push"}
     meta = _load_project_field_meta()
@@ -1087,6 +1095,8 @@ def pull_projects():
     Field-level merge (Phase 2): a locally-dirty scalar user-edit project
     field is kept (never overwritten by the pull) and pushed next cycle;
     fields we do not locally differ on are adopted and their base anchored."""
+    if not adapter.supports_projects:
+        return {"error": f"Agent {AGENT} has no local project store to pull into"}
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
     meta = _load_project_field_meta()
@@ -1112,6 +1122,13 @@ def pull_projects():
         if "error" in result:
             return result
         projects = result.get("projects", []) or []
+        # Mirror of the push filter: a root-shaped path is not a project
+        # boundary, so it must not become this machine's local project
+        # identity either. A project left with no path (a pure root entry
+        # pushed before this rule existed) is not materialised locally at
+        # all -- it stays server-side and untouched.
+        projects = [p for p in (strip_root_project_paths(p)
+                                for p in projects) if p]
         for p in projects:
             pid = str(p["id"])
             sm = meta.get(pid) or {}
@@ -1270,12 +1287,14 @@ async def periodic_sync():
                 await _notify_host(
                     f"Sync complete: pulled {imported} session(s), "
                     f"pushed {pushed} session(s), {msgs} new message(s)")
-            # projects sync (same cycle, best-effort)
+            # projects sync (same cycle, best-effort; skipped for agents
+            # without a local project store)
             try:
-                pp = await loop.run_in_executor(None, push_projects)
-                pl = await loop.run_in_executor(None, pull_projects)
-                log(f"Projects sync: push={pp.get('imported', pp.get('updated', 0))}, "
-                    f"pull={pl.get('projects', 0)}")
+                if adapter.supports_projects:
+                    pp = await loop.run_in_executor(None, push_projects)
+                    pl = await loop.run_in_executor(None, pull_projects)
+                    log(f"Projects sync: push={pp.get('imported', pp.get('updated', 0))}, "
+                        f"pull={pl.get('projects', 0)}")
             except Exception as e:
                 log(f"Projects sync error: {e}")
         except Exception as e:
