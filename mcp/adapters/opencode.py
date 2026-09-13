@@ -29,7 +29,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .base import Adapter, canonical_id, local_id_lenient, validate_local_id
+from .base import (Adapter, canonical_id, local_id_lenient,
+                   session_last_activity, validate_local_id)
 
 _IDMAP = ".hermes-sync-idmap.json"      # canonical foreign id -> local ses_ id
 _VERSION = "1.17.15"                    # version header stamped on written sessions
@@ -347,6 +348,15 @@ class OpencodeAdapter(Adapter):
                 sid = self._local_id_for(canonical)
                 exists = sid in taken
                 now_s = time.time()
+                # session.time_updated is the opencode desktop's sort key: it
+                # must carry the session's real last activity (server-derived
+                # value, else the newest message, else ended_at), never the
+                # sync instant -- decision record 2026.09.13.3. `now` is the
+                # last resort for a payload with no usable timestamp, and the
+                # value never precedes time_created.
+                last_act = session_last_activity({**s, "messages": msgs})
+                created_ms = int((s.get("started_at") or now_s) * 1000)
+                updated_ms = max(int((last_act or now_s) * 1000), created_ms)
                 title = (s.get("title") or "untitled")
                 slug = _unique_slug(title)
                 # ensure slug uniqueness like the desktop
@@ -372,8 +382,7 @@ class OpencodeAdapter(Adapter):
                         "UPDATE session SET title=?, directory=?, model=?, "
                         "time_updated=?, parent_id=? WHERE id=?",
                         (title, s.get("cwd") or "", _model_db(s.get("model")),
-                         int((s.get("ended_at") or now_s) * 1000),
-                         s.get("parent_session_id"), sid))
+                         updated_ms, s.get("parent_session_id"), sid))
                     stats["updated"] += 1
                 else:
                     cur.execute(
@@ -384,8 +393,7 @@ class OpencodeAdapter(Adapter):
                         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (sid, project_id, s.get("parent_session_id"), slug,
                          s.get("cwd") or "", title, _VERSION,
-                         int((s.get("started_at") or now_s) * 1000),
-                         int((s.get("ended_at") or now_s) * 1000),
+                         created_ms, updated_ms,
                          0.0, 0, 0, 0, 0, 0, "opencode", _model_db(s.get("model"))))
                     taken.add(sid)
                     stats["imported"] += 1

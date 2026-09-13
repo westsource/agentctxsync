@@ -563,8 +563,10 @@ O(可见 × |清单|)。
   - **hermes**：无需改代码——`state.db` 本就有 `last_activity_at` 列（nullable），加入
     `CANONICAL_SESSION_FIELDS` 后 1:1 映射（`col_map` 空=同名）自动读写；此前该列不在 canonical
     里，同步创建的会话落成 NULL。
-  - **opencode**：`session.time_updated` 已用 `ended_at`（缺失才回退 now），无该列，不改。
-  - **dsh / reasonix**：JSONL 事件日志，无"最后更新"元数据，天然按最后事件排序，不改。
+  - **opencode**：`session.time_updated`（桌面端排序键）改用共享规则（此前只用 `ended_at`，
+    缺失时回退 `now`），并同样保留 `>= time_created` 下界。
+  - **dsh / reasonix**：JSONL 事件日志，无"最后更新"元数据（dsh 的投影缓存只有 `createdAt`，
+    列表顺序由日志/消息本身决定），不改。
   - **chatgpt**：只读上传，不写本地，不改。
 - **为什么不是 user-edit 字段**：它由消息派生，不参与字段级乐观并发（不进 `USER_EDIT_FIELDS`）；
   客户端"脏值"没有意义——消息才是事实。
@@ -573,7 +575,8 @@ O(可见 × |清单|)。
   被任何客户端重新 push 时保持"无最后活动"。
 - 回归防线：`mcp/tests/test_base.py::SessionLastActivityTest`（规则优先级）、
   `test_workbuddy.py`（落库时间 = 最新消息时间 / 服务端值优先 / 无时间戳才 now）、
-  `test_omp.py`（title slot）、`test_openclaw.py`（索引 + 读回）、`test_hermes.py`（列往返）、
+  `test_omp.py`（title slot）、`test_openclaw.py`（索引 + 读回）、`test_opencode.py`
+  （`time_updated` 写入/更新路径）、`test_hermes.py`（列往返）、
   `server/tests/test_sync.py`（push 派生覆盖客户端断言 / 元数据型 push 透传）。
 
 #### 根目录（home / 盘符根）不入共享项目池（决策记录 2026.09.13.2）

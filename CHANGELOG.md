@@ -1,3 +1,29 @@
+## [2026.09.13.4] - 2026-09-13
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.13.3 → **2026.09.13.4**（客户端包有改动，各端经
+> `/api/client/manifest` 自动更新，Agent 重启后生效）；服务端仅 `client_update.py` 的版本常量，
+> **无 schema 变更、无数据迁移**（13.3 已建的 `sessions.last_activity_at` 继续用）。
+
+### Fixed（补齐 2026.09.13.3 漏掉的一个落点：opencode 的 `session.time_updated`）
+
+- **漏判**：13.3 只改了 workbuddy / omp / openclaw 三个 adapter（外加共享的 `adapters/base.py`），
+  理由栏里把 opencode 记为"已用 `ended_at`，不改"——但它和另外三个是同一类落点：`time_updated`
+  是 opencode 桌面端的排序键，写入用的是 `ended_at`（缺失才回退 `now`），而 `ended_at` 各 agent
+  语义不一致（13.3 实测 40 条拉取会话：5 条缺失、只有 3 条等于最新消息时间）。即那条会话在
+  opencode 列表里仍可能显示成"刚刚"或陈旧时间。
+- **修复**：`mcp/adapters/opencode.py` 的 INSERT/UPDATE 两条路径都改用共享助手
+  `session_last_activity()`（服务端 `last_activity_at` → 本次载荷最新消息 → `ended_at`），
+  并同样保留 `>= time_created` 下界；`now` 只在该会话没有任何可用时间戳时兜底。
+- **复核结论（7 个注册 adapter 全量过一遍）**：改代码 **4 个**（13.3 的 workbuddy/omp/openclaw +
+  本次 opencode）；**hermes** 零代码改动（`state.db` 本就有 `last_activity_at` 列，进 canonical 后
+  1:1 映射自动读写）；**dsh/reasonix** 无"最后更新"元数据（dsh 投影缓存只有 `createdAt`，列表顺序
+  由日志/消息决定）；**chatgpt** 只读上传不写本地。注册表共 7 个（`hermes/opencode/reasonix/
+  openclaw/workbuddy/omp/dsh`；作者工作区里未提交的 `chatgpt` 为第 8 个，只读）。
+- **测试**：`mcp/tests/test_opencode.py` +1（写入路径的 `time_updated` = 最新消息时间、不早于
+  `time_created`；更新路径同样如此）。mcp 套件 196 项、server 套件 196 项通过（仅 3 项既有环境失败）。
+- **文档**：ARCHITECTURE 决策记录 2026.09.13.3 的 adapter 映射表与回归防线同步修正（opencode 由
+  "不改"改为"已补齐"）——代码与文档不允许各说各话。
+
 ## [2026.09.13.3] - 2026-09-13
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.13.2 → **2026.09.13.3**（`mcp/adapters/*` +
