@@ -140,6 +140,36 @@ class OmpAdapterTest(unittest.TestCase):
         back = a.read_sessions()[0]
         self.assertEqual(len(back["messages"]), 2)
 
+    def test_write_stamps_real_last_activity_in_title_slot(self):
+        """The title slot's updatedAt is omp's list clock: a pulled session
+        must carry its newest message time, not the moment the pull landed
+        (decision record 2026.09.13.3)."""
+        a = OmpAdapter(sessions_root=self.root)
+        a.write_sessions([self._session()])
+        d = self.root / "--E--OpenCode-agentctxsync--"
+        lines = [json.loads(l) for l in
+                 next(d.glob("*.jsonl")).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[0]["type"], "title")
+        got = datetime.datetime.fromisoformat(
+            lines[0]["updatedAt"].replace("Z", "+00:00")).timestamp()
+        self.assertAlmostEqual(got, 1787647185.0, places=0)   # newest message
+        self.assertLess(got, datetime.datetime.now(
+            datetime.timezone.utc).timestamp() - 60)
+
+    def test_write_stamps_now_when_no_timestamp_available(self):
+        """A message with no usable timestamp is stamped `now` by the merge
+        step, so the slot carries that (still never a stale value)."""
+        a = OmpAdapter(sessions_root=self.root)
+        a.write_sessions([self._session(messages=[
+            {"session_id": SID, "role": "user", "content": "no ts"}])])
+        d = self.root / "--E--OpenCode-agentctxsync--"
+        lines = [json.loads(l) for l in
+                 next(d.glob("*.jsonl")).read_text(encoding="utf-8").splitlines()]
+        got = datetime.datetime.fromisoformat(
+            lines[0]["updatedAt"].replace("Z", "+00:00")).timestamp()
+        self.assertGreater(got, datetime.datetime.now(
+            datetime.timezone.utc).timestamp() - 60)
+
     def test_foreign_id_maps_to_fresh_local_uuid(self):
         a = OmpAdapter(sessions_root=self.root)
         foreign = "20260801_201638_8ab26b"  # non-uuid (foreign agent)

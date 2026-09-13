@@ -16,10 +16,41 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from adapters.base import session_last_activity  # noqa: E402
 from adapters.workbuddy import WorkBuddyAdapter  # noqa: E402
 
 SERVER_A = "http://203.0.113.7:8765"
 SERVER_B = "http://localhost:8765"
+
+
+class SessionLastActivityTest(unittest.TestCase):
+    """The shared rule behind every adapter's local "last updated" column
+    (decision record 2026.09.13.3): server-derived value -> newest message ->
+    ended_at -> None. Never the sync instant."""
+
+    def test_server_value_wins(self):
+        s = {"last_activity_at": 300.0, "ended_at": 200.0,
+             "messages": [{"timestamp": 100.0}]}
+        self.assertEqual(session_last_activity(s), 300.0)
+
+    def test_newest_message_beats_ended_at(self):
+        # measured 2026-09-13: ended_at is missing in 5/40 pulled sessions and
+        # equal to the newest message time in only 3/40
+        s = {"ended_at": 100.0,
+             "messages": [{"timestamp": 100.0}, {"timestamp": 250.5},
+                          {"role": "assistant", "content": "x"}]}
+        self.assertEqual(session_last_activity(s), 250.5)
+
+    def test_ended_at_only_when_no_message_timestamps(self):
+        self.assertEqual(session_last_activity(
+            {"ended_at": 42.0, "messages": [{"content": "no ts"}]}), 42.0)
+        self.assertEqual(session_last_activity({"ended_at": 42.0}), 42.0)
+
+    def test_no_usable_timestamp_is_none(self):
+        self.assertIsNone(session_last_activity({"messages": []}))
+        self.assertIsNone(session_last_activity({}))
+        self.assertIsNone(session_last_activity(
+            {"last_activity_at": 0, "ended_at": None}))
 
 
 class WatermarkIdentityTest(unittest.TestCase):

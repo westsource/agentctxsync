@@ -1,3 +1,41 @@
+## [2026.09.13.3] - 2026-09-13
+
+> 客户端发布：`CLIENT_VERSION` 2026.09.13.2 → **2026.09.13.3**（`mcp/adapters/*` +
+> `mcp/updater.py` 有改动，各端经 `/api/client/manifest` 自动更新，Agent 重启后生效）；
+> 服务端 `server/sync.py`（push 派生 `last_activity_at`）+ `server/db.py`（新增列，幂等 ALTER）
+> ——**有 schema 变更**（`sessions.last_activity_at DOUBLE PRECISION`），存量行由
+> `scripts/backfill-last-activity.py` 一次性补齐。
+
+### Fixed（拉取到本机的会话"最后更新时间"是同步时刻，不是最新消息时间）
+
+- **现象**：从远端同步下来的会话在本地一律显示成"刚刚"——WorkBuddy 列表按
+  `COALESCE(updated_at, created_at)` 排序，一次同步把被触碰的会话全部塌到**同一个时间戳**并顶到
+  最前（实测本机 `workbuddy.db`：6 行最近被触碰的会话 `updated_at` 全等于同步时刻，而它们的最新
+  消息分别在 08-21 / 08-29 / 09-03）；Hermes 桌面端的 `last_activity_at` 对同步创建的会话是
+  **NULL**；omp 的 title slot `updatedAt`、OpenClaw 索引的 `updatedAt`/`lastInteractionAt`/
+  `lastActivityAt` 都恒写 `now`。
+- **根因**：`last_activity_at` **不在 canonical 模型里**，各 adapter 只能拿 `ended_at`，而
+  `ended_at` 各 agent 语义不一致（2026-09-13 实测 40 条拉取会话：**5 条缺失**、只有 **3 条**等于
+  最新消息时间），且 workbuddy 的写入路径还把值 `max(..., now)` 钳到同步时刻。
+- **修复（服务端派生 + 客户端消费）**：
+  - `sessions.last_activity_at`（新列）= 最新一条可见消息的 `timestamp`；`server/sync.py::push`
+    在装配行数据前用它**本次载荷的消息**取 `max(timestamp)`（客户端同名字段被覆盖）；没有消息的
+    元数据型 push（只改标题等）无派生来源，客户端值原样透传。
+  - `mcp/adapters/base.py`：`last_activity_at` 进 `CANONICAL_SESSION_FIELDS`；新增共享助手
+    `session_last_activity()`（服务端值 → 最新消息 → `ended_at` → `now`），规则一处定义。
+  - **workbuddy**：`updated_at` 与 `last_activity_at` 都写该值（去掉 `now` 钳制，仅保留
+    `>= created_at` 下界）；读回 `last_activity_at`。**omp**：title slot `updatedAt`。
+    **openclaw**：索引三个时间字段 + 读回 `lastActivityAt`。**hermes**：零代码改动（`state.db`
+    本就有该列，进 canonical 后 1:1 映射自动读写）。opencode（已用 `ended_at`）/dsh/reasonix
+    （无该元数据）/chatgpt（只读）不改。
+  - **存量数据**：`scripts/backfill-last-activity.py`（dry-run 默认 / `--apply`，幂等，只看可见
+    消息），避免老行永久 NULL。
+- **测试**：`mcp/tests/test_base.py::SessionLastActivityTest`（规则优先级 4 例）、
+  `test_workbuddy.py` +2（落库 = 最新消息时间；服务端值优先；无时间戳才 now）、`test_omp.py` +2
+  （title slot 用最新消息时间 / 无时间戳才 now）、`test_openclaw.py` +1（索引三字段 + 读回）、
+  `test_hermes.py` +1（列往返）、`server/tests/test_sync.py` +2（push 派生覆盖客户端断言 /
+  元数据型 push 透传）。mcp 套件 195 项、server 套件 196 项通过（仅 3 项既有环境失败）。
+
 ## [2026.09.13.2] - 2026-09-13
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.13.1 → **2026.09.13.2**（`mcp/adapters/workbuddy.py` +

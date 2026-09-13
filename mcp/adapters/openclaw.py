@@ -34,7 +34,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import Adapter, validate_local_id
+from .base import Adapter, session_last_activity, validate_local_id
 
 _INDEX_NAME = "sessions.json"
 _WATERMARK_NAME = ".hermes-sync-watermark"
@@ -290,6 +290,11 @@ class OpenClawAdapter(Adapter):
                           if m[1] == "user" and m[2]), None)
             if title:
                 s["title"] = title.strip().replace("\n", " ")[:_MAX_TITLE_LEN]
+            # the gateway's own last-activity clock round-trips (see
+            # write_sessions: it is the newest message time, not sync time)
+            act = entry.get("lastActivityAt") or entry.get("updatedAt")
+            if isinstance(act, (int, float)) and act > 0:
+                s["last_activity_at"] = act / 1000.0
             s["message_count"] = len(s["messages"])
             sessions.append(self.canonicalize(s))
         return sessions
@@ -364,10 +369,15 @@ class OpenClawAdapter(Adapter):
                 else:
                     parent = self._append_messages(path, parent, msgs,
                                                    stats)
-            now_ms = int(time.time() * 1000)
-            entry["updatedAt"] = now_ms
-            entry["lastInteractionAt"] = now_ms
-            entry["lastActivityAt"] = now_ms
+            # The gateway's list orders by these three; writing the sync
+            # instant made every pulled session read as "just now" and
+            # collapse onto one timestamp (decision record 2026.09.13.3).
+            # `now` survives only for a session with no usable timestamp.
+            last_act = session_last_activity(s)
+            act_ms = int(last_act * 1000) if last_act else int(time.time() * 1000)
+            entry["updatedAt"] = act_ms
+            entry["lastInteractionAt"] = act_ms
+            entry["lastActivityAt"] = act_ms
             entry.setdefault("sessionStartedAt",
                              int((s.get("started_at") or
                                   time.time()) * 1000))

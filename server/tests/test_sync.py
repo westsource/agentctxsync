@@ -98,7 +98,7 @@ class JsonRequest:
 
 SESS_COLS = ("id", "workspace_id", "title", "agent_type", "meta", "hidden",
              "pinned", "profile_name", "last_synced_at", "archived",
-             "cwd", "git_repo_root", "rev", "field_rev")
+             "cwd", "git_repo_root", "rev", "field_rev", "last_activity_at")
 MSG_COLS = ("id", "session_id", "workspace_id", "role", "content", "timestamp",
             "agent_type", "meta", "hidden")
 
@@ -460,6 +460,29 @@ class PushTest(unittest.TestCase):
         rows = {r["id"]: r for r in insert_rows(cur, "sessions")}
         self.assertEqual(rows["20260808_180013_0c275e"]["profile_name"], "magic")
         self.assertEqual(rows["20260808_180013_0c275e"]["agent_type"], "hermes")
+
+    def test_last_activity_at_derived_from_newest_message(self):
+        """last_activity_at is DERIVED server-side from this push's messages,
+        never taken from the client: agents disagree on ended_at (measured
+        2026-09-13 over 40 pulled sessions: missing in 5, equal to the newest
+        message time in only 3) and the Web already orders by
+        MAX(message.timestamp)."""
+        sessions = [{"id": "s1", "title": "t", "last_activity_at": 5.0,
+                     "ended_at": 7.0,
+                     "messages": [{"role": "user", "content": "a",
+                                   "timestamp": 10.0},
+                                  {"role": "assistant", "content": "b",
+                                   "timestamp": 30.0}]}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(insert_rows(cur, "sessions")[0]["last_activity_at"], 30.0)
+
+    def test_metadata_only_push_keeps_asserted_last_activity(self):
+        """No messages to derive from -> the client's own value passes
+        through (a title-only re-push must not blank the column)."""
+        sessions = [{"id": "s1", "title": "renamed", "last_activity_at": 5.0,
+                     "messages": []}]
+        resp, cur = self._push(sessions, existing_ids=("s1",))
+        self.assertEqual(last_update_map(cur, "sessions")["last_activity_at"], 5.0)
 
     def test_quota_gate_skipped_for_master_key(self):
         # user_id None (master key) -> no quota queries at all

@@ -362,6 +362,20 @@ def push_sync(body, ws):
             _msgs = session.get("messages") or []
             if _msgs:
                 session["message_count"] = len(_msgs)
+                # last_activity_at is DERIVED, never client-asserted: the
+                # newest message in this payload is the truth. Agents disagree
+                # on ended_at (measured 2026-09-13 over 40 pulled sessions:
+                # missing in 5, equal to the newest message time in only 3)
+                # and the Web already orders by MAX(message.timestamp), so the
+                # server is the single source. A message-less (metadata-only)
+                # push has no message to derive from and passes the client's
+                # own value through unchanged.
+                _last = max((m["timestamp"] for m in _msgs
+                             if isinstance(m, dict)
+                             and isinstance(m.get("timestamp"), (int, float))),
+                            default=None)
+                if _last is not None:
+                    session["last_activity_at"] = _last
             sid = session["id"]
             session_agent = session.get("agent_type") or "hermes"
             c.execute("SELECT id FROM sessions WHERE id = %s AND workspace_id = %s", (sid, wid))

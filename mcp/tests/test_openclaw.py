@@ -85,6 +85,31 @@ class OpenClawAdapterTest(unittest.TestCase):
         self.assertEqual(st["sessions"], 2)
         self.assertEqual(st["messages"], 2)
 
+    def test_write_stamps_real_last_activity_in_index(self):
+        """The gateway list orders by updatedAt/lastActivityAt: a pulled
+        session must carry its newest message time, not the sync instant
+        (decision record 2026.09.13.3)."""
+        a = OpenClawAdapter(store_dir=self.store)
+        a.write_sessions([{
+            "id": "codex:conv-last", "started_at": 1787709600.0,
+            "agent_type": "codex",
+            "messages": [
+                {"session_id": "codex:conv-last", "role": "user",
+                 "content": "a", "timestamp": 1787709600.5},
+                {"session_id": "codex:conv-last", "role": "assistant",
+                 "content": "b", "timestamp": 1787709999.0}]}])
+        index = json.loads((self.store / "sessions.json").read_text(encoding="utf-8"))
+        fresh = [e for e in index.values()
+                 if not str(e.get("sessionFile", "")).endswith(
+                     ("11111111-1111-1111-1111-111111111111.jsonl",
+                      "22222222-2222-2222-2222-222222222222.jsonl"))]
+        self.assertEqual(len(fresh), 1)
+        for field in ("updatedAt", "lastActivityAt", "lastInteractionAt"):
+            self.assertEqual(fresh[0][field], 1787709999000, field)
+        # and it reads back as the canonical field
+        back = {s["id"]: s for s in a.read_sessions()}["codex:conv-last"]
+        self.assertEqual(back["last_activity_at"], 1787709999.0)
+
     def test_write_and_dedupe(self):
         a = OpenClawAdapter(store_dir=self.store)
         foreign = [{
