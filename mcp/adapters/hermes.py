@@ -34,6 +34,9 @@ class HermesAdapter(SQLiteAdapter):
 
     agent_type = "hermes"
 
+    #: per-profile projects.db (see read_projects/write_projects below)
+    supports_projects = True
+
     table_sessions = "sessions"
     table_messages = "messages"
 

@@ -78,6 +78,28 @@ mcp/tests/test_<name>.py      # fixture 往返单测
      `stores_pulled_sessions = False`：pull 的完整性修复按 id 补回本地缺失的可见会话
      （见 ARCHITECTURE「本地删除不是删除信号」），只读适配器本地没有承载共享池会话的目标，
      不声明就会每轮把整个池子拉下来再丢弃。
+5. **项目（可选，仅当该 agent 有本地项目清单）**：实现
+   - `read_projects()` → canonical 项目列表（push 视图）
+   - `write_projects(projects, remaps)` → 落库（pull 视图；返回 `{"imported": N}`）
+   - `supports_projects = True`
+   三条一起加：`False`（默认）时 `mcp/server.py` 会在周期同步里跳过项目阶段，工具面返回
+   `Agent X has no local project store …`。契约要点（见 ARCHITECTURE「projects」「项目同名
+   合并」「字段级乐观并发」）：
+   - 项目标量 user-edit 字段 `name`/`primary_path`/`archived`/`description` 走字段级乐观
+     并发：pull 落库的值必须与上次 pull 给的值**逐字一致**（路径字段按分隔符/大小写折叠比对），
+     否则会被判为"本地脏"并在每轮 push 覆盖对端。路径身份/派生名要么原样保存服务端值，
+     要么只在服务端从未见过的路径上生成（首次接触 `base=None`，服务端权威）。
+   - folders 服务端按路径并集合并（不删除），客户端 pull 时已按本机分隔符对齐——写库时不要
+     改写服务端路径拼写，否则同一目录会插成两条。
+   - 项目池是工作空间级共享（`/api/projects/pull` 返回全部可见项目，与 `agent` 无关）；
+     服务端的 slug 同名合并按 `(workspace, profile, slug)`，所以派生 slug 必须逐路径唯一。
+   - 本地项目库若不以服务端 id 为键（如 WorkBuddy 只有路径表），需要自建身份侧车把服务端
+     id 记住（参考 `mcp/adapters/workbuddy.py` 的 `.workbuddy-sync-projects.json`）。
+   - **根形状路径不是项目**：`mcp/adapters/base.py::is_root_project_path`（盘符根/filesystem
+     根、home 及其祖先）在 push/pull 边界由客户端统一过滤，适配器不必自己实现；但若你的本地
+     项目清单是"打开过的目录"这类自动流水，请在 `read_projects` 里同样跳过它们（并清理自己的
+     id 侧车），否则会给永不上的路径铸号。理由见 ARCHITECTURE「根目录（home / 盘符根）不入
+     共享项目池」：根是万物的祖先，会让卡片变成兜底桶，且服务端 folders 只增不减（单向门）。
 
 ## 第 3 步：注册
 

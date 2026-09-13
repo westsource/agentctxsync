@@ -315,6 +315,157 @@ class WorkBuddyWriteTest(unittest.TestCase):
             self.assertEqual(sessions[0]["id"], fid)  # foreign id unchanged
 
 
+class WorkBuddyProjectsTest(unittest.TestCase):
+    """workbuddy.db ``workspaces`` <-> canonical projects (shared pool)."""
+
+    SERVER = {
+        "id": "p_srv", "slug": "srv-proj", "name": "Server Name",
+        "description": None, "created_at": 1_700_000_000.0, "archived": 0,
+    }
+
+    def _adapter(self, td: Path):
+        home = td / ".workbuddy"
+        home.mkdir(parents=True, exist_ok=True)
+        return WorkBuddyAdapter(home), home
+
+    def _use_workspace(self, home: Path, path: str, ts_ms: int):
+        """One workspace row, as the desktop app writes it."""
+        Path(path).mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(home / "workbuddy.db"))
+        conn.execute("CREATE TABLE IF NOT EXISTS workspaces ("
+                     " path TEXT PRIMARY KEY, last_opened_at INTEGER NOT NULL)")
+        conn.execute("INSERT OR REPLACE INTO workspaces VALUES (?,?)",
+                     (path, ts_ms))
+        conn.commit()
+        conn.close()
+
+    def _pulled(self, *paths: str, pid: str = "p_srv",
+                name: str = "Server Name", slug: str = "srv-proj") -> dict:
+        p = dict(self.SERVER, id=pid, name=name, slug=slug,
+                 primary_path=paths[0])
+        p["folders"] = [{"path": x, "label": None,
+                         "is_primary": 1 if i == 0 else 0,
+                         "added_at": 1_700_000_000} for i, x in enumerate(paths)]
+        return p
+
+    def test_read_projects_mints_stable_path_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            a, home = self._adapter(td)
+            a_path, b_path = str(td / "ProjA"), str(td / "ProjB")
+            self._use_workspace(home, a_path, TS_MS)
+            self._use_workspace(home, b_path, TS_MS + 60_000)
+
+            projects = a.read_projects()
+            self.assertEqual({p["primary_path"] for p in projects},
+                             {a_path, b_path})
+            by_path = {p["primary_path"]: p for p in projects}
+            self.assertEqual(by_path[a_path]["name"], "ProjA")
+            self.assertEqual(by_path[b_path]["name"], "ProjB")
+            self.assertAlmostEqual(by_path[a_path]["created_at"],
+                                   TS_MS / 1000.0, places=3)
+            self.assertTrue(all(p["id"].startswith("wb_") for p in projects))
+            # the path flattening is unique per directory: two projects can
+            # never collide onto one slug (and thus merge server-side)
+            self.assertNotEqual(by_path[a_path]["slug"], by_path[b_path]["slug"])
+            self.assertEqual(by_path[a_path]["folders"],
+                             [{"path": a_path, "label": None, "is_primary": 1,
+                               "added_at": by_path[a_path]["created_at"]}])
+            # newest workspace first
+            self.assertEqual(projects[0]["primary_path"], b_path)
+            # ids survive a restart (the sidecar is the local id registry)
+            self.assertEqual([p["id"] for p in WorkBuddyAdapter(home).read_projects()],
+                             [p["id"] for p in projects])
+
+    def test_write_projects_adds_workspaces_and_read_adopts_server_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            a, home = self._adapter(td)
+            a_path, b_path = str(td / "ProjA"), str(td / "ProjB")
+
+            stats = a.write_projects([self._pulled(a_path, b_path)])
+            self.assertEqual(stats["imported"], 2)
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            rows = dict(conn.execute("SELECT path, last_opened_at FROM workspaces"))
+            conn.close()
+            self.assertEqual(rows, {a_path: 1_700_000_000_000,
+                                    b_path: 1_700_000_000_000})
+            self.assertTrue(Path(a_path).is_dir())   # WorkBuddy needs the dir
+
+            # one project for the whole server project -- the second path must
+            # not mint a second one -- and the SERVER's name survives (a
+            # derived basename would read as a local edit and overwrite it)
+            projects = a.read_projects()
+            self.assertEqual(len(projects), 1)
+            self.assertEqual(projects[0]["id"], "p_srv")
+            self.assertEqual(projects[0]["name"], "Server Name")
+            self.assertEqual(projects[0]["slug"], "srv-proj")
+            self.assertEqual(projects[0]["created_at"], 1_700_000_000.0)
+            self.assertEqual([f["path"] for f in projects[0]["folders"]],
+                             [a_path, b_path])
+
+    def test_write_projects_keeps_existing_rows_and_local_only_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            a, home = self._adapter(td)
+            known, local_only = str(td / "Known"), str(td / "LocalOnly")
+            self._use_workspace(home, known, TS_MS)      # opened by the user
+            self._use_workspace(home, local_only, TS_MS + 1000)
+
+            stats = a.write_projects([self._pulled(known)])
+            # an existing row is never re-dated: last_opened_at is the app's
+            # own clock, and importing cannot invent a second row for it
+            self.assertEqual(stats["imported"], 0)
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            rows = dict(conn.execute("SELECT path, last_opened_at FROM workspaces"))
+            conn.close()
+            self.assertEqual(rows, {known: TS_MS, local_only: TS_MS + 1000})
+            # the pulled path carries its server identity; the path with no
+            # server project keeps a minted one
+            by_path = {p["primary_path"]: p for p in a.read_projects()}
+            self.assertEqual(by_path[known]["id"], "p_srv")
+            self.assertTrue(by_path[local_only]["id"].startswith("wb_"))
+            # a second pull of the same project changes nothing (idempotent)
+            self.assertEqual(a.write_projects([self._pulled(known)])["imported"], 0)
+
+    def test_read_projects_skips_root_workspaces(self):
+        """A drive root / user home stays a WorkBuddy workspace but is never a
+        project (no id minted, no sidecar key), and a root-shaped project from
+        the server is neither materialised nor recorded."""
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            a, home = self._adapter(td)
+            proj = str(td / "Proj")
+            self._use_workspace(home, proj, TS_MS)
+            self._use_workspace(home, str(Path.home()), TS_MS + 1000)
+
+            projects = a.read_projects()
+            self.assertEqual([p["primary_path"] for p in projects], [proj])
+            # stable across a restart (nothing root-shaped reached the sidecar)
+            self.assertEqual(
+                [p["id"] for p in WorkBuddyAdapter(home).read_projects()],
+                [p["id"] for p in projects])
+
+            for root in (str(Path(td).anchor), str(Path.home())):
+                root_only = self._pulled(root, pid="p_root", name="Root",
+                                         slug="root")
+                self.assertEqual(a.write_projects([root_only]),
+                                 {"imported": 0}, root)
+
+            conn = sqlite3.connect(str(home / "workbuddy.db"))
+            rows = sorted(r[0] for r in conn.execute("SELECT path FROM workspaces"))
+            conn.close()
+            self.assertEqual(rows, sorted([proj, str(Path.home())]))
+            self.assertEqual([p["primary_path"] for p in a.read_projects()],
+                             [proj])
+
+    def test_read_projects_empty_store(self):
+        with tempfile.TemporaryDirectory() as td:
+            a, _ = self._adapter(Path(td))
+            self.assertEqual(a.read_projects(), [])
+            self.assertEqual(a.write_projects([]), {"imported": 0})
+
+
 class WorkBuddySlugTest(unittest.TestCase):
     def test_slugify(self):
         self.assertEqual(WorkBuddyAdapter.slugify(r"F:\OpenCode\agentctxsync"),

@@ -139,7 +139,7 @@
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
 | `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，世代化事件日志 `session.vN.jsonl[.zstd]`，当前 v3、逐行 zstd 帧、写入发布后继且冻结前代；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
-| `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算） |
+| `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算；项目同步 = `workspaces` 表 + `.workbuddy-sync-projects.json` 身份侧车） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析、`model` 列写 `{id, providerID}` JSON）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
 | `adapters/openclaw.py` | OpenClaw 网关会话库（`sessions.json` 索引 + JSONL v3 transcript；`openclaw:server_id` 元数据保往返 id 稳定；运行中网关会覆写索引——建议关闭 OpenClaw 后同步） |
@@ -476,13 +476,21 @@ O(可见 × |清单|)。
   存储**的 agent 有意义，各适配器差异如下——
   - **hermes**：`projects.db`（`projects` 表 + `project_folders` 表），项目为独立实体 →
     纳入 Phase 2 字段级合并。
-  - **workbuddy**：**无独立项目实体**。会话文件存于 `~/.workbuddy-ai/projects/<slug>/<id>.jsonl`，
+  - **workbuddy**：会话文件存于 `~/.workbuddy-ai/projects/<slug>/<id>.jsonl`，
     `projects/` 下的目录 slug 由该会话 `cwd` 经 `slugify()` 派生（`workbuddy.py::_session_path`），
-    `cwd` 存于 `workbuddy.db`。因此 workbuddy 的"项目归属"本质就是 `cwd`——已被 Phase 1 会话
-    字段级并发（`cwd ∈ USER_EDIT_FIELDS`）覆盖，项目层无元数据可冲突。
+    `cwd` 存于 `workbuddy.db`——**会话层的"项目归属"就是 `cwd`**，已被 Phase 1 会话字段级并发
+    （`cwd ∈ USER_EDIT_FIELDS`）覆盖。
+    另有**项目清单**：`workbuddy.db` 的 `workspaces` 表（`path` + `last_opened_at`，
+    WorkBuddy 自己维护的"打开过的目录"）。该表**没有** id/slug/name 列，所以 2026.09.13.2 起
+    由适配器侧车 `.workbuddy-sync-projects.json` 承载身份（服务端下发的 id/slug/name/folders；
+    服务端未见过的路径确定性地铸 `wb_<sha1(path_key)>`），即"本地项目库"由 `workspaces` 表 +
+    侧车共同构成，字段级合并对 workbuddy 同样生效（详见 workbuddy 适配器章节的"项目"小节）。
+    其中**根形状**条目（`D:\`、`C:\Users\<name>`）按决策记录 2026.09.13.2 **不入池**。
   - **reasonix**：**无项目概念**。会话为 `<state root>/sessions/<id>.jsonl` 扁平目录，读出的
     会话连 `cwd` 都没有，无项目目录/元数据，无冲突面。
-  - 结论：项目字段级合并仅 hermes 生效；workbuddy 由 cwd 承载（会话层已保护）；reasonix 无项目。
+  - 结论：项目字段级合并对 **hermes**（`projects.db`）与 **workbuddy**（`workspaces` + 身份侧车）
+    生效；reasonix 无项目。其余适配器声明 `supports_projects = False`，周期同步直接跳过项目阶段
+    （此前会在每轮日志里报一次 AttributeError）。
 - 回归防线：`server/tests/test_sync.py`（base=None 拒绝 / 已知 base 接受 / no-op / 并发到达
   LWW / 旧客户端回退）、`mcp/tests`（脏检测、pull 不覆盖脏字段、sidecar 惰性填充）。
 
@@ -520,6 +528,79 @@ O(可见 × |清单|)。
 - 回归防线：`server/tests/test_sync.py` `ProjectsPushMergeTest`
   （`test_existing_id_renamed_slug_keeps_server_name` /
   `test_existing_id_renamed_slug_new_client_preserves_name`）。
+
+#### 根目录（home / 盘符根）不入共享项目池（决策记录 2026.09.13.2）
+
+> **触发**：workbuddy 项目清单接入后（决策记录同版本），WorkBuddy 的 `workspaces` 表里存在
+> `D:\`、`C:\Users\rong` 这类"根"条目，被如实上行成项目卡。随后的问题：各 agent 拉到本机后，
+> 是否应当**自动识别**这类根项目，并把**本机的根**（`Path.home()`）作为 folder 并集进去，
+> 让"一张卡覆盖所有机器的 home"？
+>
+> **结论**：识别，但**排除**（`is_root_project_path`）——根形状路径永远不进共享项目池；
+> 不做任何"跨机 home 并集"。理由是机制上的**单向门**与语义上的**兜底桶**：
+
+- **为什么"并集本机 home"看着合理但不行**：
+  1. **单向门**：`project_folders` 只并集、**无删除 API**（`server/projects.py` 全文只有合并
+     时 `DELETE FROM project_folders`），且**项目没有 Web 隐藏/归档/删除入口**
+     （`projects.hidden` 列存在但无任何代码写它）。别名 folder 一旦上行即永久，兜底卡无法在
+     UI 关掉。
+  2. **兜底桶**：Web 的项目↔会话关联是 `LOWER(cwd)` **前缀匹配该项目的任一 folder**
+     （`server/workspace.py::_session_for_project_match`），任意深度子目录都算。根是万物祖先：
+     实测本机 workbuddy 的 286 条会话中，`rong`(`C:/Users/rong`) 吞 **99** 条、`D:` 吞 **27**
+     条，合计 **110/286（38%）**；其中 62 条是适配器为外来会话建的**合成兜底目录**
+     `~/hermes-sync-foreign`（不是"主目录里的工作"）。再加本机 home 并集后该卡预计 **153/286**。
+  3. **嵌套重复**：`C:\Users\X1\Documents` 已是项目「对话分析」(`p_e5fff637`) 的 folder；再把
+     `C:\Users\X1` 并进根卡，同一会话会**同时**出现在两张卡下（关联不排他）——语义污染而非重复数据。
+  4. **跨 agent 传染**：folder 是共享池数据，别名会上行并被所有设备/agent 拉走（hermes 会写进
+     自己的 `projects.db` 并在桌面端项目里显示），而撤不回来。
+- **另一条硬约束（即使要做也不许违反）**：跨机等价只能落在 **folders**（按路径并集、幂等），
+  **绝不能改写 `primary_path`**——它是 per-field LWW 的 user-edit 字段，A 机推
+  `C:/Users/rong`、B 机推 `C:/Users/X1` 会每周期互推覆盖（ping-pong 永不收敛）。
+- **谓词**（`mcp/adapters/base.py::is_root_project_path`）：`_path_key` 归一后（`\`→`/`、
+  Windows 折叠大小写）去掉尾斜杠，命中以下之一即"根形状"——空串（POSIX `/`）、`/root`、
+  `^[a-z]:$`（盘符根）、`^(?:[a-z]:)?/(?:users|home)(?:/[^/]+)?$`（home 及其祖先
+  `/home`、`/Users`、`C:/Users`、`/home/<n>`、`C:/Users/<n>`）。`C:/Users/<n>/Documents`
+  这类**真目录不命中**。
+- **三处使用**：
+  - `mcp/server.py::push_projects`：逐项目过 `strip_root_project_paths`（丢根路径；**全部**
+    路径都是根的"纯根项目"整个不上行；`primary_path` 只置 `None`、绝不改写成别的路径）。
+  - `mcp/server.py::pull_projects`：同一过滤器作用于服务端返回的载荷——根路径不写进本地 store、
+    不进身份侧车；纯根项目不落地（留在服务端、不改动）。
+  - `mcp/adapters/workbuddy.py`：`read_projects` 跳过根形状 workspace（不铸 id）、
+    `_save_project_map` 剔除根键、`write_projects` 不把根路径落成 workspace 行——共享谓词决定
+    语义，适配器只保证自己的 id 注册表/本地列表干净。
+  - 本地**全保留**：`D:\`、`C:\Users\rong` 仍是 WorkBuddy 的正常 workspace；hermes 的
+    `projects.db` 完全不动（若它有 home 项目，只是不再同步）。
+- **实测影响**（生产 workspace 4 + 本机 workbuddy store）：
+  | 指标 | 排除前 | 排除后 |
+  |---|---|---|
+  | 服务端项目卡 | 13（含 `D:`、`rong`） | 11 |
+  | 本机 workbuddy 参与同步的 workspace 键 | 15 | 13 |
+  | 本机会话归组命中 | 207/286 | 97/286 |
+  | 本地↔服务端差异 | 1（`F:/软考/2026下半年` 不可落地） | 3（2 条根 + 同上） |
+  即"逐条一致"变成"**除根形状条目外一致**"；同时**诚实记录**：本次项目同步对本机会话分组的
+  净收益≈0（97 vs 未同步前的 95），因为本机 workbuddy 会话大多住在 `C:\Users\X1`(54)、
+  `~/hermes-sync-foreign`(71)、`c:/tmp`(7) 这类**非项目目录**；真实收益是"项目清单对齐 +
+  其他机器/agent 的会话能归入这些项目"。
+- **被否决的备选**：
+  1. **客户端别名并集**（各 agent 拉到时把本机 home 并进根项目）：见上四条，单向门 + 兜底桶。
+  2. **服务端可回退 path alias**（不动项目数据，只在 Web 关联时按设备解析 home 等价）：
+     机制上更优雅且可撤销，但要新增 schema + UI；且解决不了"本机项目清单缺一张卡"。**保留为
+     未来选项**：若将来确实需要"跨机 home 归组"，走这条路，而不是往 folders 里塞别名。
+  3. **维持现状（各机各卡）**：语义重复的 home 卡并存（`rong` / `X1`），且仍带兜底桶效应。
+- **退役已上行的根卡**：无 API → 用 `scripts/hide-root-projects.py`（`--dry-run` 默认 /
+  `--apply` 隐藏 / `--undo` 恢复）。`UPDATE projects SET hidden=1, hidden_at=…` 让卡片同时从
+  Web 项目列表与 `/api/projects/pull` 消失，且**不会被动复活**：push 的 UPDATE 分支只写
+  plain 字段 + 被断言的 user-edit 字段，`hidden` 从不在写入列表内（与「`/push` 不复活隐藏会话」
+  同一条规则）。脚本自带的谓词是 `base.py` 的镜像（服务端部署无法干净 import `mcp/`——它是与
+  已安装 mcp SDK 撞名的 namespace 目录），由 `mcp/tests/test_project_roots.py::ScriptPredicateTest`
+  守住一致性。
+- **边界与例外**：有人确实把 home 当主工作区——排除后其 home 无法作为项目同步。要保这个能力
+  需要**显式白名单**（如项目字段 `root_ok: true`），不做路径形状的自动放行。
+- 回归防线：`mcp/tests/test_project_roots.py`（谓词正/反例表、`strip_root_project_paths` 的
+  "只丢路径不改 primary_path"/纯根项目丢弃/无路径项目原样通过、脚本谓词一致性）、
+  `mcp/tests/test_mcp_server.py::RootProjectFilterTest`（push 丢根与纯根不上行、pull 不落地）、
+  `mcp/tests/test_workbuddy.py::WorkBuddyProjectsTest::test_read_projects_skips_root_workspaces`。
 
 ### 配额执法（Quota Enforcement）
 
@@ -728,6 +809,27 @@ O(可见 × |清单|)。
      下次启动被识别（drizzle 迁移在表已存在时跳过）。
   5. user_id 解析链：env `WORKBUDDY_USER_ID` → `settings.json claw.legacyOwnerUid` →
      首个现有会话的 user_id → 兜底 `hermes-sync`。
+- **项目（共享项目池，2026.09.13.2 起）**：`workbuddy.db``workspaces` 表（`path` +
+  `last_opened_at` ms，WorkBuddy 自己维护的"打开过的目录"）就是 WorkBuddy 的项目清单；它没有
+  id/slug/name 列，身份由侧车 `.workbuddy-sync-projects.json` 承载：
+  - **read（push 视图）**：每条 workspace 路径一个项目。路径已由上次 pull 记入侧车 → 直接用
+    **服务端**的 id/slug/name/folders（若改用目录名等派生值，pull 后本地值与锚定 base 不等，
+    会被判为"本地脏"并在每轮 push 把对端项目名覆盖掉）；服务端未见过的路径 → 铸
+    `wb_<sha1(path_key)>`（`_path_key` = 分隔符归一 + Windows 大小写折叠）+ `slugify(path)`
+    做 slug（整路径压平 ⇒ 不同目录绝不会撞 slug 而被服务端同名合并）+ 目录名做 name，
+    并立即写入侧车（`workspaces` 表放不下 id，侧车即本地 id 注册表，保证重启后 id 稳定）。
+  - **write（pull 视图）**：按本次 pull **全量重建**侧车，并为每个项目路径落一条 `workspaces`
+    行（同时建目录——WorkBuddy 打不开不存在的工作目录）。已存在的行只保留、不再定日期：
+    `last_opened_at` 是 app 自己的"用户打开过"时钟，不是同步数据；本地行**永不删除**
+    （与"本地删除不是删除信号"一致）。remap 无需本地迁移：本地项目库不以 id 为键，合并后的
+    项目随本次 pull 直接重建为存活 id。
+  - **根形状条目不入池**（`D:\`、`C:\Users\<name>`，决策记录 2026.09.13.2）：`read_projects`
+    跳过（不铸 id）、侧车剔除根键、`write_projects` 不落成 workspace 行；客户端另在
+    push/pull 边界统一过滤（`base.strip_root_project_paths`），所以本地这些目录仍照常是
+    WorkBuddy 的 workspace，只是永远不作为项目上行。
+- **能力位**：`supports_projects = True`（base 默认 False）。没有本地项目库的适配器
+  （opencode/dsh/omp/reasonix/openclaw/chatgpt）由 `server.py` 跳过项目阶段，工具面返回
+  `Agent X has no local project store …` 而不是 AttributeError。
 
 
 ## oh-my-pi 接入方案（调研与决策记录 2026.08.28；pi 已随 2026-08-29 移除）

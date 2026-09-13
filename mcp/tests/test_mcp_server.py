@@ -578,6 +578,133 @@ class ProjectFieldMergeTest(unittest.TestCase):
                          {"p1": {"name": {"base": 7, "val": "新名"}}})
 
 
+class ProjectCapabilityTest(unittest.TestCase):
+    """Project sync runs on every cycle for every agent, so an agent without a
+    local project store must be answered, not crashed into (Adapter
+    ``supports_projects``)."""
+
+    class _FakeAdapter:
+        agent_type = "dsh"
+        supports_projects = False
+
+        def discover(self):
+            return "store"
+
+    def test_tools_report_missing_project_store(self):
+        with mock.patch.object(server, "adapter", self._FakeAdapter()):
+            self.assertIn("no local project store",
+                          server.push_projects()["error"])
+            self.assertIn("no local project store",
+                          server.pull_projects()["error"])
+
+    def test_declared_support_pushes_local_projects(self):
+        read = []
+
+        class WithProjects(self._FakeAdapter):
+            supports_projects = True
+
+            def read_projects(self):
+                read.append(1)
+                return [{"id": "p1", "slug": "s1", "name": "P1"}]
+
+        pushed = {}
+
+        def fake_api(method, path, data=None):
+            pushed.update(data or {})
+            return {"imported": 1, "updated": 0, "merged": 0,
+                    "project_revs": {"p1": {"rev": 1, "field_rev": {}}}}
+
+        with mock.patch.object(server, "adapter", WithProjects()), \
+                mock.patch.object(server, "PROJECT_FIELD_META_PATH", None), \
+                mock.patch.object(server, "api_call", side_effect=fake_api):
+            result = server.push_projects()
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(read, [1])
+        self.assertEqual([p["id"] for p in pushed["projects"]], ["p1"])
+
+
+class RootProjectFilterTest(unittest.TestCase):
+    """Root-shaped paths never reach the shared pool: a folder the Web
+    prefix-matches sessions against must express a project boundary, and a
+    root is every session's ancestor (docs/ARCHITECTURE.md 根目录不入共享项目池)."""
+
+    class _FakeAdapter:
+        agent_type = "hermes"
+        supports_projects = True
+        written = None
+
+        def __init__(self, projects):
+            self._projects = projects
+
+        def discover(self):
+            return "store"
+
+        def read_projects(self):
+            return [dict(p) for p in self._projects]
+
+        def write_projects(self, projects, remaps=None):
+            self.__class__.written = projects
+            return {"imported": len(projects)}
+
+    def _push(self, projects):
+        pushed = {}
+
+        def fake_api(method, path, data=None):
+            pushed.update(data or {})
+            return {"imported": 1, "updated": 1, "merged": 0,
+                    "project_revs": {}}
+
+        a = self._FakeAdapter(projects)
+        with mock.patch.object(server, "adapter", a), \
+                mock.patch.object(server, "PROJECT_FIELD_META_PATH", None), \
+                mock.patch.object(server, "api_call", side_effect=fake_api):
+            result = server.push_projects()
+        return result, pushed
+
+    def test_push_drops_root_paths_and_root_only_projects(self):
+        _, pushed = self._push([
+            {"id": "p1", "slug": "s1", "name": "P1",
+             "primary_path": "C:/Users/rong",
+             "folders": [{"path": "C:/Users/rong"}, {"path": "E:/proj"}]},
+            {"id": "p2", "slug": "s2", "name": "P2", "primary_path": "D:/",
+             "folders": [{"path": "D:/"}]},
+        ])
+        sent = pushed["projects"]
+        self.assertEqual([p["id"] for p in sent], ["p1"])
+        # the root primary is dropped, never rewritten to the surviving folder
+        # (primary_path is a per-field LWW value: inventing one would look like
+        # a local edit and overwrite the peer's value every cycle)
+        self.assertIsNone(sent[0]["primary_path"])
+        self.assertEqual([f["path"] for f in sent[0]["folders"]], ["E:/proj"])
+
+    def test_push_with_only_root_projects_pushes_nothing(self):
+        result, pushed = self._push([{"id": "p", "slug": "s", "name": "N",
+                                      "primary_path": "D:/", "folders": []}])
+        self.assertEqual(result, {"message": "No local projects to push"})
+        self.assertEqual(pushed, {})
+
+    def test_pull_skips_root_paths_and_root_only_projects(self):
+        payload = {"projects": [
+            {"id": "p1", "slug": "s1", "name": "P1",
+             "primary_path": "C:/Users/rong",
+             "folders": [{"path": "C:/Users/rong"}, {"path": "E:/proj"}],
+             "field_rev": {}},
+            {"id": "p2", "slug": "s2", "name": "P2", "primary_path": "D:/",
+             "folders": [{"path": "D:/"}], "field_rev": {}},
+        ], "remaps": []}
+        a = self._FakeAdapter([])
+        with mock.patch.object(server, "adapter", a), \
+                mock.patch.object(server, "PROJECT_FIELD_META_PATH", None), \
+                mock.patch.object(server, "api_call", return_value=payload):
+            result = server.pull_projects()
+        self.assertEqual(result["projects"], 1)     # p2 never reaches the store
+        written = self._FakeAdapter.written
+        self.assertEqual([p["id"] for p in written], ["p1"])
+        self.assertIsNone(written[0]["primary_path"])
+        self.assertEqual([f["path"] for f in written[0]["folders"]],
+                         ["E:/proj"])
+
+
 class SyncLockAndRoleTest(unittest.TestCase):
     """Cross-process sync lock extended to mutating tool calls, and the
     startup-loser standby role (see the helpers above _SyncServer)."""
