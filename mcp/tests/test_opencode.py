@@ -9,6 +9,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -180,6 +181,43 @@ class OpencodeAdapterTest(unittest.TestCase):
                           (local,)).fetchone()[0]
         con.close()
         self.assertEqual(pid, "proj_a", pid)
+
+    def test_write_stamps_real_last_activity(self):
+        """`session.time_updated` is the opencode desktop's sort key: a pulled
+        session must land with its newest message time, not the sync instant
+        (decision record 2026.09.13.3)."""
+        a = OpencodeAdapter(db_path=self.db)
+        a.write_sessions([{
+            "id": "hermes:activity-probe", "title": "A", "started_at": 1787709600.0,
+            "cwd": "e:/opencode/myproj", "agent_type": "hermes",
+            "messages": [
+                {"session_id": "hermes:activity-probe", "role": "user",
+                 "content": "a", "timestamp": 1787709600.5},
+                {"session_id": "hermes:activity-probe", "role": "assistant",
+                 "content": "b", "timestamp": 1787709999.0}]}])
+        local = json.loads(
+            (self.db.with_name(".hermes-sync-idmap.json")).read_text()
+        )["hermes:activity-probe"]
+        con = sqlite3.connect(self.db)
+        created, updated = con.execute(
+            "SELECT time_created, time_updated FROM session WHERE id=?",
+            (local,)).fetchone()
+        con.close()
+        self.assertEqual(updated, 1787709999000)          # newest message
+        self.assertEqual(created, 1787709600000)
+        self.assertLess(updated, int(time.time() * 1000) - 60_000)
+
+        # an update path (re-pull of a live session) stamps it the same way
+        a.write_sessions([{
+            "id": "hermes:activity-probe", "title": "A", "started_at": 1787709600.0,
+            "cwd": "e:/opencode/myproj", "agent_type": "hermes",
+            "messages": [{"session_id": "hermes:activity-probe", "role": "user",
+                          "content": "c", "timestamp": 1787710500.0}]}])
+        con = sqlite3.connect(self.db)
+        updated = con.execute("SELECT time_updated FROM session WHERE id=?",
+                              (local,)).fetchone()[0]
+        con.close()
+        self.assertEqual(updated, 1787710500000)
 
     def test_write_existing_updates_in_place(self):
         a = OpencodeAdapter(db_path=self.db)
