@@ -12,6 +12,7 @@ import psycopg2.extras
 
 import captcha
 import emailverify
+import jsonbody
 import mailer
 import ratelimit
 
@@ -1093,7 +1094,7 @@ async def web_logout():
 async def api_register(request: Request, user: dict = Depends(require_admin)):
     if not ratelimit.allow("register", client_ip(request)):
         raise HTTPException(status_code=429, detail="Too many registrations from this IP")
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     username = body.get("username", "").strip()
     password = body.get("password", "")
     display_name = str(body.get("display_name", username)).strip() or username
@@ -1141,7 +1142,7 @@ async def api_register(request: Request, user: dict = Depends(require_admin)):
 
 @router.post("/api/auth/login")
 async def api_login(request: Request):
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     username = body.get("username", "")
     password = body.get("password", "")
     if not ratelimit.allow("login", client_ip(request)):

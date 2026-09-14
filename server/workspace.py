@@ -17,6 +17,7 @@ from auth import (PASSWORD_MAX, email_action_allowed, generate_api_key,
                   verify_password)
 from db import (_pg_val, get_conn, get_nav_workspaces,
                get_user_workspaces, rel_sync_label)
+import jsonbody
 from render import get_lang, get_translations, make_flash, render_page
 
 router = APIRouter()
@@ -917,7 +918,7 @@ async def api_me(user: dict = Depends(get_current_user)):
 
 @router.post("/api/me/change-password")
 async def api_change_password(request: Request, user: dict = Depends(get_current_user)):
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     old_pw = body.get("old_password", "")
     new_pw = body.get("new_password", "")
     if len(new_pw) < 6:
@@ -946,7 +947,7 @@ async def api_list_workspaces(user: dict = Depends(get_current_user)):
 async def api_create_workspace(request: Request, user: dict = Depends(get_current_user)):
     if not email_action_allowed(user["sub"]):
         raise HTTPException(status_code=403, detail="Email verification required")
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     name = body.get("name", "").strip()
     description = body.get("description", "").strip()
     if not name:
@@ -956,11 +957,13 @@ async def api_create_workspace(request: Request, user: dict = Depends(get_curren
     with get_conn() as conn:
         c = conn.cursor()
         try:
-            c.execute("INSERT INTO workspaces (name, user_id, api_key, description, created_at) VALUES (%s, %s, %s, %s, %s)",
+            c.execute("INSERT INTO workspaces (name, user_id, api_key, description, created_at) "
+                      "VALUES (%s, %s, %s, %s, %s) RETURNING id",
                       (name, user["sub"], api_key, description, now))
+            ws_id = c.fetchone()[0]
         except psycopg2.errors.UniqueViolation:
             raise HTTPException(status_code=409, detail="Workspace name already exists")
-    return {"id": c.fetchone()[0] if c.fetchone() else None, "name": name, "api_key": api_key}
+    return {"id": ws_id, "name": name, "api_key": api_key}
 
 @router.delete("/api/workspaces/{ws_id}")
 async def api_delete_workspace(ws_id: int, user: dict = Depends(get_current_user)):
