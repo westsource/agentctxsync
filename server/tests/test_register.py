@@ -385,10 +385,11 @@ class EmailActivationTest(unittest.TestCase):
     def _confirm(self):
         raw = "activation-token-raw"
         now = time.time()
-        # Row stream in fetchone order:
-        # 1 token lookup row (tuple), 2 user row FOR UPDATE (dict),
-        # 3 email-uniqueness (None = free), 4 workspace-exists (None = none),
-        # 5 default workspace insert RETURNING id.
+        # Row stream in fetchone order. Shapes mirror the real cursors: the
+        # token lookup runs on a plain cursor (tuple), everything after on the
+        # route's RealDictCursor -- so RETURNING id must arrive as a dict.
+        # 1 token lookup, 2 user row FOR UPDATE, 3 email-uniqueness (None =
+        # free), 4 workspace-exists (None = none), 5 workspace insert id.
         rows = [
             (11, 7, "verify_email", "alice@example.com", now + 1800, None),
             {"id": 7, "username": "alice", "display_name": "Alice",
@@ -399,7 +400,7 @@ class EmailActivationTest(unittest.TestCase):
              "pending_email": "alice@example.com",
              "pending_email_normalized": "alice@example.com"},
             None, None,
-            (1,),
+            {"id": 1},
         ]
         cursor = FakeCursor(rows)
         conn = FakeConn(cursor)
@@ -437,6 +438,7 @@ class EmailActivationTest(unittest.TestCase):
                             for s, _ in cursor.executed))
         audit = next(p for s, p in cursor.executed if "INSERT INTO audit_log" in s)
         self.assertEqual(audit[1], "email_verified")
+        self.assertEqual(audit[3], 1)  # audit row links the new workspace
         self.assertFalse(conn.rolled_back)
 
     def test_activation_keeps_existing_workspace(self):
@@ -454,7 +456,7 @@ class EmailActivationTest(unittest.TestCase):
              "pending_email": "alice@example.com",
              "pending_email_normalized": "alice@example.com"},
             None,
-            (9,),  # workspace already exists -> no insert
+            {"?column?": 1},  # workspace already exists -> no insert
         ]
         cursor = FakeCursor(rows)
         conn = FakeConn(cursor)

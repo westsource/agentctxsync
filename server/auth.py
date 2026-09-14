@@ -653,7 +653,9 @@ async def web_verify_email_confirm(request: Request):
                                   "VALUES (%s, %s, %s, %s, %s) RETURNING id",
                                   (_DEFAULT_WS_NAME[u["lang"] or "zh-CN"],
                                    u["id"], generate_api_key(), "", now))
-                        ws_id = c.fetchone()[0]
+                        # c is a RealDictCursor: RETURNING id yields a dict,
+                        # positional access raises KeyError (5xx) here.
+                        ws_id = c.fetchone()["id"]
                 emailverify.consume_token(conn, tok["id"], now)
                 audit_event(conn, "email_verified", u["id"],
                             f"email={tok['email_normalized']}", ws_id)

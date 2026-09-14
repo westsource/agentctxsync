@@ -1,3 +1,30 @@
+## [2026.09.14.1] - 2026-09-14
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-14 17:12 CST），部署前校验远端 `auth.py` 与提交 `e1ed694` 逐字一致
+> （LF 归一化 sha256 `1ee30069…`），重启前把原文件备份为同目录的
+> `auth.py.bak-verify-email-fix-2026.09.14`；重启后 `/health` 200、日志无异常，并用线上
+> 真实令牌跑通一次激活（`POST /web/verify-email` → 303 `/web/`）。
+
+### Fixed（邮箱注册的首次激活必 500：`RealDictCursor` 上按位置取 `RETURNING id`）
+
+- **现象**：邮件里的激活链接本身正常（GET `/web/verify-email?token=…` 200，停在「确认并激活」
+  页），但点按钮 `POST /web/verify-email` **必 500**（线上 journalctl：
+  `auth.py:656 ws_id = c.fetchone()[0]` → `KeyError: 0`）。用户停在
+  `PENDING_EMAIL_VERIFICATION`；异常发生在 `get_conn()` 事务内，回滚后令牌未消费
+  （刷新页面可重试，TTL 30 分钟）。
+- **根因**：`server/auth.py::web_verify_email_confirm` 用
+  `psycopg2.extras.RealDictCursor` 建游标（用户行按 `u["id"]` 取值），但新建默认工作空间后
+  `RETURNING id` 那行仍按位置取 `[0]` —— dict 行没有下标 0。触发条件是
+  「`auth_source = EMAIL_REQUIRED` 且名下无工作空间」，正是邮箱注册的必经分支：**新注册账户
+  100% 无法激活**；老账户换绑邮箱因已有工作空间不走该分支，未受影响。
+- **修复**：改用 `c.fetchone()["id"]`（一行），并在原处注明游标类型防止同类回归。
+- **测试**：`server/tests/test_register.py::EmailActivationTest` 的假游标此前用元组 `(1,)`
+  喂 `RETURNING id`，与真实 `RealDictCursor` 形状不符，恰好掩盖了该缺陷；现改为 `{"id": 1}`
+  （workspace-exists 检查行同步改为 `{"?column?": 1}`），并断言审计行记录新建工作空间
+  （`audit[3] == 1`）。回归可复现：把 `[0]` 改回去即 `KeyError: 0`，修复后通过。
+  server 全量 196 用例通过（2 skip）。
+
 ## [2026.09.13.4] - 2026-09-13
 
 > 客户端发布：`CLIENT_VERSION` 2026.09.13.3 → **2026.09.13.4**（客户端包有改动，各端经
