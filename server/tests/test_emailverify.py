@@ -87,17 +87,16 @@ class TokenTest(unittest.TestCase):
         self.assertEqual(insert_params[2], emailverify.token_digest(raw))  # hash
         self.assertNotEqual(insert_params[2], raw)          # never plaintext
 
-    def test_expiry_follows_purpose_ttl(self):
-        """Activation links live 12 h; reset links keep the short 30 min
-        window (the link alone is enough to take over an account)."""
+    def test_expiry_is_the_shared_token_ttl(self):
+        """Activation and reset links both live TOKEN_TTL (3 h)."""
         now = 1_700_000_000.0
-        for purpose, ttl in ((emailverify.PURPOSE_VERIFY_EMAIL, 12 * 3600),
-                             (emailverify.PURPOSE_RESET_PASSWORD, 30 * 60)):
+        for purpose in (emailverify.PURPOSE_VERIFY_EMAIL,
+                        emailverify.PURPOSE_RESET_PASSWORD):
             conn = FakeConn()
             emailverify.issue_token(conn, 7, purpose, "alice@example.com", "1.2.3.4", now)
             _, params = conn._cursor.executed[-1]
-            self.assertEqual(params[4] - now, ttl, purpose)
-        self.assertEqual(emailverify.VERIFY_EMAIL_TTL, 12 * 3600)
+            self.assertEqual(params[4] - now, emailverify.TOKEN_TTL, purpose)
+        self.assertEqual(emailverify.TOKEN_TTL, 3 * 3600)
 
     def test_lookup_returns_live_row_for_digest(self):
         raw = "raw-token-value"
@@ -134,9 +133,10 @@ class TokenTest(unittest.TestCase):
 
 
 class MailCopyTest(unittest.TestCase):
-    """The validity stated in the mail must be the validity enforced: both
-    derive from emailverify's TTLs, and the activation copy is the only place
-    a user learns how long the link lasts."""
+    """Everything that states a link window (both mails + the pages) must state
+    the window that is actually enforced, and must state the same number: the
+    mails and pages derive it from emailverify.TOKEN_TTL, so a TTL change
+    without a copy change fails here instead of shipping wrong promises."""
 
     def _capture(self, sender, **kwargs):
         import mailer
@@ -146,22 +146,41 @@ class MailCopyTest(unittest.TestCase):
             sender(**kwargs)
         return sent[0][2]
 
-    def test_activation_mail_states_the_verify_ttl(self):
+    def test_both_mails_state_the_enforced_window(self):
         import mailer
-        hours = emailverify.VERIFY_EMAIL_TTL // 3600
-        zh = self._capture(mailer.send_verification_mail, to_email="a@example.com",
-                           verify_url="https://x/web/verify-email?token=t", lang="zh-CN")
-        en = self._capture(mailer.send_verification_mail, to_email="a@example.com",
-                           verify_url="https://x/web/verify-email?token=t", lang="en")
-        self.assertIn(f"{hours} 小时", zh)
-        self.assertIn(f"{hours} hours", en)
-        self.assertNotIn("30 分钟", zh)
+        zh, en = mailer._link_window()
+        verify_zh = self._capture(mailer.send_verification_mail, to_email="a@example.com",
+                                  verify_url="https://x/web/verify-email?token=t", lang="zh-CN")
+        verify_en = self._capture(mailer.send_verification_mail, to_email="a@example.com",
+                                  verify_url="https://x/web/verify-email?token=t", lang="en")
+        reset_zh = self._capture(mailer.send_password_reset_mail, to_email="a@example.com",
+                                 reset_url="https://x/web/reset?token=t", lang="zh-CN")
+        reset_en = self._capture(mailer.send_password_reset_mail, to_email="a@example.com",
+                                 reset_url="https://x/web/reset?token=t", lang="en")
+        for text in (verify_zh, reset_zh):
+            self.assertIn(f"链接 {zh}内有效", text)
+        for text in (verify_en, reset_en):
+            self.assertIn(f"valid for {en} and can be used once", text)
 
-    def test_reset_mail_keeps_the_short_window(self):
+    def test_page_copy_states_the_same_window(self):
         import mailer
-        zh = self._capture(mailer.send_password_reset_mail, to_email="a@example.com",
-                           reset_url="https://x/web/reset?token=t", lang="zh-CN")
-        self.assertIn("30 分钟", zh)
+        from translations import get_translations
+        zh, en = mailer._link_window()
+        keys = ("verify_wait_desc", "forgot_hint", "forgot_done_desc",
+                "sec_reset_desc", "sec_reset_sent")
+        for lang, window in (("zh-CN", zh), ("en", en)):
+            t = get_translations(lang)
+            for key in keys:
+                self.assertIn(window, t[key], f"{lang}:{key}")
+
+    def test_window_copy_handles_hour_and_minute_ttls(self):
+        import mailer
+        original = emailverify.TOKEN_TTL
+        self.addCleanup(setattr, emailverify, "TOKEN_TTL", original)
+        emailverify.TOKEN_TTL = 90 * 60
+        self.assertEqual(mailer._link_window(), ("90 分钟", "90 minutes"))
+        emailverify.TOKEN_TTL = 24 * 3600
+        self.assertEqual(mailer._link_window(), ("24 小时", "24 hours"))
 
 
 class MailerOffTest(unittest.TestCase):

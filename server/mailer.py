@@ -58,20 +58,25 @@ def send_mail(to_email, subject, text):
         raise MailerError("mail_send_failed") from e
 
 
-def send_verification_mail(to_email, verify_url, lang="zh-CN"):
-    """Send the account-activation / email-binding mail.
+def _link_window():
+    """(zh, en) human window for the link copy, derived from the enforced TTL
+    so the mail can never promise a different lifetime than the token has."""
+    ttl = emailverify.TOKEN_TTL
+    if ttl % 3600 == 0:
+        return f"{ttl // 3600} 小时", f"{ttl // 3600} hours"
+    return f"{ttl // 60} 分钟", f"{ttl // 60} minutes"
 
-    The stated validity is derived from emailverify.VERIFY_EMAIL_TTL: the
-    window and the copy cannot drift apart.
-    """
-    hours = emailverify.VERIFY_EMAIL_TTL // 3600
+
+def send_verification_mail(to_email, verify_url, lang="zh-CN"):
+    """Send the account-activation / email-binding mail."""
+    zh_window, en_window = _link_window()
     if lang == "en":
         subject = "Verify your email — Agent Context Sync"
         text = (
             "Hello,\n\n"
             "verify your email address to activate your Agent Context Sync "
             "account:\n\n" + verify_url + "\n\n"
-            f"The link is valid for {hours} hours and can be used once. "
+            f"The link is valid for {en_window} and can be used once. "
             "If you did not request it, ignore this mail.\n")
     else:
         subject = "验证邮箱 — Agent Context Sync"
@@ -79,19 +84,20 @@ def send_verification_mail(to_email, verify_url, lang="zh-CN"):
             "你好，\n\n"
             "请验证你的邮箱以激活 Agent Context Sync 账户：\n\n"
             + verify_url + "\n\n"
-            f"链接 {hours} 小时内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
+            f"链接 {zh_window}内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
     send_mail(to_email, subject, text)
 
 
 def send_password_reset_mail(to_email, reset_url, lang="zh-CN"):
     """Send the password-reset mail (verified-email accounts only)."""
+    zh_window, en_window = _link_window()
     if lang == "en":
         subject = "Reset your password — Agent Context Sync"
         text = (
             "Hello,\n\n"
             "we received a request to reset your Agent Context Sync password. "
             "Open the link below to choose a new one:\n\n" + reset_url + "\n\n"
-            "The link is valid for 30 minutes and can be used once. "
+            f"The link is valid for {en_window} and can be used once. "
             "If you did not request it, ignore this mail and your password "
             "will stay unchanged.\n")
     else:
@@ -100,7 +106,7 @@ def send_password_reset_mail(to_email, reset_url, lang="zh-CN"):
             "你好，\n\n"
             "我们收到重置你的 Agent Context Sync 密码的请求。"
             "请打开以下链接设置新密码：\n\n" + reset_url + "\n\n"
-            "链接 30 分钟内有效且仅可使用一次。若非本人操作，请忽略本邮件，"
+            f"链接 {zh_window}内有效且仅可使用一次。若非本人操作，请忽略本邮件，"
             "你的密码将保持不变。\n")
     send_mail(to_email, subject, text)
 
