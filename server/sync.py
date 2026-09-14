@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_DOWN
 import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+import jsonbody
 from auth import get_workspace_by_api_key
 from db import _pg_val, get_conn, normalize_path_sep, plan_limits, quota_check
 
@@ -79,7 +80,7 @@ async def health():
 
 @router.post("/pull")
 async def pull(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     loop = asyncio.get_running_loop()
     # Sessions + their messages off the event loop: a page of sessions with
     # thousands of messages would otherwise block every other request.
@@ -212,7 +213,7 @@ def pull_sync(body, ws):
 
 @router.post("/push")
 async def push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     loop = asyncio.get_running_loop()
     # The heavy DB work (quota gate, upserts, batched dedup + inserts) runs
     # off the event loop so a big push never stalls other clients.

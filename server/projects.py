@@ -1,5 +1,6 @@
 """Project sync domain: projects.db push/pull."""
 import json
+import jsonbody
 import psycopg2.extras
 from datetime import datetime
 
@@ -39,7 +40,7 @@ def _read_clock(c, wid, pid):
 async def api_projects_push(request: Request, ws: dict = Depends(get_workspace_by_api_key)):
     """Upsert projects + folders. Same (workspace, profile, slug) with a
     different id merges: keep the earliest id, union folders, record remap."""
-    body = await request.json()
+    body = await jsonbody.json_object(request)
     wid = ws["workspace_id"]
     projects = body.get("projects", []) or []
     now = datetime.now().timestamp()

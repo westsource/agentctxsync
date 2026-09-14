@@ -1,3 +1,39 @@
+## [2026.09.14.2] - 2026-09-14
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-14 17:19 / 17:22 CST 两批），部署前逐文件校验远端与提交 `c4e03dc` 逐字
+> 一致（LF 归一化 sha256；`jsonbody.py` 需不存在），改前文件备份为同目录
+> `*.bak-json400-2026.09.14` 与 `workspace.py.bak-wscreate-2026.09.14`。重启后 `/health` 200、
+> 日志无新异常；线上校验：7 个 JSON 端点畸形/非对象请求体 = 400、合法请求行为不变、
+> `POST /api/workspaces` 返回真实 id、重名 409；另用临时非管理员账号复核侧边栏「安全信息」
+> 三个子菜单（见下）。
+
+### Fixed（三处：请求体解析 500、「绑定邮箱」深链、`POST /api/workspaces` 必 500）
+
+1. **非 JSON 请求体应 400，此前是 500**：`/api/auth/login`、`/api/auth/register`、`/pull`、
+   `/push`、`/api/projects/push`、`/api/me/change-password`、`/api/workspaces` 都直接
+   `await request.json()`：体不是 JSON 时 `json.JSONDecodeError` 逃逸成 500；体是合法 JSON 但不是
+   对象（如 `[1]`）时下一步 `.get()` 抛 `AttributeError`，同样是 500。新增
+   `server/jsonbody.py::json_object()`（解析 + 要求对象，失败抛 400），7 处调用点统一改用——
+   解析位于配额/DB 之前，畸形请求快速失败。
+2. **安全信息页「绑定邮箱」按钮打不开邮箱对话框**：`security.html` 深链写成 `?d=email`，而对话框
+   id 与白名单是 `dlgEmail`，参数被丢弃后停在枢纽页不动（未验证邮箱的账号才会看到该按钮）。改为
+   `?d=dlgEmail`，与侧边栏子菜单、枢纽列表按钮一致。
+3. **`POST /api/workspaces` 对任何合法请求都 500**：INSERT 缺 `RETURNING id`，返回处又写成
+   `c.fetchone()[0] if c.fetchone() else None`（两次 `fetchone()`，且已跑出 `get_conn()` 块），
+   实测 `psycopg2.ProgrammingError: no results to fetch`。更糟的是 INSERT 在异常前已提交：客户端
+   收到 500，工作空间却已建好，重试即产生重复条目。改为 `RETURNING id` + 块内单次
+   `fetchone()[0]`，返回真实 id。
+
+### 测试
+
+- 新增 `server/tests/test_jsonbody.py`（7 例：对象透传、畸形体 400、非对象体 400，以及
+  `api_login`/`pull`/`push` 三条路由的 400 契约——解析发生在 DB 之前，故无需数据库）。
+- `server/tests/test_workspace.py` 新增 `ApiCreateWorkspaceTest`（返回 id = 新工作空间 id；
+  空名 400 且不落库）。假游标在无结果集时按 psycopg2 抛 `ProgrammingError`，还原修复前形态。
+- 三处均可复现：还原改动分别得 `JSONDecodeError`、`?d=` 失效、`ProgrammingError`，修复后通过。
+  server 全量 205 用例通过（2 skip）。
+
 ## [2026.09.14.1] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
