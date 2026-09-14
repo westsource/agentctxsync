@@ -17,6 +17,8 @@ from email.utils import formataddr
 from config import (SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT,
                     SMTP_USER, smtp_configured)
 
+import emailverify
+
 log = logging.getLogger("mailer")
 
 
@@ -57,14 +59,19 @@ def send_mail(to_email, subject, text):
 
 
 def send_verification_mail(to_email, verify_url, lang="zh-CN"):
-    """Send the account-activation / email-binding mail."""
+    """Send the account-activation / email-binding mail.
+
+    The stated validity is derived from emailverify.VERIFY_EMAIL_TTL: the
+    window and the copy cannot drift apart.
+    """
+    hours = emailverify.VERIFY_EMAIL_TTL // 3600
     if lang == "en":
         subject = "Verify your email — Agent Context Sync"
         text = (
             "Hello,\n\n"
             "verify your email address to activate your Agent Context Sync "
             "account:\n\n" + verify_url + "\n\n"
-            "The link is valid for 30 minutes and can be used once. "
+            f"The link is valid for {hours} hours and can be used once. "
             "If you did not request it, ignore this mail.\n")
     else:
         subject = "验证邮箱 — Agent Context Sync"
@@ -72,7 +79,7 @@ def send_verification_mail(to_email, verify_url, lang="zh-CN"):
             "你好，\n\n"
             "请验证你的邮箱以激活 Agent Context Sync 账户：\n\n"
             + verify_url + "\n\n"
-            "链接 30 分钟内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
+            f"链接 {hours} 小时内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
     send_mail(to_email, subject, text)
 
 

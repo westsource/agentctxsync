@@ -1,3 +1,33 @@
+## [2026.09.14.3] - 2026-09-14
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-14 17:25 CST），部署前逐文件校验远端与提交 `3821ee5` 逐字一致（LF 归一化
+> sha256），改前文件备份为同目录 `*.bak-ttl12h-2026.09.14`；重启后 `/health` 200、日志无异常。
+> 线上校验：DB 中激活令牌 `expires_at - created_at = 43200`、重置令牌仍为 `1800`；中/英激活
+> 邮件正文分别写明「12 小时 / 12 hours」，重置邮件仍写 30 分钟；等待页文案已更新；侧边栏
+> 「安全信息」计算色值与「更改信息」一致（`rgb(75, 85, 99)`）。
+
+### Changed
+
+- **激活链接有效期 30 分钟 → 12 小时**：`emailverify.py` 改为**按用途**的 TTL 表 `PURPOSE_TTL`
+  （`VERIFY_EMAIL_TTL = 12 * 3600`、`TOKEN_TTL = 30 * 60`），`issue_token` 按用途取用，未知用途
+  回退 `TOKEN_TTL`。**重置密码链接保持 30 分钟**：那条链接本身即足以接管账户，不宜一并延长
+  （本次需求只针对激活链）。
+- **邮件正文由常量派生**：`mailer.send_verification_mail` 的小时数取自
+  `emailverify.VERIFY_EMAIL_TTL`，窗口与文案不会再各说各话；重置邮件文案未动。
+- **等待页文案**：`translations.verify_wait_desc`（zh-CN / en）改为「链接 12 小时内有效 /
+  valid for 12 hours」。
+- **侧边栏「安全信息」文字颜色**：`templates/base.html` 里该按钮由 `text-gray-400`（分区标题色，
+  视觉上像禁用态）改为 `text-gray-600`、hover `text-gray-900`，与其下「更改信息」及各子菜单
+  一致；字号 / 大小写 / 缩进等版式未动（仍可与上方「语言」标题区分）。
+
+### 测试
+
+- `server/tests/test_emailverify.py` +3：`issue_token` 写入的到期时间按用途分别为 12 h / 30 min
+  （固定 `now` 断言实际写入值）；激活邮件正文含派生小时数且不再出现「30 分钟」；重置邮件仍为
+  「30 分钟」（monkeypatch `send_mail` 捕获正文，不触网）。
+- server 全量 208 用例通过（2 skip）。
+
 ## [2026.09.14.2] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
