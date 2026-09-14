@@ -4,6 +4,8 @@ Pure-logic coverage for emailverify.py (no server stack). Token issue /
 lookup / consume / revoke run against the fake-cursor pattern used across
 server/tests.
 """
+import email
+import html
 import os
 import sys
 import unittest
@@ -142,7 +144,7 @@ class MailCopyTest(unittest.TestCase):
         import mailer
         sent = []
         with mock.patch.object(mailer, "send_mail",
-                               lambda to, subject, text: sent.append((to, subject, text))):
+                               lambda to, subject, text, **kw: sent.append((to, subject, text))):
             sender(**kwargs)
         return sent[0][2]
 
@@ -181,6 +183,72 @@ class MailCopyTest(unittest.TestCase):
         self.assertEqual(mailer._link_window(), ("90 分钟", "90 minutes"))
         emailverify.TOKEN_TTL = 24 * 3600
         self.assertEqual(mailer._link_window(), ("24 小时", "24 hours"))
+
+
+class MailFormatTest(unittest.TestCase):
+    """The link must be clickable AND show the full URL: link mails go out as
+    multipart/alternative with both parts carrying the same URL, the HTML one
+    as an anchor whose visible text is the URL itself."""
+
+    class FakeSMTP:
+        def __init__(self):
+            self.raw = None
+
+        def login(self, *a, **k):
+            pass
+
+        def quit(self):
+            pass
+
+        def close(self):
+            pass
+
+        def sendmail(self, frm, to, body):
+            self.raw = body
+
+    def _send(self, sender, **kwargs):
+        import mailer
+        smtp = self.FakeSMTP()
+        with mock.patch.object(mailer, "smtp_configured", return_value=True), \
+             mock.patch.object(mailer, "_smtp_connect", return_value=smtp):
+            sender(**kwargs)
+        return email.message_from_string(smtp.raw)
+
+    def _assert_clickable(self, msg, url):
+        self.assertEqual(msg.get_content_type(), "multipart/alternative")
+        parts = {p.get_content_type(): p.get_payload(decode=True).decode("utf-8")
+                 for p in msg.get_payload()}
+        self.assertIn("text/plain", parts)
+        self.assertIn("text/html", parts)
+        # Plain part: URL visible as-is (text-only clients stay usable).
+        self.assertIn(url, parts["text/plain"])
+        # HTML part: anchor pointing at the URL, displaying the full URL.
+        escaped = html.escape(url, quote=True)
+        self.assertIn(f'<a href="{escaped}"', parts["text/html"])
+        self.assertIn(f">{escaped}</a>", parts["text/html"])
+
+    def test_activation_mail_link_is_clickable(self):
+        import mailer
+        url = "https://www.agentctxsync.com/web/verify-email?token=abc-DEF_123"
+        for lang in ("zh-CN", "en"):
+            msg = self._send(mailer.send_verification_mail, to_email="a@example.com",
+                             verify_url=url, lang=lang)
+            self._assert_clickable(msg, url)
+
+    def test_reset_mail_link_is_clickable(self):
+        import mailer
+        url = "https://www.agentctxsync.com/web/reset?token=xyz-987_ABC"
+        for lang in ("zh-CN", "en"):
+            msg = self._send(mailer.send_password_reset_mail, to_email="a@example.com",
+                             reset_url=url, lang=lang)
+            self._assert_clickable(msg, url)
+
+    def test_notice_mail_stays_plain(self):
+        """Mails without a link keep the old single-part plain text."""
+        import mailer
+        msg = self._send(mailer.send_email_changed_notice, old_email="old@example.com",
+                         new_email="new@example.com", lang="zh-CN")
+        self.assertEqual(msg.get_content_type(), "text/plain")
 
 
 class MailerOffTest(unittest.TestCase):

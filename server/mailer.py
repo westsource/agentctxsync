@@ -5,12 +5,19 @@ No third-party SDK: plain smtplib with STARTTLS/SSL so the dependency list
 stays zero and mainland deployments can point at any provider (DirectMail /
 QQ / 163...). Credentials come from the environment ONLY.
 
+Mails that carry a link are sent as multipart/alternative: the plain-text part
+(unchanged, URL visible) plus a minimal HTML part where the same URL is an
+anchor whose visible text IS the URL — so the link is clickable in clients
+that render HTML and still fully readable in clients that do not.
+
 Delivery problems raise MailerError with the reason logged; callers turn it
 into a user-visible "please retry / resend later" state, never a crash.
 """
+import html
 import logging
 import smtplib
 import ssl
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 
@@ -35,11 +42,32 @@ def _smtp_connect():
     return s
 
 
-def send_mail(to_email, subject, text):
-    """Send a plain-text mail. Raises MailerError on any failure."""
+def _html_body(text, url=None):
+    """HTML twin of a plain-text body: same text, line breaks preserved, and
+    the given URL wrapped in an anchor that displays the full URL."""
+    body = html.escape(text)
+    if url:
+        body = body.replace(
+            html.escape(url),
+            f'<a href="{html.escape(url, quote=True)}" '
+            f'style="color:#6E56CF;word-break:break-all;">{html.escape(url)}</a>',
+            1)
+    return ('<div style="font-family:-apple-system,\'Segoe UI\',Roboto,Helvetica,'
+            'Arial,sans-serif;font-size:14px;line-height:1.7;color:#1f2937;">'
+            + body.replace("\n", "<br>\n") + "</div>")
+
+
+def send_mail(to_email, subject, text, html_body=None):
+    """Send a mail. Plain text always; an HTML alternative when html_body is
+    given. Raises MailerError on any failure."""
     if not smtp_configured():
         raise MailerError("SMTP is not configured")
-    msg = MIMEText(text, "plain", "utf-8")
+    if html_body:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+    else:
+        msg = MIMEText(text, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = formataddr(("Agent Context Sync", SMTP_FROM))
     msg["To"] = to_email
@@ -85,7 +113,7 @@ def send_verification_mail(to_email, verify_url, lang="zh-CN"):
             "请验证你的邮箱以激活 Agent Context Sync 账户：\n\n"
             + verify_url + "\n\n"
             f"链接 {zh_window}内有效且仅可使用一次。若非本人操作，请忽略本邮件。\n")
-    send_mail(to_email, subject, text)
+    send_mail(to_email, subject, text, html_body=_html_body(text, verify_url))
 
 
 def send_password_reset_mail(to_email, reset_url, lang="zh-CN"):
@@ -108,7 +136,7 @@ def send_password_reset_mail(to_email, reset_url, lang="zh-CN"):
             "请打开以下链接设置新密码：\n\n" + reset_url + "\n\n"
             f"链接 {zh_window}内有效且仅可使用一次。若非本人操作，请忽略本邮件，"
             "你的密码将保持不变。\n")
-    send_mail(to_email, subject, text)
+    send_mail(to_email, subject, text, html_body=_html_body(text, reset_url))
 
 
 def send_email_changed_notice(old_email, new_email, lang="zh-CN"):

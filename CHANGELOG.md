@@ -1,3 +1,31 @@
+## [2026.09.14.5] - 2026-09-14
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-14 17:41 CST），部署前校验远端 `mailer.py` 与提交 `9bf62eb` 逐字一致
+> （LF 归一化 sha256），改前文件备份为同目录 `mailer.py.bak-htmlmail-2026.09.14`；重启后
+> `/health` 200、日志无异常。线上校验（用部署后的代码截获实际待发报文）：激活邮件与重置邮件均为
+> `multipart/alternative`（`text/plain` + `text/html`），HTML 部分为 `<a href="URL">URL</a>`
+> ——链接可点且显示完整 URL，纯文本部分仍含原始 URL；另向站点邮箱实发一封测试邮件，浏览器渲染
+> HTML 部分确认 `href` 与可见文本同为完整链接、光标为 pointer。
+
+### Changed
+
+- **邮件正文改为可点击链接**：此前邮件是纯文本单段（`MIMEText(..., "plain")`），部分邮箱客户端
+  （QQ / 126 / 企业邮箱等）不会把裸 URL 自动变成可点链接。现在带链接的邮件改为
+  `multipart/alternative`：**纯文本部分原样保留**（URL 明文可见，纯文本客户端行为不变），新增 HTML
+  部分把同一 URL 包成 `<a href="URL">URL</a>` —— 可见文字即完整链接，点击直接跳转。
+- **`send_mail(..., html_body=...)`**：新增可选 HTML 备选部分；`_html_body(text, url)` 由纯文本正文
+  派生（转义 + 换行转 `<br>` + 首个 URL 转锚点），正文只维护一份，两种格式不会各说各话。
+- 适用范围：激活/绑定邮箱邮件与重置密码邮件；无链接的「邮箱变更通知」保持单段纯文本。
+
+### 测试
+
+- `server/tests/test_emailverify.py` 新增 `MailFormatTest`（3 例）：激活/重置邮件在 zh-CN 与 en 下
+  均为 `multipart/alternative`，纯文本部分含原始 URL、HTML 部分同时具备 `<a href="URL">` 与
+  `>URL</a>`（点击 + 显示完整链接）；无链接的通知邮件仍为单段纯文本。测试通过假的 SMTP 连接
+  截获真实 `as_string()` 报文，不触网。
+- server 全量 212 用例通过（2 skip）。
+
 ## [2026.09.14.4] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
