@@ -8,6 +8,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("HERMES_SYNC_PG_DSN", "postgresql://x:x@localhost:5432/x")
 os.environ.setdefault("HERMES_SYNC_MASTER_KEY", "test-master-key")
@@ -86,6 +87,18 @@ class TokenTest(unittest.TestCase):
         self.assertEqual(insert_params[2], emailverify.token_digest(raw))  # hash
         self.assertNotEqual(insert_params[2], raw)          # never plaintext
 
+    def test_expiry_follows_purpose_ttl(self):
+        """Activation links live 12 h; reset links keep the short 30 min
+        window (the link alone is enough to take over an account)."""
+        now = 1_700_000_000.0
+        for purpose, ttl in ((emailverify.PURPOSE_VERIFY_EMAIL, 12 * 3600),
+                             (emailverify.PURPOSE_RESET_PASSWORD, 30 * 60)):
+            conn = FakeConn()
+            emailverify.issue_token(conn, 7, purpose, "alice@example.com", "1.2.3.4", now)
+            _, params = conn._cursor.executed[-1]
+            self.assertEqual(params[4] - now, ttl, purpose)
+        self.assertEqual(emailverify.VERIFY_EMAIL_TTL, 12 * 3600)
+
     def test_lookup_returns_live_row_for_digest(self):
         raw = "raw-token-value"
         conn = FakeConn(FakeCursor([
@@ -118,6 +131,37 @@ class TokenTest(unittest.TestCase):
     def test_not_taken_when_free(self):
         conn = FakeConn()
         self.assertFalse(emailverify.verified_email_taken(conn, "x@y.z", 7))
+
+
+class MailCopyTest(unittest.TestCase):
+    """The validity stated in the mail must be the validity enforced: both
+    derive from emailverify's TTLs, and the activation copy is the only place
+    a user learns how long the link lasts."""
+
+    def _capture(self, sender, **kwargs):
+        import mailer
+        sent = []
+        with mock.patch.object(mailer, "send_mail",
+                               lambda to, subject, text: sent.append((to, subject, text))):
+            sender(**kwargs)
+        return sent[0][2]
+
+    def test_activation_mail_states_the_verify_ttl(self):
+        import mailer
+        hours = emailverify.VERIFY_EMAIL_TTL // 3600
+        zh = self._capture(mailer.send_verification_mail, to_email="a@example.com",
+                           verify_url="https://x/web/verify-email?token=t", lang="zh-CN")
+        en = self._capture(mailer.send_verification_mail, to_email="a@example.com",
+                           verify_url="https://x/web/verify-email?token=t", lang="en")
+        self.assertIn(f"{hours} 小时", zh)
+        self.assertIn(f"{hours} hours", en)
+        self.assertNotIn("30 分钟", zh)
+
+    def test_reset_mail_keeps_the_short_window(self):
+        import mailer
+        zh = self._capture(mailer.send_password_reset_mail, to_email="a@example.com",
+                           reset_url="https://x/web/reset?token=t", lang="zh-CN")
+        self.assertIn("30 分钟", zh)
 
 
 class MailerOffTest(unittest.TestCase):

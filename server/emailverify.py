@@ -6,21 +6,30 @@ drive it with fake cursors — same pattern as the rest of the server.
 
 Token model (OWASP): the raw token is a CSPRNG value sent to the user; only
 its SHA-256 digest is stored. Tokens are single-use (consumed on success),
-expire after TOKEN_TTL seconds, and issuing a new one revokes previous live
-tokens of the same (user, purpose). Verified emails are unique at the DB
-level (partial unique index on email_normalized); the transactional verify
-re-checks the uniqueness before committing so two accounts racing on the
-same pending email cannot both win.
+expire after their purpose's TTL (see PURPOSE_TTL), and issuing a new one
+revokes previous live tokens of the same (user, purpose). Verified emails are
+unique at the DB level (partial unique index on email_normalized); the
+transactional verify re-checks the uniqueness before committing so two
+accounts racing on the same pending email cannot both win.
 """
 import hashlib
 import re
 import secrets
 import time
 
-TOKEN_TTL = 30 * 60          # verification links valid 30 minutes
+TOKEN_TTL = 30 * 60             # default / password-reset links
+VERIFY_EMAIL_TTL = 12 * 3600    # activation + email-binding links
 PURPOSE_VERIFY_EMAIL = "verify_email"
 PURPOSE_RESET_PASSWORD = "reset_password"
 EMAIL_MAX = 254
+
+# Per-purpose link lifetimes. Activation links are opened from a mailbox,
+# often minutes-to-hours after the mail arrives, so they get a long window;
+# reset links stay short (the link alone is enough to take over the account).
+PURPOSE_TTL = {
+    PURPOSE_VERIFY_EMAIL: VERIFY_EMAIL_TTL,
+    PURPOSE_RESET_PASSWORD: TOKEN_TTL,
+}
 
 # Loose structural check only (OWASP): real ownership is proven by the mail
 # round-trip, not by regex.
@@ -81,7 +90,7 @@ def issue_token(conn, user_id, purpose, email_normalized, ip="", now=None):
         "(user_id, purpose, token_hash, email_normalized, expires_at, requested_ip, created_at) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (user_id, purpose, token_digest(raw), email_normalized,
-         now + TOKEN_TTL, ip or "", now))
+         now + PURPOSE_TTL.get(purpose, TOKEN_TTL), ip or "", now))
     return raw
 
 
