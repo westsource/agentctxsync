@@ -310,11 +310,20 @@ def get_current_user(request: Request):
     return payload
 
 
-def get_workspace_by_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_workspace_by_api_key(request: Request,
+                             credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Resolve the workspace behind the client's API key.
+
+    Also publishes the owning user on ``request.state`` so the requestlog
+    middleware (which runs outside the dependency graph) can attribute the
+    access row to a user. 0 = no user: master-key requests, and failures
+    (the state simply stays unset when this raises).
+    """
     if not credentials:
         raise HTTPException(status_code=401, detail="API key required")
     key = credentials.credentials
     if key == MASTER_API_KEY:
+        request.state.ws_user_id = 0
         return {"workspace_id": None, "user_id": None, "is_master": True}
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -322,6 +331,7 @@ def get_workspace_by_api_key(credentials: HTTPAuthorizationCredentials = Depends
         ws = c.fetchone()
         if not ws:
             raise HTTPException(status_code=401, detail="Invalid API key")
+        request.state.ws_user_id = ws["user_id"] or 0
         return {"workspace_id": ws["workspace_id"], "user_id": ws["user_id"], "is_master": False}
 
 def require_admin(user: dict = Depends(get_current_user)):

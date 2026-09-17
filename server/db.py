@@ -349,7 +349,8 @@ def init_db():
             count INTEGER NOT NULL DEFAULT 0,
             last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
             client_version TEXT,
-            PRIMARY KEY (stat_date, device_id, agent, channel)
+            user_id BIGINT NOT NULL DEFAULT 0,
+            PRIMARY KEY (stat_date, device_id, agent, channel, user_id)
         )""")
         # Agent column tracks which HERMES_SYNC_AGENT a device row belongs
         # to (a device can run several agents, each with its own MCP version);
@@ -361,6 +362,16 @@ def init_db():
         # MCP client version reported at last sync (requestlog upsert);
         # added before the agent column, kept idempotent for old deployments.
         c.execute("ALTER TABLE access_device ADD COLUMN IF NOT EXISTS client_version TEXT")
+        # Owning user, taken from the workspace API key the client synced
+        # with (auth.get_workspace_by_api_key -> requestlog). 0 = unknown:
+        # rows written before this column existed, and requests whose key is
+        # not tied to a user (master key). A device_id is a client-declared
+        # string, so it is NOT unique per user (one box can run two
+        # accounts' clients, and a hostname can repeat) -- hence user_id is
+        # part of the key: each (device, agent, channel, user) keeps its own
+        # counter, and the drill-down shows them separately.
+        c.execute("ALTER TABLE access_device ADD COLUMN IF NOT EXISTS user_id BIGINT "
+                  "NOT NULL DEFAULT 0")
         c.execute("""DO $$
         BEGIN
             IF NOT EXISTS (
@@ -372,6 +383,20 @@ def init_db():
                 ALTER TABLE access_device ALTER COLUMN agent SET NOT NULL;
                 ALTER TABLE access_device DROP CONSTRAINT access_device_pkey;
                 ALTER TABLE access_device ADD PRIMARY KEY (stat_date, device_id, agent, channel);
+            END IF;
+        END $$""")
+        # Rebuild the key a second time to include user_id (same pattern).
+        # Historical rows keep user_id = 0 until scripts/backfill-access-device-user.py
+        # resolves them from sync_state; the admin page labels those "未归属".
+        c.execute("""DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_index i
+                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = 'access_device'::regclass AND i.indisprimary AND a.attname = 'user_id'
+            ) THEN
+                ALTER TABLE access_device DROP CONSTRAINT access_device_pkey;
+                ALTER TABLE access_device ADD PRIMARY KEY (stat_date, device_id, agent, channel, user_id);
             END IF;
         END $$""")
         # User feedback ("问题反馈"): logged-in users submit issues/suggestions.

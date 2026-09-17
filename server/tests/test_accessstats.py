@@ -23,6 +23,8 @@ os.environ.setdefault("HERMES_SYNC_MASTER_KEY", "test-master-key")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import requestlog  # noqa: E402
 
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+
 
 class FakeCursor:
     def __init__(self):
@@ -118,11 +120,13 @@ class RecordDeviceTest(unittest.TestCase):
     (device, channel) counter so the admin drill-down can tell which
     machines use the domain vs direct IP."""
 
-    def _record(self, host, path, device_id="", client_version="", agent=""):
+    def _record(self, host, path, device_id="", client_version="", agent="",
+                user_id=0):
         cur = FakeCursor()
         with mock.patch.object(requestlog, "get_conn",
                                return_value=FakeCtx(FakeConn(cur))):
-            requestlog._record_access(host, path, device_id, client_version, agent)
+            requestlog._record_access(host, path, device_id, client_version,
+                                      agent, user_id)
         return cur.executed
 
     def test_domain_device_upsert(self):
@@ -146,6 +150,27 @@ class RecordDeviceTest(unittest.TestCase):
         self.assertIn("COALESCE(EXCLUDED.client_version", sql)
         self.assertEqual(params[2], "hermes")
         self.assertEqual(params[5], "2026.08.21.1")
+
+    def test_owning_user_stored(self):
+        # the workspace owner resolved from the client's API key lands in the
+        # row, and is part of the upsert key (a device_id is not unique per
+        # user: one box can sync two accounts)
+        executed = self._record("www.agentctxsync.com", "/push", "my-pc",
+                                "2026.08.21.1", "hermes", user_id=7)
+        sql, params = executed[1]
+        self.assertIn("user_id", sql)
+        self.assertIn("ON CONFLICT (stat_date, device_id, agent, channel, user_id)",
+                      sql)
+        self.assertEqual(params[6], 7)
+
+    def test_unattributed_requests_store_zero(self):
+        # no resolved user (invalid/master key, or a non-sync route): the row
+        # is written as 0 rather than dropped, so the counter is not lost
+        for kwargs in ({}, {"user_id": None}):
+            with self.subTest(kwargs=kwargs):
+                _, params = self._record("www.agentctxsync.com", "/push",
+                                         "my-pc", **kwargs)[1]
+                self.assertEqual(params[6], 0)
 
     def test_agent_reported_not_unknown(self):
         # a client that reports its agent stores that agent's own row/version
@@ -189,7 +214,7 @@ class RecordDeviceTest(unittest.TestCase):
 
         with mock.patch.object(requestlog, "_record_access", rec):
             asyncio.run(requestlog.request_log_middleware(Request(scope), call_next))
-        rec.assert_called_once_with("www.agentctxsync.com", "/status/my-pc", "my-pc", "", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/status/my-pc", "my-pc", "", "", 0)
 
     def test_sync_post_body_device_extracted(self):
         # /push /pull carry device_id + client_version + agent in the POST body
@@ -221,11 +246,11 @@ class RecordDeviceTest(unittest.TestCase):
             asyncio.run(requestlog.request_log_middleware(
                 Request(scope, receive=receive), call_next))
         rec.assert_called_once_with("203.0.113.7:8765", "/push", "my-pc",
-                                    "2026.08.21.1", "hermes")
+                                    "2026.08.21.1", "hermes", 0)
 
 
 class MiddlewareCountingTest(unittest.TestCase):
-    def _run(self, path, host="www.agentctxsync.com", method="GET"):
+    def _run(self, path, host="www.agentctxsync.com", method="GET", state=None):
         scope = {
             "type": "http", "http_version": "1.1", "method": method,
             "scheme": "http", "path": path, "raw_path": path.encode(),
@@ -233,6 +258,8 @@ class MiddlewareCountingTest(unittest.TestCase):
             "headers": [(b"host", host.encode()), (b"user-agent", b"test")],
             "client": ("1.2.3.4", 1234), "server": ("127.0.0.1", 8765),
         }
+        if state is not None:
+            scope["state"] = dict(state)
         from fastapi import Request
 
         async def call_next(_req):
@@ -245,24 +272,86 @@ class MiddlewareCountingTest(unittest.TestCase):
 
     def test_web_request_counted_with_host(self):
         rec = self._run("/web/login", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "", "", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/web/login", "", "", "", 0)
 
     def test_ip_host_passed_through(self):
         rec = self._run("/web/login", host="203.0.113.7:8765")
-        rec.assert_called_once_with("203.0.113.7:8765", "/web/login", "", "", "")
+        rec.assert_called_once_with("203.0.113.7:8765", "/web/login", "", "", "", 0)
 
     def test_root_landing_counted_as_web(self):
         rec = self._run("/", host="www.agentctxsync.com")
-        rec.assert_called_once_with("www.agentctxsync.com", "/", "", "", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/", "", "", "", 0)
 
     def test_sync_post_counted_as_api(self):
         rec = self._run("/push", host="www.agentctxsync.com", method="POST")
-        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "", "")
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "", "", 0)
 
     def test_static_health_favicon_skipped(self):
         for path in ("/static/app.js", "/static/favicon.svg", "/health", "/favicon.ico"):
             rec = self._run(path)
             rec.assert_not_called()
+
+    def test_authenticated_user_attributed(self):
+        # get_workspace_by_api_key leaves the owner on request.state; the
+        # middleware must pick it up and attribute the access row
+        rec = self._run("/push", method="POST", state={"ws_user_id": 7})
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "", "", 7)
+
+    def test_unset_state_stays_unattributed(self):
+        # invalid / master key: state carries 0 (or nothing at all)
+        for state in ({}, {"ws_user_id": 0}, {"ws_user_id": None}):
+            with self.subTest(state=state):
+                rec = self._run("/push", method="POST", state=state)
+                rec.assert_called_once_with("www.agentctxsync.com", "/push",
+                                            "", "", "", 0)
+
+
+class UserAttributionPropagationTest(unittest.TestCase):
+    """The owner is published on request.state by a FastAPI dependency, i.e.
+    INSIDE the downstream app, while the counter is written by an outer
+    BaseHTTPMiddleware. That only works because both share the ASGI scope's
+    state dict -- pin it, otherwise attribution would silently degrade to 0
+    for every request (no test would otherwise notice)."""
+
+    def _call(self, state_writer):
+        scope = {
+            "type": "http", "http_version": "1.1", "method": "POST",
+            "scheme": "http", "path": "/push", "raw_path": b"/push",
+            "query_string": b"", "root_path": "",
+            "headers": [(b"host", b"www.agentctxsync.com")],
+            "client": ("1.2.3.4", 1234), "server": ("127.0.0.1", 8765),
+        }
+        sent = []
+
+        async def inner(scope, receive, send):
+            state_writer(scope)
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(msg):
+            sent.append(msg)
+
+        app = BaseHTTPMiddleware(inner, dispatch=requestlog.request_log_middleware)
+        rec = mock.Mock()
+        with mock.patch.object(requestlog, "_record_access", rec):
+            asyncio.run(app(scope, receive, send))
+        return rec, sent
+
+    def test_scope_state_reaches_the_outer_middleware(self):
+        # mimics the dependency: mutate the scope's state dict downstream
+        rec, sent = self._call(
+            lambda scope: scope.setdefault("state", {}).update({"ws_user_id": 7}))
+        self.assertEqual(sent[0]["status"], 200)
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "", "", 7)
+
+    def test_response_without_state_is_unattributed(self):
+        rec, sent = self._call(lambda scope: None)
+        self.assertEqual(sent[0]["status"], 200)
+        rec.assert_called_once_with("www.agentctxsync.com", "/push", "", "", "", 0)
 
 
 if __name__ == "__main__":

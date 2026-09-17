@@ -39,13 +39,13 @@
             </span>
           </td>
           <td class="px-6 py-4">
-            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F1EDFB] text-[#6E56CF]">{{ d.clients|length }} {{ t.accs_clients_unit }}</span>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F1EDFB] text-[#6E56CF]">{{ d.agents|length }} {{ t.accs_clients_unit }}</span>
           </td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain_count }}</span></td>
           <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip_count }}</span></td>
           <td class="px-6 py-4">
             <div class="flex flex-wrap gap-1">
-              {% for cl in d.clients %}
+              {% for cl in d.agents %}
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#F6F5FA] text-gray-600 font-mono">{{ cl.agent }}<span class="text-gray-400">→</span>{{ cl.client_version or t.common_none }}</span>
               {% endfor %}
             </div>
@@ -62,6 +62,13 @@
                   <tr class="text-sm">
                     <td class="py-2 pr-4 w-24 font-medium text-gray-500">{{ t.accs_agent }}:
                       <span class="font-mono font-semibold text-gray-900">{{ cl.agent }}</span>
+                    </td>
+                    <td class="py-2 pr-4 w-48 font-medium text-gray-500">{{ t.accs_user }}:
+                      {% if cl.user %}
+                      <span class="text-gray-900"{% if cl.user.username and cl.user.username != cl.user.name %} title="{{ cl.user.username }}"{% endif %}>{{ cl.user.name }}</span>
+                      {% else %}
+                      <span class="text-gray-400" title="{{ t.accs_user_unknown_hint }}">{{ t.accs_user_unknown }}</span>
+                      {% endif %}
                     </td>
                     <td class="py-2 pr-4 w-40 text-gray-500">{{ t.accs_versions }}:
                       <span class="font-mono text-gray-900">{{ cl.client_version or t.common_none }}</span>

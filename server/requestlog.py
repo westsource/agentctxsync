@@ -77,7 +77,7 @@ def classify_kind(path):
     return "web" if path == "/" or path.startswith("/web/") else "api"
 
 
-def _record_access(host, path, device_id="", client_version="", agent=""):
+def _record_access(host, path, device_id="", client_version="", agent="", user_id=0):
     """Increment today's counters for this request.
 
     Always bumps the (channel, kind) bucket in access_stats; when the
@@ -90,6 +90,11 @@ def _record_access(host, path, device_id="", client_version="", agent=""):
     (device, agent, channel) so a device running several agents (Hermes /
     codex / reasonix ...) keeps each agent's own version; a legacy client
     that does not report an agent rows are grouped under 'unknown'.
+
+    ``user_id`` is the workspace owner resolved from the client's API key
+    (auth.get_workspace_by_api_key puts it on request.state); 0 means the
+    row is not attributable (master key, unauthenticated, or a row written
+    before the column existed).
     """
     try:
         with get_conn() as conn:
@@ -104,15 +109,17 @@ def _record_access(host, path, device_id="", client_version="", agent=""):
             if device_id:
                 c.execute(
                     "INSERT INTO access_device "
-                    "(stat_date, device_id, agent, channel, count, last_seen, client_version) "
-                    "VALUES (%s, %s, %s, %s, 1, %s, %s) "
-                    "ON CONFLICT (stat_date, device_id, agent, channel) "
+                    "(stat_date, device_id, agent, channel, count, last_seen, "
+                    " client_version, user_id) "
+                    "VALUES (%s, %s, %s, %s, 1, %s, %s, %s) "
+                    "ON CONFLICT (stat_date, device_id, agent, channel, user_id) "
                     "DO UPDATE SET count = access_device.count + 1, "
                     "last_seen = EXCLUDED.last_seen, "
                     "client_version = COALESCE(EXCLUDED.client_version, "
                     "access_device.client_version)",
                     (date.today(), device_id, agent or "unknown",
-                     classify_channel(host), time.time(), client_version or None),
+                     classify_channel(host), time.time(), client_version or None,
+                     user_id or 0),
                 )
     except Exception:
         pass  # statistics must never break the request path
@@ -149,8 +156,12 @@ async def request_log_middleware(request: Request, call_next):
                     pass
             if not device_id and path.startswith("/status/"):
                 device_id = unquote(path.rsplit("/", 1)[-1])
+            # Set by get_workspace_by_api_key while the request was in
+            # flight; absent (0) when the key is invalid/master or the route
+            # never authenticated.
+            user_id = getattr(request.state, "ws_user_id", 0) or 0
             if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
-                _record_access(host, path, device_id, client_version, agent)
+                _record_access(host, path, device_id, client_version, agent, user_id)
             fwd = request.headers.get("x-forwarded-for")
             ip = (fwd.split(",")[0].strip() if fwd
                   else (request.client.host if request.client else "?"))

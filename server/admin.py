@@ -13,6 +13,28 @@ from db import get_conn, get_nav_workspaces
 from render import render_page
 
 router = APIRouter()
+
+
+def _user_labels(c, user_ids):
+    """{user_id: {"name", "username"}} for the access drill-down.
+
+    ``name`` follows the admin-user convention (display name, else username).
+    Ids that no longer resolve to a user row (the account was deleted --
+    access_device deliberately has no FK, statistics outlive accounts) come
+    back as a "#id" placeholder so the row is still distinguishable. user_id
+    0 is not looked up at all: it means "not attributable".
+    """
+    out = {uid: {"name": f"#{uid}", "username": ""} for uid in user_ids if uid}
+    if not user_ids:
+        return out
+    c.execute("SELECT id, username, display_name FROM users WHERE id = ANY(%s)",
+              (sorted(user_ids),))
+    for r in c.fetchall():
+        out[r["id"]] = {"name": r["display_name"] or r["username"],
+                        "username": r["username"]}
+    return out
+
+
 @router.get("/web/admin/users", response_class=HTMLResponse)
 async def web_admin_users(request: Request):
     try:
@@ -210,12 +232,16 @@ async def web_admin_access_devices(request: Request):
         # Postgres resolves bare output-column names in ORDER BY, but NOT
         # aliases used inside an ORDER BY expression -- so order over a
         # subquery that already materialized the alias columns. Aggregate
-        # per (device, agent) first, then group agents under their device so
+        # per (device, agent, user) first, then group under their device so
         # each device shows one summary row whose expandable sub-rows list
-        # the per-agent version and channel counts.
+        # the per-agent-per-user version and channel counts. user_id is part
+        # of the row key (a device_id is a client-declared string, so one box
+        # can legitimately sync two accounts): 0 means the row predates the
+        # column or the request was not attributable.
         c.execute("""SELECT * FROM (
                             SELECT device_id,
                                    agent,
+                                   user_id,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'domain'), 0) AS domain_count,
                                    COALESCE(SUM(count) FILTER (WHERE channel = 'ip'), 0) AS ip_count,
                                    MAX(last_seen) AS last_seen,
@@ -223,10 +249,11 @@ async def web_admin_access_devices(request: Request):
                                     FILTER (WHERE client_version IS NOT NULL))[1] AS client_version
                             FROM access_device
                             WHERE stat_date = %s
-                            GROUP BY device_id, agent
+                            GROUP BY device_id, agent, user_id
                      ) t ORDER BY (domain_count + ip_count) DESC""",
                   (date.today(),))
         rows = [dict(r) for r in c.fetchall()]
+        names = _user_labels(c, {r["user_id"] for r in rows if r["user_id"]})
         devices = {}
         for r in rows:
             d = devices.setdefault(r["device_id"], {
@@ -238,10 +265,22 @@ async def web_admin_access_devices(request: Request):
             d["last_seen"] = max(d["last_seen"], r["last_seen"])
             d["clients"].append({
                 "agent": r["agent"],
+                "user_id": r["user_id"],
+                "user": names.get(r["user_id"]),
                 "domain_count": r["domain_count"],
                 "ip_count": r["ip_count"],
                 "last_seen": r["last_seen"],
                 "client_version": r["client_version"]})
+        # The summary row counts AGENTS, not rows: an agent used by two users
+        # is still one agent, and its badge shows the newest reported version.
+        for d in devices.values():
+            newest = {}
+            for cl in d["clients"]:
+                cur = newest.get(cl["agent"])
+                if cur is None or cl["last_seen"] > cur["last_seen"]:
+                    newest[cl["agent"]] = cl
+            # most recently active agent first (dicts keep insertion order)
+            d["agents"] = sorted(newest.values(), key=lambda a: -a["last_seen"])
         # Stable ordering by total activity, then device id.
         devices = sorted(devices.values(),
                          key=lambda d: (-(d["domain_count"] + d["ip_count"]),
