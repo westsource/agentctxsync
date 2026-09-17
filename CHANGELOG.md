@@ -1,3 +1,53 @@
+## [2026.09.17.2] - 2026-09-17
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），**有 schema 变更**
+> （`access_device` 增列并重建主键，随重启的 `db.init_db()` 幂等执行）。
+> 已部署 236（2026-09-17 CST，提交 `c363007`），文件集由 git 依提交差集算出（6 个服务端文件），
+> 部署前逐文件校验远端与上次部署提交 `f897088` LF 归一化 sha256 一致（全部 OK），改前文件备份为
+> 同目录 `*.bak-2026.09.17.2`；`py_compile` 与应用级 `import main` 均通过，重启后
+> `systemctl is-active` 为 active、`/health` 200、journal 无 error/traceback。
+> 重启后实测 `access_device` 主键已由 `(stat_date, device_id, agent, channel)` 变为
+> `(..., user_id)`。
+> 线上回填（`scripts/backfill-access-device-user.py`）：dry-run 报 155 行可归属、22 行保持
+> 未归属 → `--apply` 实际回填 155 行 → 再跑一次 `nothing to do`（幂等）。回填后今日真实归属为
+> 道荣 / 风林流墨 / 土豆 / 张渊 / xowm / 幸运星 等，与 `sync_state → workspaces → users` 映射一致。
+> 线上端到端核验：用真实 workspace key 打 `/status/<probe>` 得 `user_id=1`，无效 key 与无 key 均得
+> `user_id=0`（3 条探针行已删除，未留下测试设备）；另用部署后模块签发管理员会话 GET
+> `/web/admin/access/devices`，HTTP 200（44131 字节），「用户」列与「未归属」标签均渲染，
+> 真实归属名可见，`local-<device>` 徽章为 `2 个 Agent`（同 Agent 两账号不重复计数）。
+> 双远端同步：gitee 推送 `f897088..c363007`；github 由 236 侧中转推送，`refs/heads/main` 与
+> GitHub API 均为 `c363007`。
+
+### Added
+
+- **设备访问统计记录归属到用户**：`/web/admin/access/devices` 的每条 Agent 记录现在显示所属用户。
+  身份只取自同步端使用的 workspace API key——`auth.get_workspace_by_api_key` 解析出 owner 写到
+  `request.state.ws_user_id`，`requestlog` 中间件在请求结束后读取并随计数器落库；无效 key、无 key
+  与 master key 一律记 `0`（页面显示「未归属」），不猜测。
+- **`access_device.user_id`**：`BIGINT NOT NULL DEFAULT 0`，主键重建为
+  `(stat_date, device_id, agent, channel, user_id)`。`device_id` 是客户端自报字符串（线上实测存在
+  一个 device_id 对应两个用户），user_id 必须进键，否则两个账号的计数会互相覆盖。
+- **页面**：明细行新增「用户」列（`display_name` 为空回退 `username`；账号已删除显示 `#id`——
+  统计表刻意不设外键，让统计比账号活得久）。摘要徽章改为按**去重后的 Agent 数**计数，同一 Agent
+  被两个账号使用仍显示「1 个 Agent」，其版本徽章取该 Agent 最近一次上报。
+- **`scripts/backfill-access-device-user.py`**：历史行按 `sync_state → workspaces → users` 的
+  **唯一**映射回填；歧义（device 对应多个用户）与无映射（探针、已删工作区）保持未归属，默认
+  dry-run、只填 `user_id = 0`，故幂等且不覆盖线上已写入的值。
+
+### 测试
+
+- 新增 `server/tests/test_admin_access_users.py`（8 例）：页面按 (device, agent, user) 聚合、
+  未归属标签、账号已删的 `#id` 占位、摘要徽章去重计数、查询按 user_id 分组、活动量排序、中英键齐全。
+- `server/tests/test_accessstats.py` 扩展：`user_id` 落库与冲突目标含 user_id、缺省/None 记 0；
+  以及**中间件的 state 传播链路**专项——owner 由内层 FastAPI 依赖写在 `request.state`，计数由外层
+  `BaseHTTPMiddleware` 写，用真实 `BaseHTTPMiddleware` + 内层 ASGI app 断言二者共享
+  `scope["state"]`，并配负向用例（无 state → 0）；缺此测试则该机制若失效只会静默退化成全部「未归属」。
+- 迁移在 236 的真实 PostgreSQL 上以**克隆表 + 事务回滚**彩排（线上表未被修改）：旧主键 4 列 →
+  新主键 5 列、`user_id` NOT NULL、既有行保留为 0；并回放**从 `requestlog.py` 抽取的原始 upsert**
+  验证冲突目标与 DO UPDATE 分支（同键两次合并为 1 行、换用户另起 1 行）。
+- 迁移 DDL 连跑两遍验证幂等（`init_db()` 每次重启都会执行）：两遍后主键定义完全一致、无报错。
+- server 全量 228 用例通过（2 skip，24 subtests）。
+
 ## [2026.09.17.1] - 2026-09-17
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
