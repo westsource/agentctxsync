@@ -338,7 +338,11 @@ async def root(request: Request):
     try:
         get_current_user(request)
     except Exception:
-        return await render_page("landing.html")
+        # 函数内: 避免 auth->client_update 循环导入。计数取自分发白名单，
+        # 新增 Agent 只改 client_update，落地页数字自动跟上。
+        from client_update import PUBLIC_AGENTS
+        return await render_page("landing.html",
+                                 {"agent_count": len(PUBLIC_AGENTS)})
     return RedirectResponse(url="/web/")
 
 @router.get("/web/login", response_class=HTMLResponse)

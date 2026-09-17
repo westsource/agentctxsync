@@ -668,7 +668,7 @@ O(可见 × |清单|)。
 - 分发（`server/client_update.py`）：zip 内含**重写默认值后**的 `mcp/` 包——构建时把
   `SYNC_SERVER` 默认值改成服务端地址、`HERMES_SYNC_AGENT` 改成目标 agent；manifest 的 sha256
   必须对**实际发货字节**计算（否则客户端校验失败）。可分发 agent 白名单 `PUBLIC_AGENTS`
-  （hermes / workbuddy / reasonix / opencode / openclaw / dsh 已端到端验证并上线帮助页分发；
+  （hermes / workbuddy / reasonix / opencode / openclaw / omp / dsh 已端到端验证并上线帮助页分发；
   历史 codex 引擎已移除，存量 deepseek-harness 数据并入 dsh）。
 - 客户端（`mcp/updater.py`）：manifest 比对版本 → 下载 → 按 manifest 逐文件 sha256 校验 →
   备份后原子替换、删除不再分发的文件；版本写入 `.hermes-sync-version`；**重启后生效**

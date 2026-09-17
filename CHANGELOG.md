@@ -1,3 +1,28 @@
+## [2026.09.17.1] - 2026-09-17
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+
+### Fixed
+
+- **落地页「支持的 Agent」计数不再写死**：开源区该格此前是模板字面量 `6+`，第 7 个 Agent
+  （Oh My Pi / `omp`）接入并进入 `PUBLIC_AGENTS` 后仍显示 6。现由 `auth.root` 传入
+  `len(PUBLIC_AGENTS)`，落地页三处（开源区数字、终端演示「N 个 Agent 共享」、
+  `<meta name="description">`）全部随分发白名单自动变化；`lp_meta_desc` / `lp_term_agents`
+  改为 `{0}` 占位（两语同步）。
+- **补齐枚举漏项**：`lp_meta_desc` 与 `lp_feat1_d`（zh/en 共 4 条）此前只列 6 个 Agent、
+  漏 Oh My Pi，现列全；「主流 Agent 开箱即用」区标题句（zh「七大 Agent 全部支持」/
+  en「All seven agents」）改为不带数字的表述，避免再出现硬编码计数。
+- `docs/ARCHITECTURE.md` 的 `PUBLIC_AGENTS` 成员说明补上 `omp`（此前漏写）。
+
+### 测试
+
+- 新增 `server/tests/test_landing_agents.py`（4 例 / 12 子例）：经真实路由 `auth.root` 渲染落地页，
+  断言开源区数字、终端演示与 meta 描述三处都等于 `len(PUBLIC_AGENTS)`、页面无未替换的 `{0}`，
+  且两语文案必须列全白名单中的每个 Agent（只加白名单不改文案即失败）。
+- 修复前跑该测试：9 项失败（`6+` vs `7+`、`· 6 个 Agent 共享`、meta 缺 Oh My Pi）；仅回退
+  `auth.py` 也失败（页面出现 `+` 与未替换的 `{0}`），证明路由接线同样被覆盖。修复后全绿。
+- server 全量 214 用例通过（2 skip）。
+
 ## [2026.09.14.5] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。

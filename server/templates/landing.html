@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ t.lp_title }}</title>
-<meta name="description" content="{{ t.lp_meta_desc }}">
+<meta name="description" content="{{ t.lp_meta_desc.format(agent_count) }}">
 <style>
   /* ============================================================
      配色体系（与 base.html / login.html / _macros.html 一致）：
@@ -170,7 +170,7 @@
   .eng-item .k svg { width: 18px; height: 18px; color: #9B8FEA; flex-shrink: 0; }
   .eng-item p { color: #B9B2DC; font-size: 13.5px; margin-top: 8px; }
 
-  /* ---------- Agent 徽章（六色体系，与 _macros.html 一致） ---------- */
+  /* ---------- Agent 徽章（七色体系，与 _macros.html 一致） ---------- */
   .agents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 42px; }
   .agent-pill {
     display: inline-flex; align-items: center; gap: 9px; position: relative;
@@ -312,7 +312,7 @@
 <span class="g">✓ {{ t.lp_term_done }}</span> {{ t.lp_term_merge }}
 <span class="c">·</span> <span class="t">full-pool</span> {{ t.lp_eng1_t }}
 <span class="y">local:</span>  12 sessions / 348 messages
-<span class="y">remote:</span> 128 sessions / 3,462 messages <span class="b">{{ t.lp_term_agents }}</span></pre>
+<span class="y">remote:</span> 128 sessions / 3,462 messages <span class="b">{{ t.lp_term_agents.format(agent_count) }}</span></pre>
     </div>
   </div>
 </header>
@@ -487,7 +487,7 @@
       <p>{{ t.lp_oss_sub }}</p>
     </div>
     <div class="os-grid">
-      <div class="os-item"><div class="num">6+</div><div class="lbl">{{ t.lp_os_agents_lbl }}</div><div class="more"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M12 5v14M5 12h14"/></svg>{{ t.lp_more_agents }}</div></div>
+      <div class="os-item"><div class="num">{{ agent_count }}+</div><div class="lbl">{{ t.lp_os_agents_lbl }}</div><div class="more"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M12 5v14M5 12h14"/></svg>{{ t.lp_more_agents }}</div></div>
       <div class="os-item"><div class="num">3 层</div><div class="lbl">{{ t.lp_os_layers_lbl }}</div></div>
       <div class="os-item"><div class="num">MIT</div><div class="lbl">{{ t.lp_os_tests_lbl }}</div></div>
       <div class="os-item"><div class="num">0 元</div><div class="lbl">{{ t.lp_os_cost_lbl }}</div></div>
