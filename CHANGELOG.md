@@ -2,6 +2,17 @@
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更
 > （仅移除一个不再使用的建表语句，已存在的库不受影响）。
+> 已部署 236（2026-09-17 CST，提交 `2fd620b`），文件集由 git 依提交差集算出（4 改 2 删），
+> 部署前逐文件校验远端与上次部署提交 `bfea6fa` LF 归一化 sha256 一致（全部 OK），改前/删前文件
+> 备份为同目录 `*.bak-2026.09.17.3`（含被删的 `feedback.py` 与 `templates/feedback.html`，可直接拷回
+> 回滚）；`py_compile` 与应用级 `import main` 均通过，重启后 `systemctl is-active` 为 active、
+> `/health` 200、journal 无 error/traceback。
+> 线上核验：`feedback.py` / `templates/feedback.html` 已从 `/opt/agentctxsync` 移除（`__pycache__`
+> 中无残留 .pyc，重启后日志无 Feedback 相关行）；部署后的 `templates/base.html` 中
+> `github.com/westsource/agentctxsync/issues` 出现 1 次、`nav_github_issues` 存在、旧键
+> `nav_feedback` 0 次；`/web/feedback` 返回 404（当前基线无自定义 404 页，故为 FastAPI 默认 JSON
+> 体，符合预期）；渲染实测侧边栏末项为「GitHub Issues」、`target="_blank"`、href 指向 `/issues`，
+> 图标为「方框 + 右上箭头」外链符号（视觉复核确认，非原铅笔图标）。
 
 ### Changed
 
