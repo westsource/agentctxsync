@@ -119,7 +119,6 @@
 | `search.py` | 全局搜索域：跨工作空间 + 租户隔离的会话/消息搜索（pg_trgm GIN + ILIKE），会话/消息双路命中、分页，结果定位到具体消息（二期） | `/web/search` |
 | `client_update.py` | 客户端分发：zip 构建（运行时改写默认服务器/Agent + manifest 哈希）、下载端点 | `/api/client/manifest`、`/api/client/download` |
 | `web_help.py` | 接入帮助域：帮助页、客户端包下载（由 `agents.py` 注册表 + `client_update.py` 驱动） | `/web/help`、`/web/help-hermes`（301）、`/web/download/mcp-client` |
-| `feedback.py` | 问题反馈域：提交建议/缺陷，管理员列表与解决状态切换 | `/web/feedback`、`/web/feedback/submit`、`/web/feedback/{fid}/resolve` |
 
 中间件注册顺序（`main.py`）：`flash_middleware`（render）→ `enforce_account_state`（auth）→ `request_log_middleware`（requestlog，最外层，全站 REQ 日志），
 与单文件时代一致；`/web/*` 页面在强制改密期间仅放行
@@ -1113,9 +1112,6 @@ POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢�
 POST /web/workspace/{id}/session/{sid}/messages/unhide-all    # 从回收站批量恢复该会话全部消息
 GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
-GET  /web/feedback                             # 问题反馈列表（管理员看全部，普通用户只看自己的）
-POST /web/feedback/submit                      # 提交反馈（bug / feature / other）
-POST /web/feedback/{fid}/resolve               # 切换反馈解决状态（管理员）
 GET  /web/admin/users                             # 用户管理
 POST /web/admin/user/create                       # 创建用户
 GET  /web/admin/user/{uid}/edit                   # 编辑用户

@@ -399,19 +399,6 @@ def init_db():
                 ALTER TABLE access_device ADD PRIMARY KEY (stat_date, device_id, agent, channel, user_id);
             END IF;
         END $$""")
-        # User feedback ("问题反馈"): logged-in users submit issues/suggestions.
-        # Admins list every row and can mark resolved; users see only their own.
-        c.execute("""CREATE TABLE IF NOT EXISTS feedback (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'other',
-            status TEXT NOT NULL DEFAULT 'open',
-            created_at DOUBLE PRECISION,
-            resolved_at DOUBLE PRECISION,
-            resolved_by INTEGER
-        )""")
         # Global search: pg_trgm GIN indexes accelerate ILIKE on message
         # content and session titles (see docs/SEARCH.md). Idempotent; the
         # extension ships in the pgvector image and standard PG.

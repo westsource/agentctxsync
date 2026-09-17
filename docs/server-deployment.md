@@ -81,9 +81,8 @@ YOUR_SERVER_IP
 ├── projects.py           # 项目同步域
 ├── client_update.py      # 客户端更新域 (打包/清单/下载，含 CLIENT_VERSION)
 ├── web_help.py           # 接入帮助域
-├── feedback.py           # 问题反馈域
 ├── agents.py             # Agent 注册表 (帮助页/下载包)
-├── translations.py       # 国际化翻译 (zh-CN / en, 411 键)
+├── translations.py       # 国际化翻译 (zh-CN / en, 475 键)
 ├── venv/                 # Python 3.12 虚拟环境
 ├── templates/
 │   ├── base.html         # 基础布局 + 侧边栏 + 语言切换
@@ -104,7 +103,6 @@ YOUR_SERVER_IP
 │   ├── admin_access_devices.html  # 设备访问明细页
 │   ├── admin_invites.html     # 邀请管理
 │   ├── help_hermes.html       # 接入帮助页
-│   ├── feedback.html          # 问题反馈页
 │   └── _macros.html           # 模板宏
 ├── static/
 │   ├── favicon.svg        # 网站图标
@@ -246,9 +244,6 @@ python scripts/deploy-remote.py
 | GET | /web/search?q=&page= | 全局搜索（跨工作空间全文搜索 + 消息定位） |
 | GET | /web/help | 接入帮助页（旧入口 /web/help-hermes 301 跳转） |
 | GET | /web/download/mcp-client?ws_id={id}&agent=X | 下载 MCP 客户端 zip |
-| GET | /web/feedback | 问题反馈列表（管理员看全部，普通用户只看自己的） |
-| POST | /web/feedback/submit | 提交反馈 |
-| POST | /web/feedback/{id}/resolve | 切换反馈解决状态 |
 | GET | /web/invites | 邀请管理 (所有登录用户) |
 | POST | /web/invite/create | 创建邀请码 |
 | POST | /web/invite/{id}/revoke | 撤销邀请码 |
@@ -304,8 +299,8 @@ python scripts/deploy-remote.py
 - **默认语言**: zh-CN
 - **切换方式**: 侧边栏语言切换按钮 / 登录页底部语言链接
 - **持久化**: `lang` 用户级偏好（存 DB，随账号跨设备，经 JWT claim 携带）；登录前由 cookie 决定（cookie 兼容）
-- **翻译键数**: 411 个 (zh-CN 和 en 完全对齐)
-- **覆盖范围**: 侧边栏、仪表盘、全部会话、全局搜索页、工作区详情、会话查看器、回收站、用户管理、工作区管理、访问统计、邀请管理、接入帮助页、问题反馈、登录/注册页、错误/成功消息
+- **翻译键数**: 475 个 (zh-CN 和 en 完全对齐)
+- **覆盖范围**: 侧边栏、仪表盘、全部会话、全局搜索页、工作区详情、会话查看器、回收站、用户管理、工作区管理、访问统计、邀请管理、接入帮助页、登录/注册页、错误/成功消息
 
 ## 10. 注意事项
 

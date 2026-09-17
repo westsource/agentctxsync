@@ -1,3 +1,31 @@
+## [2026.09.17.3] - 2026-09-17
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更
+> （仅移除一个不再使用的建表语句，已存在的库不受影响）。
+
+### Changed
+
+- **侧边栏「提交反馈」改为「GitHub Issues」外链**：原条目文案「提交反馈 / Submit Feedback」、
+  铅笔图标，却跳转到 GitHub **仓库首页**（既不是站内提交，也不是 issue 列表）。现改为直接指向
+  `https://github.com/westsource/agentctxsync/issues`，图标换成「外链」符号（方块 + 右上箭头），
+  让"点击会离开本站"这件事在点击前就可见；文案改为 `nav_github_issues`，直说目的地。
+- **删除站内反馈整套（改用 GitHub 后它成了死代码）**：`server/feedback.py`（3 个端点）、
+  `server/templates/feedback.html`、`server/tests/test_feedback.py`（6 例）、`main.py` 的 import
+  与路由注册、`db.py` 的 `feedback` 建表、`translations.py` 的 25 个反馈词条（中英各 25）。
+  删因：该功能完整（提交/分类/管理员处理）却在**任何模板里都没有入口**（全仓 grep 只剩它自己的
+  重定向、模板内表单 action 与测试），而它面向的受众与 GitHub Issues 不同——站内反馈给**本服务器
+  运营者**处理（多租户自托管下，第三方部署者的用户反馈不该被送去上游仓库），GitHub Issues 给
+  **开源项目**。既然只保留 GitHub，就把它按"只用 GitHub"收干净，不留悬空引用。
+- **文档同步**：`docs/ARCHITECTURE.md`（模块表的反馈域行 + 路由清单 3 条）、
+  `docs/server-deployment.md`（文件树 2 处 + 路由表 3 条 + i18n 覆盖范围）移除反馈条目；
+  顺带把 i18n 键数从已过期的 411 更正为实测 475（改动前实际已是 499，与本次无关的既有漂移）。
+
+### 测试
+
+- server 全量 222 用例通过（2 skip，24 subtests）；随功能删除一并移除 `test_feedback.py` 的 6 例。
+- 中英词条实测 475 / 475 完全对齐，`feedback` 相关键 0 残留；全仓 `feedback` / `反馈` 引用 0 处
+  （除 `base.html` 里同名的剪贴板 JS 函数与 `CONTRIBUTING.md` 的英文散文）。
+
 ## [2026.09.17.2] - 2026-09-17
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），**有 schema 变更**

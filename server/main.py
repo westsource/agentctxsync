@@ -9,7 +9,6 @@ import admin
 import auth
 import client_update
 import db
-import feedback
 import invites
 import projects
 import render
@@ -37,7 +36,7 @@ app.middleware("http")(requestlog.request_log_middleware)
 def _shutdown_pool():
     db._close_pool()
 for _mod in (auth, invites, workspace, admin, sync, projects,
-             client_update, web_help, feedback, search):
+             client_update, web_help, search):
     app.include_router(_mod.router)
 
 if __name__ == "__main__":
