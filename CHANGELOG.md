@@ -1,6 +1,19 @@
 ## [2026.09.17.1] - 2026-09-17
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-17 CST，提交 `fc1721d`），部署前校验远端 `auth.py` / `translations.py` /
+> `templates/landing.html` 与提交 `af2f7bf`（线上当时版本）LF 归一化 sha256 逐字一致，改前文件
+> 备份为同目录 `*.bak-agentcount-2026.09.17`；重启后 `systemctl is-active` 为 active、`/health`
+> 200、journal 无 error/traceback。
+> 线上校验：分别从服务进程（`127.0.0.1:8765/`）与公网（`https://www.agentctxsync.com/`）取渲染页，
+> 两者 sha256 完全相同（`103e7dbb…`，31801 字节）——开源区 `<div class="num">7+</div>`、终端
+> 「`· 7 个 Agent 共享`」、meta「`让 7 个 AI Agent（… Oh My Pi）`」，且页内既无 `6+` / `6 个 Agent 共享`
+> 旧计数、也无未替换的 `{0}`。另在服务器上用 systemd drop-in 的真实环境导入**已部署**的
+> `client_update` + `translations` 进程内断言：`PUBLIC_AGENTS` 为 7 项，三处文案与白名单成员逐一
+> 一致（zh/en），终端文案渲染为「`· 7 个 Agent 共享`」「`· shared by 7 agents`」。
+> 双远端同步：gitee 推送 `af2f7bf..fc1721d`；本机网络不通 `github.com:443`（`api.github.com` 可达），
+> 改由 236 侧 `git clone --bare` gitee 后推送 github，`refs/heads/main` 已为 `fc1721d`（令牌经
+> SFTP 一次性脚本传入并即时删除，未落库、未入 argv 之外的文件）。
 
 ### Fixed
 
