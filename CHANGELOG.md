@@ -1,3 +1,31 @@
+## [2026.09.18.2] - 2026-09-18
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-18 CST，提交 `b1f246e`）：文件集由 git 差集算出（3 改 1 增），逐文件对上次
+> 部署提交 `f00ca6e` 校验通过，`py_compile` 与应用级 `import main` 通过，重启后 active、
+> `/health` 200、journal 无 error。
+> 线上实测：侧边栏末三项为「接入帮助 → 官网 ↗ → GitHub Issues ↗」（两个外链同图标成组）；
+> 点击「官网」新开标签页落到 `https://www.agentctxsync.com/?landing=1`，渲染的是**静态 SEO 页**
+> （无应用侧边栏、有 canonical）。应用侧分支也在线上应用上验证：带 flag 的 `/` 返回
+> `200 / 31801 B`（应用自己的落地页，不重定向），不带 flag 仍 `307 → /web/`。
+
+### Added
+
+- **侧边栏「官网」入口**：登录后可直接跳到公开落地页，与「GitHub Issues」并列放在底部——
+  两者都是"离开应用"的外链，故同一图标语义、都 `target="_blank"` + `noopener noreferrer`。
+- **`?landing=1`**：`auth.root` 显式请求落地页时**跳过**"已登录 → 跳 /web/"的重定向。
+  为什么需要它：在**没有 nginx 静态层**的自托管部署上，应用自己服务 `/`，链接点下去会被重定向
+  回仪表盘、等于没反应；而线上由 nginx `location = /` 从文件服务时 query 被忽略，同一链接
+  指向静态落地页。一个链接在两种部署下都成立，且不引入新配置。
+
+### 测试
+
+- 新增 `server/tests/test_landing_link.py`（7 例 / 4 子例）：`root` 三态（游客→落地页、
+  已登录→重定向、已登录+flag→落地页且带 `agent_count`）；`landing=0` / `landing=` / `landing=1x` /
+  其它参数**不得**绕过重定向；侧边栏链接必须新开标签且带 `noopener noreferrer`、必须与 GitHub 项相邻、
+  词条中英齐备。
+- server 全量 240 用例通过（2 skip，36 subtests）。
+
 ## [2026.09.18.1] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），有 schema 变更
