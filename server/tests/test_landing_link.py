@@ -96,7 +96,7 @@ class SidebarLinkTest(unittest.TestCase):
         self.assertLess(site, gh, "outbound links should form one group")
 
     def test_labels_localized(self):
-        self.assertIn("官网", self._html("zh-CN"))
+        self.assertIn("官方首页", self._html("zh-CN"))
         for lang in TRANSLATIONS:
             self.assertIn("nav_website", get_translations(lang), lang)
 
