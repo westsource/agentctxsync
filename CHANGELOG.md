@@ -1,6 +1,14 @@
 ## [2026.09.18.4] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+> 已部署 236（2026-09-18 CST，提交 `fd5886e`）：单文件改动（`main.py`），部署前对上次部署提交
+> `f0baaa0` 做 LF 归一化 sha256 校验通过，上传后回读逐字节一致；`py_compile` 通过，重启后
+> active、journal 无 error。线上读回：`ss` 仅见 `127.0.0.1:8765`（无 `0.0.0.0:8765`）、回环
+> `/health` 与 `/web/login` 均 200、域名 `https://www.agentctxsync.com/health` 200、机内拨
+> `<LAN_IP>:8765` 得 `000`（未绑定，符合预期）、公网直连 8765 仍 TIMEOUT。
+> 端到端：重启后真实设备 `local-<device>` 的 `/pull`、`/api/projects/push`、
+> `/api/projects/pull` 在 journal 中均 `status=200`、`proto=https`、
+> `host=www.agentctxsync.com`。
 
 ### Changed
 
