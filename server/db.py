@@ -399,6 +399,18 @@ def init_db():
                 ALTER TABLE access_device ADD PRIMARY KEY (stat_date, device_id, agent, channel, user_id);
             END IF;
         END $$""")
+        # Announcement dismissals: which feed items a user has closed. The
+        # item ids come from an EXTERNAL json feed (HERMES_SYNC_ANNOUNCEMENTS_URL),
+        # so there is deliberately no FK to a local announcements table — the
+        # operator owns the content, this table only remembers who read what.
+        # Rows for retired items are harmless (a few dozen bytes); they also
+        # mean a re-published id stays dismissed, which is the intent.
+        c.execute("""CREATE TABLE IF NOT EXISTS announcement_dismissals (
+            announcement_id TEXT NOT NULL,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            dismissed_at DOUBLE PRECISION,
+            PRIMARY KEY (announcement_id, user_id)
+        )""")
         # Global search: pg_trgm GIN indexes accelerate ILIKE on message
         # content and session titles (see docs/SEARCH.md). Idempotent; the
         # extension ships in the pgvector image and standard PG.

@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 import admin
+import announcements
 import auth
 import client_update
 import db
@@ -36,7 +37,7 @@ app.middleware("http")(requestlog.request_log_middleware)
 def _shutdown_pool():
     db._close_pool()
 for _mod in (auth, invites, workspace, admin, sync, projects,
-             client_update, web_help, search):
+             client_update, web_help, search, announcements):
     app.include_router(_mod.router)
 
 if __name__ == "__main__":

@@ -16,6 +16,17 @@ TOKEN_EXPIRE_HOURS = int(os.environ.get("HERMES_SYNC_TOKEN_EXPIRE", "24"))
 # the per-request base_url is used ("download from X -> default X").
 PUBLIC_URL = os.environ.get("HERMES_SYNC_PUBLIC_URL", "").strip().rstrip("/")
 
+# ---- Announcements (OPTIONAL, off by default). A public JSON feed (see
+# agentctxsync_seo/announcements/) that the in-app banner shows to logged-in
+# users; empty string = feature off. The BROWSER fetches it, never the server:
+# a self-hosted box must not call out to the vendor, and that is also why this
+# is opt-in rather than a default URL. Point it at whichever site you trust
+# to author the messages (usually your own public site).
+ANNOUNCEMENTS_URL = os.environ.get("HERMES_SYNC_ANNOUNCEMENTS_URL", "").strip()
+if ANNOUNCEMENTS_URL and not ANNOUNCEMENTS_URL.startswith(("http://", "https://")):
+    raise SystemExit("HERMES_SYNC_ANNOUNCEMENTS_URL must be an absolute "
+                     f"http(s) URL, got {ANNOUNCEMENTS_URL!r}")
+
 # ---- Email verification (OPTIONAL). The whole feature is dormant until a
 # working SMTP channel is configured; without it registrations and logins
 # behave exactly as before (self-hosted deployments must not deadlock).

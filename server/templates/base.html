@@ -200,6 +200,102 @@
   <!-- Main content -->
   <main class="flex-1 ml-64">
     <div class="px-8 py-6">
+      {# Announcement banner. The feed is a static JSON on the deployment's own
+         public site (HERMES_SYNC_ANNOUNCEMENTS_URL); the BROWSER fetches it, so
+         the server never calls out. Every string below is inserted with
+         textContent — the feed is data, not markup, and the build rejects
+         HTML/markdown in it for exactly that reason. #}
+      {% if announcement_feed_url %}
+      <div id="acs-announce" class="space-y-3"></div>
+      <script>
+        (function () {
+          var FEED = {{ announcement_feed_url | tojson }};
+          var SEEN = {{ announcement_dismissed | tojson }};
+          var LANG = {{ lang | tojson }};
+          var T_DISMISS = {{ t.announcement_dismiss | tojson }};
+          var T_LINK = {{ t.announcement_default_link | tojson }};
+          var TONE = {
+            info: 'bg-[#EDE9FB] text-[#5B45B9] border-[#6E56CF]/20',
+            update: 'bg-emerald-50 text-emerald-600 border-emerald-500/20',
+            important: 'bg-[#FDECEC] text-[#C53B3B] border-[#EB5757]/25'
+          };
+
+          function pick(map) {           // language, then zh-CN, then anything
+            if (!map) return '';
+            return map[LANG] || map['zh-CN'] || Object.values(map)[0] || '';
+          }
+
+          function today() { return new Date().toISOString().slice(0, 10); }
+
+          var host = document.getElementById('acs-announce');
+          if (!host || !FEED) return;
+
+          fetch(FEED, { credentials: 'omit' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (feed) {
+              // Forward compatibility: an unknown feed version is ignored
+              // rather than half-rendered.
+              if (!feed || feed.version !== 1 || !Array.isArray(feed.announcements)) return;
+              var now = today();
+              feed.announcements
+                .filter(function (a) {
+                  return a && a.id && SEEN.indexOf(a.id) === -1 &&
+                         (!a.expires || a.expires >= now);
+                })
+                .slice()
+                .sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); })
+                .forEach(function (a) { host.appendChild(render(a)); });
+            })
+            .catch(function () { /* offline or blocked: show nothing */ });
+
+          function render(a) {
+            var tone = TONE[a.severity] || TONE.info;
+            var box = document.createElement('div');
+            box.className = 'mb-4 px-4 py-3 rounded-lg text-sm border flex items-start justify-between ' + tone;
+
+            var main = document.createElement('div');
+            main.className = 'min-w-0';
+            var title = document.createElement('span');
+            title.className = 'font-semibold';
+            title.textContent = pick(a.title) + ' ';
+            main.appendChild(title);
+            var body = document.createElement('span');
+            body.textContent = pick(a.body);
+            main.appendChild(body);
+            if (a.link && a.link.url) {
+              var link = document.createElement('a');
+              link.href = a.link.url;
+              link.className = 'ml-2 underline whitespace-nowrap';
+              link.textContent = pick(a.link.label) || T_LINK;
+              if (a.link.url.indexOf(location.origin) !== 0) {
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+              }
+              main.appendChild(link);
+            }
+            box.appendChild(main);
+
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'ml-4 text-current opacity-50 hover:opacity-100 shrink-0';
+            btn.title = T_DISMISS;
+            btn.textContent = '\u00d7';
+            btn.addEventListener('click', function () {
+              box.remove();
+              fetch('/web/announcement/dismiss', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: a.id })
+              }).catch(function () { /* next load shows it again */ });
+            });
+            box.appendChild(btn);
+            return box;
+          }
+        })();
+      </script>
+      {% endif %}
+
       {% with messages = get_flashed_messages() %}
       {% if messages %}
       {% for msg in messages %}

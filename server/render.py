@@ -9,6 +9,7 @@ import jinja2
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from config import ANNOUNCEMENTS_URL
 from db import get_conn, plan_limits
 from translations import get_translations
 # ============================================================
@@ -72,6 +73,12 @@ def render(template_name, context=None):
     # Global quota for the sidebar: every logged-in page sees plan/usage.
     # Routers may still pass their own (setdefault keeps theirs).
     ctx.setdefault("quota", _sidebar_quota())
+    # In-app announcement banner. The feed URL is handed to the browser (which
+    # does the fetch — see config.ANNOUNCEMENTS_URL); the only thing the server
+    # contributes is which ids this user already dismissed, so the banner does
+    # not flash before the client can hide it.
+    ctx.setdefault("announcement_feed_url", ANNOUNCEMENTS_URL)
+    ctx.setdefault("announcement_dismissed", _dismissed_announcements())
     tmpl = jinja_env.get_template(template_name)
     html = tmpl.render(ctx)
     # Dynamic HTML must not be heuristically cached by browsers/proxies: a
@@ -79,6 +86,33 @@ def render(template_name, context=None):
     # text until a hard refresh. Static assets are served separately.
     return HTMLResponse(content=html,
                         headers={"Cache-Control": "no-store"})
+
+
+def _dismissed_announcements():
+    """Feed item ids this user has already closed, for the banner.
+
+    Returns [] — without touching the database — when the feature is off or
+    nobody is logged in: the banner only exists on logged-in pages, and an
+    unconfigured deployment must pay nothing for it.
+    """
+    if not ANNOUNCEMENTS_URL:
+        return []
+    from auth import verify_jwt  # 函数内: 避免 render->auth 循环
+    request = _current_request_var.get()
+    if request is None:
+        return []
+    token = request.cookies.get("hsync_token")
+    payload = verify_jwt(token) if token else None
+    if not payload or not payload.get("sub"):
+        return []
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT announcement_id FROM announcement_dismissals "
+                      "WHERE user_id = %s", (int(payload["sub"]),))
+            return [r[0] for r in c.fetchall()]
+    except Exception:
+        return []  # a banner must never break a page
 
 
 def _sidebar_quota():

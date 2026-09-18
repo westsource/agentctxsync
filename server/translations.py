@@ -341,6 +341,9 @@ TRANSLATIONS = {
         # GitHub Issues (sidebar). External link: the label names the
         # destination, because the entry leaves the app.
         "nav_github_issues": "GitHub Issues",
+        # Announcement banner (content comes from HERMES_SYNC_ANNOUNCEMENTS_URL)
+        "announcement_dismiss": "关闭",
+        "announcement_default_link": "了解详情",
         # Common
         "common_copy": "复制",
         "common_copied": "已复制",
@@ -849,6 +852,9 @@ TRANSLATIONS = {
         # GitHub Issues (sidebar). External link: the label names the
         # destination, because the entry leaves the app.
         "nav_github_issues": "GitHub Issues",
+        # Announcement banner (content comes from HERMES_SYNC_ANNOUNCEMENTS_URL)
+        "announcement_dismiss": "Dismiss",
+        "announcement_default_link": "Learn more",
         # Common
         "common_copy": "Copy",
         "common_copied": "Copied",
