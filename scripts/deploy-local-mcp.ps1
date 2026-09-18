@@ -16,7 +16,7 @@
 $ErrorActionPreference = "Stop"
 
 $AGENT       = if ($env:HERMES_SYNC_AGENT)  { $env:HERMES_SYNC_AGENT }  else { "hermes" }
-$SERVER      = if ($env:HERMES_SYNC_SERVER)  { $env:HERMES_SYNC_SERVER }  else { "http://<SERVER_IP>:8765" }
+$SERVER      = if ($env:HERMES_SYNC_SERVER)  { $env:HERMES_SYNC_SERVER }  else { "https://<your-domain>" }
 $HERMES_HOME = if ($env:HERMES_DIR)          { $env:HERMES_DIR }          else { "$env:LOCALAPPDATA\hermes" }
 $MCP_DIR     = "$HERMES_HOME\mcp-servers\hermes-session-sync"
 $HERMES_PY   = if ($env:HERMES_PYTHON)       { $env:HERMES_PYTHON }       else { "$HERMES_HOME\hermes-agent\venv\Scripts\python.exe" }

@@ -80,6 +80,7 @@
 
 **问题**：
 - 服务端直接暴露 `0.0.0.0:8765`，部署脚本输出 `http://IP:8765`；`SECURITY.md` 仅提示"请置于反向代理之后启用 HTTPS"，默认部署即明文。
+  **2026-09-18 已修复**：`main.py` 改为仅监听 `127.0.0.1:8765`，反向代理成为唯一对外入口（`SECURITY.md`、README、部署脚本输出同步更新）。
 - `hsync_token` cookie：`httponly=True, samesite="lax"`，但**无 `secure=True`**——即使部署在 HTTPS 反向代理后，浏览器仍会把会话 cookie 发往明文 HTTP 请求；直接明文部署时，网络窃听者可整包抓取会话 cookie、Authorization 头中的 API key、以及全部会话/消息明文内容。
 
 **影响**：局域网/公共网络窃听 → 会话劫持、API key 泄露、私有对话内容泄露。API key 泄露后可直接读写该工作空间全部数据（`/pull`、`/push` 只认 key）。

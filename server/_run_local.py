@@ -15,5 +15,5 @@ if __name__ == "__main__":
     import db
     db.init_db()
     print("Backend: PostgreSQL (multi-tenant)")
-    print("Web UI: http://0.0.0.0:8765/web/")
-    uvicorn.run("main:app", host="0.0.0.0", port=8765, log_level="info")
+    print("Web UI: http://127.0.0.1:8765/web/")
+    uvicorn.run("main:app", host="127.0.0.1", port=8765, log_level="info")

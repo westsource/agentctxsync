@@ -84,16 +84,18 @@ cd /tmp/hermes-sync/server
 bash ../scripts/deploy-server.sh
 ```
 
-部署完成后：
-- API：`http://<SERVER_IP>:8765/health`
-- Web UI：`http://<SERVER_IP>:8765/web/`
+部署完成后应用**只监听 `127.0.0.1:8765`**，必须置于 TLS 反向代理之后才能从其他机器访问
+（见 [docs/server-deployment.md](docs/server-deployment.md)）：
+- API：`https://<your-domain>/health`
+- Web UI：`https://<your-domain>/web/`
+- 服务器本机（回环）：`http://127.0.0.1:8765/web/`
 - 首次启动会自动创建默认管理员 `admin`（随机密码打印在服务器日志里；**首次登录强制修改**），连同默认工作区（含 API Key——见服务器日志）
 
 > 更详细的服务器部署、运维与备份说明：[docs/server-deployment.md](docs/server-deployment.md)。
 
 ### 2. 注册用户并创建 Workspace（Web UI）
 
-1. 打开 `http://<SERVER_IP>:8765/web/` 点击 Register 注册——默认开放注册（自建数学验证码，邀请码可选）
+1. 打开 `https://<your-domain>/web/`（或在服务器本机打开 `http://127.0.0.1:8765/web/`）点击 Register 注册——默认开放注册（自建数学验证码，邀请码可选）
 2. 注册成功后自动创建「Default Workspace」；可在概览页点「+ Create」创建更多工作区
 3. 从工作区详情页复制 API Key（格式 `ws_xxx`）
 

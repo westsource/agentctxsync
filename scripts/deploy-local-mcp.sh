@@ -17,7 +17,7 @@
 set -e
 
 AGENT="${HERMES_SYNC_AGENT:-hermes}"
-SERVER="${HERMES_SYNC_SERVER:-http://<SERVER_IP>:8765}"
+SERVER="${HERMES_SYNC_SERVER:-https://<your-domain>}"
 HERMES_HOME="${HERMES_DIR:-$HOME/AppData/Local/hermes}"
 MCP_DIR="$HERMES_HOME/mcp-servers/hermes-session-sync"
 HERMES_PYTHON="${HERMES_PYTHON:-$HERMES_HOME/hermes-agent/venv/Scripts/python.exe}"

@@ -13,7 +13,8 @@
 
 ```
 YOUR_SERVER_IP
-├── agentctxsync (:8765)         — 会话同步服务 (FastAPI，多租户)
+├── nginx (:80/:443)             — 反向代理（TLS 终止），是应用唯一的对外入口
+└── agentctxsync (127.0.0.1:8765) — 会话同步服务 (FastAPI，多租户，仅本机监听)
 └── postgres (:5432)             — PostgreSQL（自备，如 Docker 容器 agentctxsync-db）
      └── DB: agentctxsync
 ```
@@ -152,6 +153,39 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 ```
+
+### 绑定地址与反向代理（必需）
+
+应用**只监听 `127.0.0.1:8765`**（`main.py` 里 `uvicorn.run(..., host="127.0.0.1")`），
+不绑定 `0.0.0.0`：公网/局域网无法直连该端口，也不存在明文 HTTP 入口。
+从其他机器访问必须经反向代理，例如：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.example;
+    # ssl_certificate ...（certbot 托管）
+
+    client_max_body_size 300m;            # 工作区导入/导出为 JSON.gz
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;  # 应用只在回环上
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+```
+
+- `main.py` 以 `proxy_headers=True` 启动，uvicorn 默认**只信任来自 `127.0.0.1` 的
+  `X-Forwarded-For`**，因此 `request.client.host`（`ratelimit.py` 的按 IP 限流依赖它）
+  拿到的是真实客户端 IP，而不是代理地址；伪造的外部 XFF 被忽略。
+- 只设 IPv4 回环时 `listen [::1]` 不适用；反代目标固定写 `127.0.0.1:8765`。
+- `HERMES_SYNC_PUBLIC_URL` 应填反代后的对外地址（如 `https://your-domain.example`），
+  这样下载的客户端包默认指向域名而非 IP。
 
 ### 备件 Cron
 

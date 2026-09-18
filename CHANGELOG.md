@@ -1,3 +1,19 @@
+## [2026.09.18.4] - 2026-09-18
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
+
+### Changed
+
+- **服务端只监听 `127.0.0.1:8765`**（原 `0.0.0.0:8765`）：uvicorn 绑定回环，反向代理（nginx 等
+  TLS 终止层）成为唯一对外入口。此前公网可达性靠云安全组兜底，现在由进程自身保证——明文端口不
+  出现在任何非回环接口上；`request.client.host` 只可能来自代理（`proxy_headers=True` 只信任
+  127.0.0.1 的 `X-Forwarded-For`），按 IP 限流与「域名 vs IP 直连」来源审计的前提因此更硬。
+- 自托管部署**必须**前置反向代理才能从其他机器访问：README（中英）、`SECURITY.md`、
+  `docs/server-deployment.md`（新增「绑定地址与反向代理（必需）」小节）、`docs/OPERATIONS.md`
+  的地址示例、`scripts/deploy-server.sh` 的输出、`scripts/deploy-local-mcp.{ps1,sh}` 与
+  `scripts/migrate-local-to-server.py` 的默认地址占位同步更新；`server/_run_local.py`
+  （本地开发启动器）一并改为回环。
+
 ## [2026.09.18.3] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。

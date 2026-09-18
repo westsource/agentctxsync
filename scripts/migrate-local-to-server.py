@@ -24,7 +24,7 @@ DEVICE_ID = f"local-{platform.node()}"
 
 if not SYNC_API_KEY:
     print("Usage: python migrate-local-to-server.py <workspace_api_key> [server_url]")
-    print("  Get your workspace API key from your sync server web UI (http://<SERVER>:8765/web/)")
+    print("  Get your workspace API key from your sync server web UI (https://<your-domain>/web/)")
     sys.exit(1)
 
 

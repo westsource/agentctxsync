@@ -107,8 +107,11 @@ Projects are a **workspace-level shared pool**: `/api/projects/pull` returns eve
 Already been using Hermes and want your history on the server too? Push historical sessions from the local `state.db` to the remote server:
 
 ```bash
-python scripts/migrate-local-to-server.py ws_yourkeyhere http://<SERVER_IP>:8765
+python scripts/migrate-local-to-server.py ws_yourkeyhere https://<your-domain>
 ```
+
+> The server binds `127.0.0.1:8765` only, so the URL here is the address the
+> reverse proxy publishes (a domain over HTTPS), not the app port.
 
 This is optional — new clients bootstrap locally-held data onto the server on first pairing; this script just uploads existing history proactively.
 
@@ -123,7 +126,7 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 4. Clients connect to the new server automatically after the Agent is restarted
 5. Once no client is still connected to the old server, take the old server offline
 
-**When the old server goes offline directly**: clients can no longer pull updates from the old address and need manual handling — add `HERMES_SYNC_SERVER: http://new-address:8765` to the `env` section of `config.yaml` on each machine (environment variables take priority), or manually copy the new `server.py` into the `mcp/` directory.
+**When the old server goes offline directly**: clients can no longer pull updates from the old address and need manual handling — add `HERMES_SYNC_SERVER: https://new-address` to the `env` section of `config.yaml` on each machine (environment variables take priority), or manually copy the new `server.py` into the `mcp/` directory. The address is whatever the reverse proxy publishes: the app itself binds `127.0.0.1:8765` and cannot be dialed directly.
 
 > **Id-scheme upgrade (2026.08.18)**: canonical session ids are bare for
 > every agent — `agent_type` (sessions + messages) records the owning agent and

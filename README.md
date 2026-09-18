@@ -84,16 +84,19 @@ cd /tmp/hermes-sync/server
 bash ../scripts/deploy-server.sh
 ```
 
-After deployment:
-- API: `http://<SERVER_IP>:8765/health`
-- Web UI: `http://<SERVER_IP>:8765/web/`
+After deployment the app listens on `127.0.0.1:8765` only, so it must sit
+behind a TLS-terminating reverse proxy (see
+[docs/server-deployment.md](docs/server-deployment.md)):
+- API: `https://<your-domain>/health`
+- Web UI: `https://<your-domain>/web/`
+- On the server itself, through loopback: `http://127.0.0.1:8765/web/`
 - On first start, a default admin `admin` is created automatically (random password printed in the server logs; **forced change on first login**) along with its default workspace (including the API Key — see the server logs)
 
 > More detailed server deployment, operations, and backup instructions: [docs/server-deployment.md](docs/server-deployment.md).
 
 ### 2. Register a user and create a Workspace (Web UI)
 
-1. Open `http://<SERVER_IP>:8765/web/` and click Register — registration is open by default (self-hosted math CAPTCHA, invite code optional)
+1. Open `https://<your-domain>/web/` (or `http://127.0.0.1:8765/web/` on the server) and click Register — registration is open by default (self-hosted math CAPTCHA, invite code optional)
 2. A "Default Workspace" is created automatically after successful registration; create more with "+ Create" on the overview page
 3. Copy the API Key from the Workspace detail page (format `ws_xxx`)
 
