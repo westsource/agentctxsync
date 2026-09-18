@@ -3,6 +3,20 @@
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），有 schema 变更
 > （新增一张仅记录"谁读过哪条公告"的表，随重启的 `db.init_db()` 幂等创建）。
 > **默认关闭**：未配置 `HERMES_SYNC_ANNOUNCEMENTS_URL` 的部署行为与之前完全一致。
+> 已部署 236（2026-09-18 CST，提交 `91f1e36`）：文件集由 git 差集算出（1 增 6 改），逐文件对
+> 上次部署提交 `0a9380f` 校验（新增文件按"远端不应存在"判定），`py_compile` 与应用级
+> `import main` 通过，重启后 active、`/health` 200、journal 无 error。配置写入 systemd drop-in
+> `40-announce.conf`（走 `daemon-reload`，未改 vhost 之外任何服务端配置）。
+> 内容侧（`agentctxsync_seo`，提交 `90dd73a`）：`dist/` 以 tar + 原子换发布到
+> `/var/www/agentctxsync-seo`；线上 vhost 新增 `location = /announcements.json`（先备份
+> `*.bak-announce-<ts>`，`nginx -t` 通过后才 reload）。线上读回：`HTTP/2 200`、
+> `content-type: application/json`、`access-control-allow-origin: *`、`cache-control: public, max-age=300`；
+> `scripts/check-live.py`（新增 feed 断言）**ALL CHECKS PASSED（18 页 + 4 notes）**。
+> 端到端实测（真实会话、真实 feed）：`/web/` 顶部横幅正确渲染标题/正文/外链（跨站自动
+> `target=_blank`）与 `update` 配色；点关闭 → `announcement_dismissals` 落 1 行
+> （`2026-09-18-oh-my-pi` / user 1）→ 刷新后横幅不再出现（服务端注入已读 id 生效）→ 删除该行后
+> 横幅恢复；测试行已清理，表内 0 行。跨域路径也在真实浏览器验证（页面在 `127.0.0.1`、feed 在
+> `www.agentctxsync.com`，CORS 生效可读到 body）——这是自托管部署的真实形态，缺 CORS 会静默不显示。
 
 ### Added
 
