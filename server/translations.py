@@ -341,6 +341,8 @@ TRANSLATIONS = {
         # GitHub Issues (sidebar). External link: the label names the
         # destination, because the entry leaves the app.
         "nav_github_issues": "GitHub Issues",
+        # Public landing page (sidebar, opens in a new tab).
+        "nav_website": "官网",
         # Announcement banner (content comes from HERMES_SYNC_ANNOUNCEMENTS_URL)
         "announcement_dismiss": "关闭",
         "announcement_default_link": "了解详情",
@@ -852,6 +854,8 @@ TRANSLATIONS = {
         # GitHub Issues (sidebar). External link: the label names the
         # destination, because the entry leaves the app.
         "nav_github_issues": "GitHub Issues",
+        # Public landing page (sidebar, opens in a new tab).
+        "nav_website": "Website",
         # Announcement banner (content comes from HERMES_SYNC_ANNOUNCEMENTS_URL)
         "announcement_dismiss": "Dismiss",
         "announcement_default_link": "Learn more",

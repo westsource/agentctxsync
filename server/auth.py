@@ -344,15 +344,28 @@ def require_admin(user: dict = Depends(get_current_user)):
 # Web UI Routes
 @router.get("/")
 async def root(request: Request):
-    """Root: not logged in → landing page; logged in → dashboard."""
-    try:
-        get_current_user(request)
-    except Exception:
+    """Root: not logged in → landing page; logged in → dashboard.
+
+    `?landing=1` overrides the redirect: the sidebar links to the public
+    landing page, and on a deployment with no static layer in front of the app
+    that link would otherwise bounce a logged-in user straight back to the
+    dashboard. (Where the public site IS served by nginx — `location = /` —
+    the query string is ignored and this branch never runs.)
+    """
+    landing = request.query_params.get("landing") == "1"
+
+    def render_landing():
         # 函数内: 避免 auth->client_update 循环导入。计数取自分发白名单，
         # 新增 Agent 只改 client_update，落地页数字自动跟上。
         from client_update import PUBLIC_AGENTS
-        return await render_page("landing.html",
-                                 {"agent_count": len(PUBLIC_AGENTS)})
+        return render_page("landing.html", {"agent_count": len(PUBLIC_AGENTS)})
+
+    try:
+        get_current_user(request)
+    except Exception:
+        return await render_landing()
+    if landing:
+        return await render_landing()
     return RedirectResponse(url="/web/")
 
 @router.get("/web/login", response_class=HTMLResponse)
