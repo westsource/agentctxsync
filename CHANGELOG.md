@@ -1,3 +1,25 @@
+## [2026.09.19.2] - 2026-09-19
+
+> 服务端专用发布：无客户端改动、无 schema 变更。
+> 已部署 236（2026-09-19 CST，提交 `9cf0e10`）：3 个文件（`auth.py` / `translations.py` /
+> `templates/login.html`），对上次部署提交 `867ef5e` 逐文件 sha256 预检通过、上传后回读一致、
+> `py_compile` 通过，重启后 active、journal 无 error。
+> 线上读回：中文登录页显示「用户名 / 邮箱」+ 提示「也可以用已验证的安全邮箱登录（未验证的邮箱不行）」，
+> `Cookie: lang=en` 下为「Username or email」+ 英文提示；用**用户名**与用**邮箱**提交的错误页
+> sha256 完全相同（`5249e761…`），即失败响应不泄露标识符形态。
+
+### Added
+
+- **登录页明确支持"已验证邮箱"**：`_find_login_user`（用户名优先，其次按 `email_normalized` +
+  `email_verified_at IS NOT NULL`，大小写不敏感）此前只存在于代码里，UI 却只写"用户名"。
+  现在标签在邮件功能开启时显示「用户名 / 邮箱」并加一行提示，关闭时仍只显示「用户名」
+  （避免承诺不可用的能力）；新增 `render_login_page()` 统一渲染，三处登录页渲染点共用。
+- 词条 `login_identifier` / `login_identifier_hint`（zh + en）；README（中英）与
+  `docs/server-deployment.md`（路由表 + users 表说明）同步写明邮箱可登录及其前提。
+- `server/tests/test_login.py`（8 例）：用户名优先且不触发邮箱查询、已验证邮箱命中且 SQL 带
+  `email_verified_at IS NOT NULL`、大小写/空格归一化、SMTP 关闭时邮箱分支失效、无 `@` 不查邮箱、
+  路由级"邮箱登录签发 cookie"、失败响应两种标识符同页、标签随邮件开关切换。
+
 ## [2026.09.19.1] - 2026-09-19
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变）；新增一张表
