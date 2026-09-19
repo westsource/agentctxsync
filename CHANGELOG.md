@@ -1,8 +1,8 @@
 ## [2026.09.19.2] - 2026-09-19
 
 > 服务端专用发布：无客户端改动、无 schema 变更。
-> 已部署 236（2026-09-19 CST，提交 `44c9943`）：3 个文件（`auth.py` / `translations.py` /
-> `templates/login.html`），对上次部署提交 `8eb7973` 逐文件 sha256 预检通过、上传后回读一致、
+> 已部署 236（2026-09-19 CST，提交 `8e7bd3c`）：3 个文件（`auth.py` / `translations.py` /
+> `templates/login.html`），对上次部署提交 `6bdcb16` 逐文件 sha256 预检通过、上传后回读一致、
 > `py_compile` 通过，重启后 active、journal 无 error。
 > 线上读回：中文登录页显示「用户名 / 邮箱」+ 提示「也可以用已验证的安全邮箱登录（未验证的邮箱不行）」，
 > `Cookie: lang=en` 下为「Username or email」+ 英文提示；用**用户名**与用**邮箱**提交的错误页
@@ -24,8 +24,8 @@
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变）；新增一张表
 > `mail_stats`（`init_db()` 幂等创建，重启即生效）。
-> 已部署 236（2026-09-19 CST，提交 `8eb7973`）：11 个文件（8 个 .py + 3 个模板），部署前对上次部署
-> 提交 `050e49a` 做 LF 归一化 sha256 校验通过，上传后逐文件回读一致，`py_compile` 通过，重启后
+> 已部署 236（2026-09-19 CST，提交 `6bdcb16`）：11 个文件（8 个 .py + 3 个模板），部署前对上次部署
+> 提交 `b03e695` 做 LF 归一化 sha256 校验通过，上传后逐文件回读一致，`py_compile` 通过，重启后
 > active、journal 无 error；`init_db()` 建出 `mail_stats`（`to_regclass` 读回）。
 > 线上校验：`/web/forgot` 与 `/web/register` 均渲染验证码组件且**标记里没有 `<text>`**（只有
 > `<path>`、线条与点）；错答 → 200 + 「验证码错误，请重试」+ 表单保留已填标识符 + 新挑战；
@@ -80,8 +80,8 @@
 ## [2026.09.18.4] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-18 CST，提交 `050e49a`）：单文件改动（`main.py`），部署前对上次部署提交
-> `90c993e` 做 LF 归一化 sha256 校验通过，上传后回读逐字节一致；`py_compile` 通过，重启后
+> 已部署 236（2026-09-18 CST，提交 `b03e695`）：单文件改动（`main.py`），部署前对上次部署提交
+> `109cce4` 做 LF 归一化 sha256 校验通过，上传后回读逐字节一致；`py_compile` 通过，重启后
 > active、journal 无 error。线上读回：`ss` 仅见 `127.0.0.1:8765`（无 `0.0.0.0:8765`）、回环
 > `/health` 与 `/web/login` 均 200、域名 `https://www.agentctxsync.com/health` 200、机内拨
 > `<LAN_IP>:8765` 得 `000`（未绑定，符合预期）、公网直连 8765 仍 TIMEOUT。
@@ -104,8 +104,8 @@
 ## [2026.09.18.3] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-18 CST，提交 `90c993e`）：单文件改动（`translations.py`），逐文件对上次部署
-> 提交 `a924be1` 校验通过，重启后 active、`/health` 200、journal 无 error。
+> 已部署 236（2026-09-18 CST，提交 `109cce4`）：单文件改动（`translations.py`），逐文件对上次部署
+> 提交 `ff86c42` 校验通过，重启后 active、`/health` 200、journal 无 error。
 > 线上实测侧边栏末三项：`接入帮助 → 官方首页 → GitHub Issues`，其中「官方首页」仍为
 > `/?landing=1`、新标签页打开。
 
@@ -117,8 +117,8 @@
 ## [2026.09.18.2] - 2026-09-18
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-18 CST，提交 `36aae2b`）：文件集由 git 差集算出（3 改 1 增），逐文件对上次
-> 部署提交 `234621e` 校验通过，`py_compile` 与应用级 `import main` 通过，重启后 active、
+> 已部署 236（2026-09-18 CST，提交 `b72520b`）：文件集由 git 差集算出（3 改 1 增），逐文件对上次
+> 部署提交 `47b4ef8` 校验通过，`py_compile` 与应用级 `import main` 通过，重启后 active、
 > `/health` 200、journal 无 error。
 > 线上实测：侧边栏末三项为「接入帮助 → 官网 ↗ → GitHub Issues ↗」（两个外链同图标成组）；
 > 点击「官网」新开标签页落到 `https://www.agentctxsync.com/?landing=1`，渲染的是**静态 SEO 页**
@@ -147,8 +147,8 @@
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），有 schema 变更
 > （新增一张仅记录"谁读过哪条公告"的表，随重启的 `db.init_db()` 幂等创建）。
 > **默认关闭**：未配置 `HERMES_SYNC_ANNOUNCEMENTS_URL` 的部署行为与之前完全一致。
-> 已部署 236（2026-09-18 CST，提交 `833b157`）：文件集由 git 差集算出（1 增 6 改），逐文件对
-> 上次部署提交 `a0a30ff` 校验（新增文件按"远端不应存在"判定），`py_compile` 与应用级
+> 已部署 236（2026-09-18 CST，提交 `248ca7b`）：文件集由 git 差集算出（1 增 6 改），逐文件对
+> 上次部署提交 `ab3e144` 校验（新增文件按"远端不应存在"判定），`py_compile` 与应用级
 > `import main` 通过，重启后 active、`/health` 200、journal 无 error。配置写入 systemd drop-in
 > `40-announce.conf`（走 `daemon-reload`，未改 vhost 之外任何服务端配置）。
 > 内容侧（`agentctxsync_seo`，提交 `90dd73a`）：`dist/` 以 tar + 原子换发布到
@@ -191,8 +191,8 @@
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更
 > （仅移除一个不再使用的建表语句，已存在的库不受影响）。
-> 已部署 236（2026-09-17 CST，提交 `953be08`），文件集由 git 依提交差集算出（4 改 2 删），
-> 部署前逐文件校验远端与上次部署提交 `1931c15` LF 归一化 sha256 一致（全部 OK），改前/删前文件
+> 已部署 236（2026-09-17 CST，提交 `375ef22`），文件集由 git 依提交差集算出（4 改 2 删），
+> 部署前逐文件校验远端与上次部署提交 `4434678` LF 归一化 sha256 一致（全部 OK），改前/删前文件
 > 备份为同目录 `*.bak-2026.09.17.3`（含被删的 `feedback.py` 与 `templates/feedback.html`，可直接拷回
 > 回滚）；`py_compile` 与应用级 `import main` 均通过，重启后 `systemctl is-active` 为 active、
 > `/health` 200、journal 无 error/traceback。
@@ -230,8 +230,8 @@
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），**有 schema 变更**
 > （`access_device` 增列并重建主键，随重启的 `db.init_db()` 幂等执行）。
-> 已部署 236（2026-09-17 CST，提交 `21759b9`），文件集由 git 依提交差集算出（6 个服务端文件），
-> 部署前逐文件校验远端与上次部署提交 `bb4423a` LF 归一化 sha256 一致（全部 OK），改前文件备份为
+> 已部署 236（2026-09-17 CST，提交 `695bd83`），文件集由 git 依提交差集算出（6 个服务端文件），
+> 部署前逐文件校验远端与上次部署提交 `76cbedb` LF 归一化 sha256 一致（全部 OK），改前文件备份为
 > 同目录 `*.bak-2026.09.17.2`；`py_compile` 与应用级 `import main` 均通过，重启后
 > `systemctl is-active` 为 active、`/health` 200、journal 无 error/traceback。
 > 重启后实测 `access_device` 主键已由 `(stat_date, device_id, agent, channel)` 变为
@@ -243,8 +243,8 @@
 > `user_id=0`（3 条探针行已删除，未留下测试设备）；另用部署后模块签发管理员会话 GET
 > `/web/admin/access/devices`，HTTP 200（44131 字节），「用户」列与「未归属」标签均渲染，
 > 真实归属名可见，`local-<device>` 徽章为 `2 个 Agent`（同 Agent 两账号不重复计数）。
-> 双远端同步：gitee 推送 `bb4423a..21759b9`；github 由 236 侧中转推送，`refs/heads/main` 与
-> GitHub API 均为 `21759b9`。
+> 双远端同步：gitee 推送 `76cbedb..695bd83`；github 由 236 侧中转推送，`refs/heads/main` 与
+> GitHub API 均为 `695bd83`。
 
 ### Added
 
@@ -279,8 +279,8 @@
 ## [2026.09.17.1] - 2026-09-17
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-17 CST，提交 `ad2b470`），部署前校验远端 `auth.py` / `translations.py` /
-> `templates/landing.html` 与提交 `dcf8285`（线上当时版本）LF 归一化 sha256 逐字一致，改前文件
+> 已部署 236（2026-09-17 CST，提交 `a325cde`），部署前校验远端 `auth.py` / `translations.py` /
+> `templates/landing.html` 与提交 `dc1632c`（线上当时版本）LF 归一化 sha256 逐字一致，改前文件
 > 备份为同目录 `*.bak-agentcount-2026.09.17`；重启后 `systemctl is-active` 为 active、`/health`
 > 200、journal 无 error/traceback。
 > 线上校验：分别从服务进程（`127.0.0.1:8765/`）与公网（`https://www.agentctxsync.com/`）取渲染页，
@@ -289,8 +289,8 @@
 > 旧计数、也无未替换的 `{0}`。另在服务器上用 systemd drop-in 的真实环境导入**已部署**的
 > `client_update` + `translations` 进程内断言：`PUBLIC_AGENTS` 为 7 项，三处文案与白名单成员逐一
 > 一致（zh/en），终端文案渲染为「`· 7 个 Agent 共享`」「`· shared by 7 agents`」。
-> 双远端同步：gitee 推送 `dcf8285..ad2b470`；本机网络不通 `github.com:443`（`api.github.com` 可达），
-> 改由 236 侧 `git clone --bare` gitee 后推送 github，`refs/heads/main` 已为 `ad2b470`（令牌经
+> 双远端同步：gitee 推送 `dc1632c..a325cde`；本机网络不通 `github.com:443`（`api.github.com` 可达），
+> 改由 236 侧 `git clone --bare` gitee 后推送 github，`refs/heads/main` 已为 `a325cde`（令牌经
 > SFTP 一次性脚本传入并即时删除，未落库、未入 argv 之外的文件）。
 
 ### Fixed
@@ -317,7 +317,7 @@
 ## [2026.09.14.5] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-14 17:41 CST），部署前校验远端 `mailer.py` 与提交 `0b6e4e5` 逐字一致
+> 已部署 236（2026-09-14 17:41 CST），部署前校验远端 `mailer.py` 与提交 `dc60198` 逐字一致
 > （LF 归一化 sha256），改前文件备份为同目录 `mailer.py.bak-htmlmail-2026.09.14`；重启后
 > `/health` 200、日志无异常。线上校验（用部署后的代码截获实际待发报文）：激活邮件与重置邮件均为
 > `multipart/alternative`（`text/plain` + `text/html`），HTML 部分为 `<a href="URL">URL</a>`
@@ -345,7 +345,7 @@
 ## [2026.09.14.4] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-14 17:29 CST），部署前逐文件校验远端与提交 `32d3391` 逐字一致（LF 归一化
+> 已部署 236（2026-09-14 17:29 CST），部署前逐文件校验远端与提交 `87c8fa1` 逐字一致（LF 归一化
 > sha256），改前文件备份为同目录 `*.bak-ttl3h-2026.09.14`；重启后 `/health` 200、日志无异常。
 > 线上校验：`TOKEN_TTL = 10800`；并为最后注册的 3 个仍处 `PENDING_EMAIL_VERIFICATION` 的账号
 > （`xiayimiao123` / `xp` / `zzc`）重发激活邮件——新令牌 `expires_at - created_at = 10800`、
@@ -370,7 +370,7 @@
 ## [2026.09.14.3] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-14 17:25 CST），部署前逐文件校验远端与提交 `1699884` 逐字一致（LF 归一化
+> 已部署 236（2026-09-14 17:25 CST），部署前逐文件校验远端与提交 `be2d1e2` 逐字一致（LF 归一化
 > sha256），改前文件备份为同目录 `*.bak-ttl12h-2026.09.14`；重启后 `/health` 200、日志无异常。
 > 线上校验：DB 中激活令牌 `expires_at - created_at = 43200`、重置令牌仍为 `1800`；中/英激活
 > 邮件正文分别写明「12 小时 / 12 hours」，重置邮件仍写 30 分钟；等待页文案已更新；侧边栏
@@ -400,7 +400,7 @@
 ## [2026.09.14.2] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-14 17:19 / 17:22 CST 两批），部署前逐文件校验远端与提交 `e03b79b` 逐字
+> 已部署 236（2026-09-14 17:19 / 17:22 CST 两批），部署前逐文件校验远端与提交 `e794b1c` 逐字
 > 一致（LF 归一化 sha256；`jsonbody.py` 需不存在），改前文件备份为同目录
 > `*.bak-json400-2026.09.14` 与 `workspace.py.bak-wscreate-2026.09.14`。重启后 `/health` 200、
 > 日志无新异常；线上校验：7 个 JSON 端点畸形/非对象请求体 = 400、合法请求行为不变、
@@ -436,7 +436,7 @@
 ## [2026.09.14.1] - 2026-09-14
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变），无 schema 变更。
-> 已部署 236（2026-09-14 17:12 CST），部署前校验远端 `auth.py` 与提交 `113abcd` 逐字一致
+> 已部署 236（2026-09-14 17:12 CST），部署前校验远端 `auth.py` 与提交 `e2d1514` 逐字一致
 > （LF 归一化 sha256 `1ee30069…`），重启前把原文件备份为同目录的
 > `auth.py.bak-verify-email-fix-2026.09.14`；重启后 `/health` 200、日志无异常，并用线上
 > 真实令牌跑通一次激活（`POST /web/verify-email` → 303 `/web/`）。
