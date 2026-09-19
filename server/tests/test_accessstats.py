@@ -9,6 +9,8 @@ also bump the device's access_device row, and static/health traffic is
 excluded.
 """
 import asyncio
+import contextlib
+import io
 import os
 import sys
 import unittest
@@ -247,6 +249,42 @@ class RecordDeviceTest(unittest.TestCase):
                 Request(scope, receive=receive), call_next))
         rec.assert_called_once_with("203.0.113.7:8765", "/push", "my-pc",
                                     "2026.08.21.1", "hermes", 0)
+
+
+class RequestLogSourceTest(unittest.TestCase):
+    """The REQ line's src is the resolved peer address. X-Forwarded-For's
+    leftmost entry is caller-supplied, so reading it as fact let anyone forge
+    the audit trail (the limiter was never fooled — it uses client.host)."""
+
+    def _line(self, headers, client=("198.51.100.5", 4444)):
+        scope = {
+            "type": "http", "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": "/web/login", "raw_path": b"/web/login",
+            "query_string": b"", "root_path": "",
+            "headers": headers,
+            "client": client, "server": ("127.0.0.1", 8765),
+        }
+        from fastapi import Request
+
+        async def call_next(_req):
+            return SimpleNamespace(status_code=200)
+
+        buf = io.StringIO()
+        with mock.patch.object(requestlog, "_record_access"), \
+                contextlib.redirect_stdout(buf):
+            asyncio.run(requestlog.request_log_middleware(Request(scope), call_next))
+        return buf.getvalue()
+
+    def test_spoofed_forwarded_header_cannot_become_src(self):
+        line = self._line([(b"host", b"www.agentctxsync.com"),
+                           (b"x-forwarded-for", b"203.0.113.9")])
+        self.assertIn("src=198.51.100.5", line)
+        self.assertIn("xff=203.0.113.9", line)   # kept, but never as the source
+
+    def test_no_forwarded_header_omits_the_field(self):
+        line = self._line([(b"host", b"www.agentctxsync.com")])
+        self.assertIn("src=198.51.100.5", line)
+        self.assertNotIn("xff=", line)
 
 
 class MiddlewareCountingTest(unittest.TestCase):

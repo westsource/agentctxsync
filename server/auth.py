@@ -1,4 +1,5 @@
 """Authentication domain: credentials, JWT, dependencies, login/register routes."""
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -564,10 +565,17 @@ async def web_register_submit(request: Request):
     if mail_on:
         # Commit done; deliver the mail now. A delivery failure must not fail
         # the registration — the waiting page offers resend/change instead.
+        # The activation mail also spends the per-address bucket: an address
+        # nobody has verified yet must not receive a fresh mail on every
+        # registration attempt aimed at it.
         sent = True
-        try:
-            mailer.send_verification_mail(email, verify_link(request, raw_token), lang)
-        except mailer.MailerError:
+        if ratelimit.allow("mail_address", email_norm):
+            try:
+                await asyncio.to_thread(mailer.send_verification_mail, email,
+                                        verify_link(request, raw_token), lang)
+            except mailer.MailerError:
+                sent = False
+        else:
             sent = False
         token = create_jwt(user_id, username, False, display_name, lang,
                            account_state=STATE_PENDING)
@@ -698,9 +706,10 @@ async def web_verify_email_confirm(request: Request):
         # that the security email moved. Best-effort; failures never roll back.
         if (success_user["old_email"] and success_user["old_email"] != success_user["new_email"]):
             try:
-                mailer.send_email_changed_notice(success_user["old_email"],
-                                                 success_user["new_email"],
-                                                 success_user["lang"])
+                await asyncio.to_thread(mailer.send_email_changed_notice,
+                                        success_user["old_email"],
+                                        success_user["new_email"],
+                                        success_user["lang"])
             except mailer.MailerError:
                 pass
         token = create_jwt(success_user["id"], success_user["username"],
@@ -758,7 +767,8 @@ async def web_email_bind(request: Request):
     if not smtp_configured():
         return RedirectResponse(url="/web/", status_code=303)
     ip = client_ip(request)
-    if not ratelimit.allow("email", ip):
+    if (not ratelimit.allow("email", ip)
+            or not ratelimit.allow("mail_account", user["sub"])):
         return RedirectResponse(url="/web/email?error=email_rate_limited", status_code=303)
     body = await request.form()
     email = body.get("email", "").strip()
@@ -768,6 +778,11 @@ async def web_email_bind(request: Request):
         return RedirectResponse(url="/web/email?error=register_email_required", status_code=303)
     if not norm:
         return RedirectResponse(url="/web/email?error=register_email_invalid", status_code=303)
+    # The confirmation mail goes to a caller-supplied address, so cap that
+    # address itself (short window; the key space here is attacker-chosen and
+    # must not accumulate, the daily budget in mailer is the global ceiling).
+    if not ratelimit.allow("mail_address", norm):
+        return RedirectResponse(url="/web/email?error=email_rate_limited", status_code=303)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("SELECT id, username, password_hash, lang, account_state, pending_email "
@@ -786,7 +801,8 @@ async def web_email_bind(request: Request):
         state = u["account_state"]
         lang = u["lang"] or "zh-CN"
     try:
-        mailer.send_verification_mail(email, verify_link(request, raw_token), lang)
+        await asyncio.to_thread(mailer.send_verification_mail, email,
+                                verify_link(request, raw_token), lang)
     except mailer.MailerError:
         return RedirectResponse(url=email_home_for(state) + "?sent=1&mail_failed=1",
                                  status_code=303)
@@ -804,7 +820,8 @@ async def web_email_resend(request: Request):
     if not smtp_configured():
         return RedirectResponse(url="/web/", status_code=303)
     ip = client_ip(request)
-    if not ratelimit.allow("email", ip):
+    if (not ratelimit.allow("email", ip)
+            or not ratelimit.allow("mail_account", user["sub"])):
         return RedirectResponse(url="/web/email?error=email_rate_limited", status_code=303)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -813,6 +830,8 @@ async def web_email_resend(request: Request):
         u = c.fetchone()
         if not u or not u["pending_email_normalized"]:
             return RedirectResponse(url="/web/email?error=email_none_pending", status_code=303)
+        if not ratelimit.allow("mail_address", u["pending_email_normalized"]):
+            return RedirectResponse(url="/web/email?error=email_rate_limited", status_code=303)
         raw_token = emailverify.issue_token(
             conn, u["id"], emailverify.PURPOSE_VERIFY_EMAIL,
             u["pending_email_normalized"], ip)
@@ -822,7 +841,8 @@ async def web_email_resend(request: Request):
         lang = u["lang"] or "zh-CN"
         state = u["account_state"]
     try:
-        mailer.send_verification_mail(pending, verify_link(request, raw_token), lang)
+        await asyncio.to_thread(mailer.send_verification_mail, pending,
+                                verify_link(request, raw_token), lang)
     except mailer.MailerError:
         return RedirectResponse(url=email_home_for(state) + "?sent=1&mail_failed=1",
                                  status_code=303)
@@ -870,7 +890,8 @@ async def web_security_reset_request(request: Request):
     if not smtp_configured():
         return RedirectResponse(url="/web/security", status_code=303)
     ip = client_ip(request)
-    if not ratelimit.allow("email", ip):
+    if (not ratelimit.allow("email", ip)
+            or not ratelimit.allow("mail_account", user["sub"])):
         return RedirectResponse(url="/web/security?d=dlgReset&error=email_rate_limited",
                                 status_code=303)
     with get_conn() as conn:
@@ -881,6 +902,11 @@ async def web_security_reset_request(request: Request):
         if not u or u["email_verified_at"] is None or not u["email"]:
             return RedirectResponse(url="/web/security?d=dlgReset&error=reset_no_verified_email",
                                     status_code=303)
+        # Same recipient-side cap the guest path uses: the mailbox is what a
+        # sender cannot multiply.
+        if not ratelimit.allow("mail_recipient", u["email_normalized"]):
+            return RedirectResponse(url="/web/security?d=dlgReset&error=email_rate_limited",
+                                    status_code=303)
         raw_token = emailverify.issue_token(
             conn, u["id"], emailverify.PURPOSE_RESET_PASSWORD,
             u["email_normalized"], ip)
@@ -889,9 +915,8 @@ async def web_security_reset_request(request: Request):
         to_email = u["email"]
         lang = u["lang"] or "zh-CN"
     try:
-        mailer.send_password_reset_mail(to_email,
-                                        password_reset_link(request, raw_token),
-                                        lang)
+        await asyncio.to_thread(mailer.send_password_reset_mail, to_email,
+                                password_reset_link(request, raw_token), lang)
         return RedirectResponse(url="/web/security?d=dlgReset&reset_sent=1",
                                 status_code=303)
     except mailer.MailerError:
@@ -899,31 +924,52 @@ async def web_security_reset_request(request: Request):
                                 status_code=303)
 
 
+async def render_forgot_page(mode, error="", identifier=""):
+    """Forgot-password page. Only the form branch mints a captcha challenge
+    (the other branches render no widget, so an unused challenge would just sit
+    in the store until its TTL)."""
+    ctx = {"mode": mode, "error": error, "identifier": identifier}
+    if mode == "form":
+        ctx["captcha_id"], ctx["captcha_svg"] = captcha.new_challenge()
+    return await render_page("forgot.html", ctx)
+
+
 @router.get("/web/forgot", response_class=HTMLResponse)
 async def web_forgot_page(request: Request):
     """Request a password-reset mail (guest page)."""
     if not smtp_configured():
-        return await render_page("forgot.html", {"mode": "unavailable"})
-    return await render_page("forgot.html", {"mode": "form"})
+        return await render_forgot_page("unavailable")
+    return await render_forgot_page("form")
 
 
 @router.post("/web/forgot", response_class=HTMLResponse)
 async def web_forgot_submit(request: Request):
-    """Anti-enumeration: every submitted identifier gets the SAME response.
+    """Anti-enumeration: every eligible identifier gets the SAME response.
     A reset mail is sent only when the identifier resolves to an account with
-    a VERIFIED email; everything else is a silent no-op."""
+    a VERIFIED email AND that mailbox still has budget; everything else is a
+    silent no-op. The captcha gates the request itself and is checked before
+    any account lookup, so failing it reveals nothing about the identifier
+    (neither does the recipient-side limit below: both render 'done')."""
     if not smtp_configured():
-        return await render_page("forgot.html", {"mode": "unavailable"})
+        return await render_forgot_page("unavailable")
     if not ratelimit.allow("forgot", client_ip(request)):
-        return await render_page("forgot.html", {"mode": "rate"})
+        return await render_forgot_page("rate")
     body = await request.form()
     identifier = body.get("username", "").strip()
+    if not captcha.verify(body.get("captcha_id", ""), body.get("captcha", "")):
+        return await render_forgot_page("form", "forgot_captcha_failed", identifier)
     ip = client_ip(request)
+    raw_token = to_email = lang = None
     if identifier:
         with get_conn() as conn:
             c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             u = _find_login_user(c, identifier)
-            if (u and u["email_verified_at"] is not None and u["email"]):
+            # mail_recipient is keyed by the mailbox that would receive the
+            # mail, not by the caller: rotating source IPs cannot multiply it,
+            # and keying on the resolved address means asking by username and
+            # by email lands in the same bucket.
+            if (u and u["email_verified_at"] is not None and u["email"]
+                    and ratelimit.allow("mail_recipient", u["email_normalized"])):
                 raw_token = emailverify.issue_token(
                     conn, u["id"], emailverify.PURPOSE_RESET_PASSWORD,
                     u["email_normalized"], ip)
@@ -931,14 +977,14 @@ async def web_forgot_submit(request: Request):
                             "password reset requested")
                 to_email = u["email"]
                 lang = u["lang"] or "zh-CN"
-        if u and u["email_verified_at"] is not None and u["email"]:
-            try:
-                mailer.send_password_reset_mail(to_email,
-                                                password_reset_link(request, raw_token),
-                                                lang)
-            except mailer.MailerError:
-                pass  # uniform response regardless of delivery outcome
-    return await render_page("forgot.html", {"mode": "done"})
+    if raw_token:
+        try:
+            await asyncio.to_thread(
+                mailer.send_password_reset_mail, to_email,
+                password_reset_link(request, raw_token), lang)
+        except mailer.MailerError:
+            pass  # uniform response regardless of delivery outcome
+    return await render_forgot_page("done")
 
 
 @router.get("/web/reset", response_class=HTMLResponse)

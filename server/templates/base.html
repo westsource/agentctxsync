@@ -408,6 +408,16 @@ function toggleSecurityMenu() {
   var collapsed = sub.classList.toggle('hidden'); // true => now folded
   if (caret) caret.textContent = collapsed ? '▸' : '▾';
 }
+// Swap in a fresh captcha challenge (register / forgot forms share the widget).
+// A rate-limited response carries no id: keep the current puzzle then.
+function refreshCaptcha() {
+  fetch('/web/captcha/new').then(function (r) { return r.json(); }).then(function (d) {
+    if (!d.id) return;
+    document.getElementById('captcha-box').innerHTML = d.svg;
+    document.getElementById('captcha-id').value = d.id;
+    document.getElementById('captcha-input').value = '';
+  });
+}
 </script>
 </body>
 </html>

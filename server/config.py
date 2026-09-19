@@ -37,6 +37,12 @@ SMTP_PORT = int(os.environ.get("HERMES_SYNC_SMTP_PORT", "465") or 465)
 SMTP_USER = os.environ.get("HERMES_SYNC_SMTP_USER", "").strip()
 SMTP_PASSWORD = os.environ.get("HERMES_SYNC_SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("HERMES_SYNC_SMTP_FROM", "").strip()
+# Outbound-mail ceiling per calendar day, counted in the DB (mail_stats) so a
+# restart cannot refill it. The sender is usually a personal mailbox with a
+# provider-side daily quota: without a ceiling, one abuse burst of reset
+# requests silently exhausts that quota and activation/reset mail stops
+# reaching anybody. 0 disables the cap (not recommended).
+MAIL_DAILY_CAP = int(os.environ.get("HERMES_SYNC_MAIL_DAILY_CAP", "200") or 0)
 
 
 def smtp_configured() -> bool:

@@ -59,6 +59,7 @@ YOUR_SERVER_IP
 **quota_config** — plan (PK), max_sessions (NULL=不限), allowed_agents (TEXT[]，NULL/空=全部放行)。种子：free=300（存量 200 由 init_db 幂等提升）、unlimited 无限制
 
 **audit_log** — id, ts, event, user_id, workspace_id, device_id, code, detail（配额拒绝等事件审计）
+**mail_stats** — stat_date (PK), kind (PK), count（每日发信计数：`sent` 尝试 / `rejected` 超预算拒绝 / `failed` 投递失败；由 `mailer` 写入，用于 `HERMES_SYNC_MAIL_DAILY_CAP` 执法与滥用告警）
 
 ## 5. 服务端文件结构
 
@@ -129,6 +130,35 @@ YOUR_SERVER_IP
 | HERMES_SYNC_JWT_SECRET | secrets.token_hex(32) (每次重启随机) | JWT 签名密钥 |
 | HERMES_SYNC_TOKEN_EXPIRE | 24 | JWT 有效期 (小时) |
 | HERMES_SYNC_PUBLIC_URL | 空 | 对外公开地址；设置后所有下载的客户端包默认指向它（域名迁移用）；未设置时客户端包默认取下载请求的来源地址 |
+| HERMES_SYNC_MAIL_DAILY_CAP | 200 | 每日发信上限（按自然日、DB 计数，重启不清零）；超限拒绝发送并计入 `mail_stats.rejected`。0 = 不限制（不推荐） |
+
+### 发信限流与日预算
+
+邮件（激活 / 找回密码 / 换邮箱确认）是全站共享的资源：发信账号通常是个人邮箱，有服务商侧的
+每日额度。**没有任何单点上限**时，一条 `POST /web/forgot` 就能把额度花光——之后所有用户都收不到
+激活与重置邮件（且 `forgot` 为防枚举是静默失败的，用户只会觉得"没收到"）。因此除了按 IP 的
+请求桶，发信路径还有三层收件人侧限制（`ratelimit.py`，key 是收件地址/账号，不是来源 IP，
+所以换 IP 不能放大）：
+
+| scope | 维度 | 上限 |
+|-------|------|------|
+| `forgot` | 来源 IP | 5 次 / 10 分钟（另有 `mail_recipient`） |
+| `mail_recipient` | 收件邮箱（已解析的已验证地址） | 1 封 / 分钟 且 5 封 / 天 |
+| `mail_account` | 登录账号（`bind` / `resend` / 安全中心） | 10 封 / 小时 |
+| `mail_address` | 调用方填写的目标地址（注册 / 绑定） | 1 封 / 10 分钟 |
+| `HERMES_SYNC_MAIL_DAILY_CAP` | 全站 | 200 封 / 天（默认） |
+
+`/web/forgot` 另加自托管数学验证码（`captcha.py`，图形为纯矢量线条，答案只存服务端）。
+这些是**成本与上限**措施：验证码挡不住愿意写 OCR 的人，但收件人侧桶和日预算能把单个邮箱
+与全站发信量的天花板钉死。
+
+每日计数落在 `mail_stats`：`sent`（尝试）/ `rejected`（超预算）/ `failed`（SMTP 失败）。
+`rejected` 快速增长 = 有人在刷发信，值得告警。
+
+```sql
+-- 今日发信情况
+SELECT stat_date, kind, count FROM mail_stats ORDER BY stat_date DESC, kind;
+```
 
 ### systemd 服务
 

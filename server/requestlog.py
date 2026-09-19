@@ -162,15 +162,21 @@ async def request_log_middleware(request: Request, call_next):
             user_id = getattr(request.state, "ws_user_id", 0) or 0
             if not path.startswith(_SKIP_PREFIXES) and path not in _SKIP_PATHS:
                 _record_access(host, path, device_id, client_version, agent, user_id)
+            # src is the real peer address (uvicorn resolves it from the
+            # trusted proxy's X-Forwarded-For). The raw header is kept
+            # separately and never parsed as fact: its leftmost entry is
+            # caller-supplied, so reading it as the source would let anyone
+            # forge the audit trail.
             fwd = request.headers.get("x-forwarded-for")
-            ip = (fwd.split(",")[0].strip() if fwd
-                  else (request.client.host if request.client else "?"))
+            ip = request.client.host if request.client else "?"
             line = (f"REQ src={ip} host={request.headers.get('host', '')} "
                     f"proto={request.url.scheme} method={request.method} "
                     f"path={request.url.path} status={status} "
                     f"ms={int((time.monotonic() - start) * 1000)}")
             if device_id:
                 line += f" device={device_id}"
+            if fwd:
+                line += f" xff={fwd[:120]}"
             print(line, flush=True)
         except Exception:
             pass  # logging must never break the request path

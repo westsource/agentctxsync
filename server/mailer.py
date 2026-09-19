@@ -12,21 +12,32 @@ that render HTML and still fully readable in clients that do not.
 
 Delivery problems raise MailerError with the reason logged; callers turn it
 into a user-visible "please retry / resend later" state, never a crash.
+
+Every send is counted per day in `mail_stats` and refused past
+HERMES_SYNC_MAIL_DAILY_CAP (config.MAIL_DAILY_CAP): a caller-triggered burst
+must not consume the provider's daily quota, because that would silently stop
+activation and password-reset mail for every user.
 """
 import html
 import logging
 import smtplib
 import ssl
+from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 
-from config import (SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT,
-                    SMTP_USER, smtp_configured)
+from config import (MAIL_DAILY_CAP, SMTP_FROM, SMTP_HOST, SMTP_PASSWORD,
+                    SMTP_PORT, SMTP_USER, smtp_configured)
 
 import emailverify
 
 log = logging.getLogger("mailer")
+
+# Counter keys in mail_stats (kind column).
+KIND_SENT = "sent"          # every send that was attempted
+KIND_REJECTED = "rejected"  # refused because the daily budget was reached
+KIND_FAILED = "failed"      # SMTP refused / unreachable
 
 
 class MailerError(RuntimeError):
@@ -57,11 +68,56 @@ def _html_body(text, url=None):
             + body.replace("\n", "<br>\n") + "</div>")
 
 
+def _bump(kind):
+    """Increment today's mail_stats counter for `kind`; return the new total.
+
+    None when the counter is unavailable — counting must never be the reason a
+    mail fails.
+    """
+    try:
+        from db import get_conn  # late import: mailer stays import-light
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO mail_stats (stat_date, kind, count) VALUES (%s, %s, 1) "
+                "ON CONFLICT (stat_date, kind) "
+                "DO UPDATE SET count = mail_stats.count + 1 RETURNING count",
+                (date.today(), kind))
+            return c.fetchone()[0]
+    except Exception as exc:  # pragma: no cover - depends on a live DB
+        log.warning("mail counter unavailable (%s)", exc)
+        return None
+
+
+def _budget_allow():
+    """True while today's outbound-mail budget has room.
+
+    Counted in the DB so a restart cannot refill it, and enforced *before*
+    the SMTP round-trip so an exhausted budget costs nothing but a refused
+    send. A missing counter fails open (mail must not depend on the stats
+    table); a reached cap fails closed, which is the point: it protects the
+    provider quota that everyone else's activation mail depends on.
+    """
+    if MAIL_DAILY_CAP <= 0:
+        return True
+    counted = _bump(KIND_SENT)
+    if counted is None:
+        return True
+    if counted > MAIL_DAILY_CAP:
+        _bump(KIND_REJECTED)
+        log.warning("daily mail budget reached (%s > %s) — refusing to send",
+                    counted, MAIL_DAILY_CAP)
+        return False
+    return True
+
+
 def send_mail(to_email, subject, text, html_body=None):
     """Send a mail. Plain text always; an HTML alternative when html_body is
     given. Raises MailerError on any failure."""
     if not smtp_configured():
         raise MailerError("SMTP is not configured")
+    if not _budget_allow():
+        raise MailerError("mail_budget_exceeded")
     if html_body:
         msg = MIMEMultipart("alternative")
         msg.attach(MIMEText(text, "plain", "utf-8"))
@@ -82,6 +138,7 @@ def send_mail(to_email, subject, text, html_body=None):
             except Exception:
                 s.close()
     except Exception as e:  # network / auth / rejection
+        _bump(KIND_FAILED)
         log.warning("SMTP send to %s failed: %s", to_email, e)
         raise MailerError("mail_send_failed") from e
 

@@ -100,12 +100,5 @@ function checkPasswords() {
   el.classList.add('hidden');
   return true;
 }
-function refreshCaptcha() {
-  fetch('/web/captcha/new').then(function (r) { return r.json(); }).then(function (d) {
-    document.getElementById('captcha-box').innerHTML = d.svg;
-    document.getElementById('captcha-id').value = d.id;
-    document.getElementById('captcha-input').value = '';
-  });
-}
 </script>
 {% endblock %}

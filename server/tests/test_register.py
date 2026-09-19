@@ -487,26 +487,53 @@ class ForgotResetTest(unittest.TestCase):
             return FakeRendered(ctx)
         return fake_render
 
-    def test_forgot_unknown_identifier_uniform_done_no_mail(self):
-        cursor = FakeCursor([None])  # user lookup -> not found
-        conn = FakeConn(cursor)
-        rendered = []
+    def _forgot_patchers(self, conn, rendered, allow=None, captcha_ok=True):
+        """Shared patch set for the guest forgot path: fake DB, SMTP on, the
+        captcha verdict, the rate limiter and the mailer."""
         patchers = [
             mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
             mock.patch.object(auth, "smtp_configured", return_value=True),
-            mock.patch.object(auth.ratelimit, "allow", return_value=True),
+            mock.patch.object(auth.captcha, "verify", return_value=captcha_ok),
+            (mock.patch.object(auth.ratelimit, "allow", new=allow) if allow
+             else mock.patch.object(auth.ratelimit, "allow", return_value=True)),
             mock.patch.object(auth, "render_page", new=self._render_capture(rendered)),
             mock.patch.object(auth.mailer, "send_password_reset_mail"),
         ]
         for p in patchers:
             p.start()
         self.addCleanup(lambda: [p.stop() for p in patchers])
+        return patchers
+
+    def test_forgot_unknown_identifier_uniform_done_no_mail(self):
+        cursor = FakeCursor([None])  # user lookup -> not found
+        conn = FakeConn(cursor)
+        rendered = []
+        self._forgot_patchers(conn, rendered)
         resp = asyncio.run(auth.web_forgot_submit(
-            FakeRequest({"username": "ghost"})))
+            FakeRequest({"username": "ghost", "captcha_id": "cid",
+                         "captcha": "42"})))
         tpl, ctx = rendered[0]
         self.assertEqual(ctx["mode"], "done")
         auth.mailer.send_password_reset_mail.assert_not_called()
         self.assertEqual(resp.status_code, 200)
+
+    def test_forgot_captcha_failure_blocks_before_any_lookup(self):
+        """The gate sits in front of the DB: a failed captcha must not reach
+        the identifier lookup (no enumeration work, no mail)."""
+        cursor = FakeCursor([None])
+        conn = FakeConn(cursor)
+        rendered = []
+        self._forgot_patchers(conn, rendered, captcha_ok=False)
+        asyncio.run(auth.web_forgot_submit(
+            FakeRequest({"username": "ghost", "captcha_id": "cid",
+                         "captcha": "wrong"})))
+        tpl, ctx = rendered[0]
+        self.assertEqual(ctx["mode"], "form")
+        self.assertEqual(ctx["error"], "forgot_captcha_failed")
+        self.assertEqual(ctx["identifier"], "ghost")   # typed value retained
+        self.assertTrue(ctx["captcha_id"])             # fresh puzzle, old one burnt
+        self.assertEqual(cursor.executed, [])
+        auth.mailer.send_password_reset_mail.assert_not_called()
 
     def test_forgot_verified_account_sends_reset_mail(self):
         rows = [{"id": 7, "username": "alice", "email": "alice@example.com",
@@ -515,17 +542,9 @@ class ForgotResetTest(unittest.TestCase):
         cursor = FakeCursor(rows)
         conn = FakeConn(cursor)
         rendered = []
-        patchers = [
-            mock.patch.object(auth, "get_conn", return_value=FakeCtx(conn)),
-            mock.patch.object(auth, "smtp_configured", return_value=True),
-            mock.patch.object(auth.ratelimit, "allow", return_value=True),
-            mock.patch.object(auth, "render_page", new=self._render_capture(rendered)),
-            mock.patch.object(auth.mailer, "send_password_reset_mail"),
-        ]
-        for p in patchers:
-            p.start()
-        self.addCleanup(lambda: [p.stop() for p in patchers])
-        asyncio.run(auth.web_forgot_submit(FakeRequest({"username": "alice"})))
+        self._forgot_patchers(conn, rendered)
+        asyncio.run(auth.web_forgot_submit(
+            FakeRequest({"username": "alice", "captcha_id": "cid", "captcha": "42"})))
         auth.mailer.send_password_reset_mail.assert_called_once()
         to_email, link, lang = auth.mailer.send_password_reset_mail.call_args[0]
         self.assertEqual(to_email, "alice@example.com")
@@ -533,6 +552,53 @@ class ForgotResetTest(unittest.TestCase):
         # Token was issued under the reset purpose (digest only).
         self.assertTrue(any("INSERT INTO user_verification_tokens" in s
                             for s, _ in cursor.executed))
+
+    def test_forgot_recipient_limit_keeps_the_response_uniform(self):
+        """When the mailbox has spent its budget the mail is dropped, but the
+        page must stay indistinguishable from a successful request."""
+        rows = [{"id": 7, "username": "alice", "email": "alice@example.com",
+                 "email_normalized": "alice@example.com",
+                 "email_verified_at": 1_700_000_000.0, "lang": "zh-CN"}]
+        cursor = FakeCursor(rows)
+        conn = FakeConn(cursor)
+        rendered = []
+
+        def allow(scope, key, now=None):
+            return scope != "mail_recipient"      # IP gate ok, mailbox spent
+
+        self._forgot_patchers(conn, rendered, allow=allow)
+        asyncio.run(auth.web_forgot_submit(
+            FakeRequest({"username": "alice", "captcha_id": "cid", "captcha": "42"})))
+        self.assertEqual(rendered[0][1]["mode"], "done")
+        auth.mailer.send_password_reset_mail.assert_not_called()
+        self.assertFalse(any("INSERT INTO user_verification_tokens" in s
+                             for s, _ in cursor.executed))
+
+    def test_forgot_bucket_is_keyed_by_the_mailbox_not_the_identifier(self):
+        """Asking by username and by email is the same destination: both
+        spellings must land in one bucket, or the cap is trivially dodged."""
+        calls = []
+
+        def allow(scope, key, now=None):
+            calls.append((scope, key))
+            return True
+
+        def run(identifier):
+            rows = [{"id": 7, "username": "alice", "email": "alice@example.com",
+                     "email_normalized": "alice@example.com",
+                     "email_verified_at": 1_700_000_000.0, "lang": "zh-CN"}]
+            rendered = []
+            self._forgot_patchers(FakeConn(FakeCursor(rows)), rendered,
+                                  allow=allow)
+            asyncio.run(auth.web_forgot_submit(
+                FakeRequest({"username": identifier, "captcha_id": "cid",
+                             "captcha": "42"})))
+
+        run("alice")
+        run("ALICE@Example.com")
+        recipient_calls = [k for s, k in calls if s == "mail_recipient"]
+        self.assertEqual(recipient_calls,
+                         ["alice@example.com", "alice@example.com"])
 
     def _reset_submit(self, rows):
         cursor = FakeCursor(rows)

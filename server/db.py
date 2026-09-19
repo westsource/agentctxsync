@@ -308,6 +308,16 @@ def init_db():
         )""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)")
+        # Outbound-mail counters (written by mailer): per calendar day and kind
+        # ('sent' / 'rejected' / 'failed'). Enforces HERMES_SYNC_MAIL_DAILY_CAP
+        # and gives ops the burst signal to watch — a rising 'rejected' means
+        # someone is trying to spend the provider's daily quota.
+        c.execute("""CREATE TABLE IF NOT EXISTS mail_stats (
+            stat_date DATE NOT NULL,
+            kind TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (stat_date, kind)
+        )""")
         # Access statistics: daily request counts bucketed by channel
         # ('domain' = hostname Host header, 'ip' = IP-literal Host header)
         # and kind ('web' = browser pages, 'api' = sync push/pull & friends).
