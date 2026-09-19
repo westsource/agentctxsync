@@ -93,6 +93,11 @@ create a workspace) against a local PostgreSQL before opening a PR.
   keys, DSNs, systemd/nginx specifics) must never enter this repository**
   (see the local `AGENTS.md` for the full list). Use RFC 5737 test
   addresses and placeholders in code/docs.
+  This includes `CHANGELOG.md` release notes: keep them to "deployed
+  <host-nickname> (commit X)" plus high-level verification results — no
+  public/LAN IPs, no host names, no mail accounts, no drop-in paths. The
+  detailed evidence belongs in the local operations runbook, which is not
+  version-controlled.
 - Before any push: `git status` + `git diff --stat` — review exactly what
   is staged.
 
