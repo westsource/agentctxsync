@@ -2,6 +2,20 @@
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.13.4 不变）；新增一张表
 > `mail_stats`（`init_db()` 幂等创建，重启即生效）。
+> 已部署 236（2026-09-19 CST，提交 `867ef5e`）：11 个文件（8 个 .py + 3 个模板），部署前对上次部署
+> 提交 `fd5886e` 做 LF 归一化 sha256 校验通过，上传后逐文件回读一致，`py_compile` 通过，重启后
+> active、journal 无 error；`init_db()` 建出 `mail_stats`（`to_regclass` 读回）。
+> 线上校验：`/web/forgot` 与 `/web/register` 均渲染验证码组件且**标记里没有 `<text>`**（只有
+> `<path>`、线条与点）；错答 → 200 + 「验证码错误，请重试」+ 表单保留已填标识符 + 新挑战；
+> 用视觉读出真实挑战（`10 - 1`）作答、标识符填不存在的用户 → 统一「请求已收到」页（
+> `mail_stats` 无记录，未发信）；`REQ src=<SERVER_IP> … xff=203.0.113.9, <SERVER_IP>`
+> —— 伪造的 XFF 只落在 `xff=` 字段，`src` 是真实对端。
+> 预算实测（部署后的 `mailer`，SMTP 指向关闭端口、`CAP=2`）：第 1/2 次 `mail_send_failed`
+> （`failed=2`），第 3 次 `mail_budget_exceeded`（`rejected=1`），再调 `_budget_allow()` 为 False
+> （`rejected=2`），计数从线上库读回为 `sent=3 / failed=2 / rejected=2`；探针行已当日清除。
+> 未做线上实测的一项：按收件人冷却对**真实邮箱**的封顶（会真的发出邮件），由单元测试覆盖
+> （`test_ratelimit.py::MailRecipientLimitTest`、`test_register.py::ForgotResetTest` 的
+> 收件人桶与统一响应用例）。
 
 ### Added
 
