@@ -369,9 +369,18 @@ async def root(request: Request):
         return await render_landing()
     return RedirectResponse(url="/web/")
 
+
+async def render_login_page(error=""):
+    """Login page. The identifier accepts a username or — when the mail
+    feature is live — a VERIFIED email, so the label (and the hint under it)
+    only mention the email form when that branch can actually resolve."""
+    return await render_page("login.html", {"error": error,
+                                            "mail_enabled": smtp_configured()})
+
+
 @router.get("/web/login", response_class=HTMLResponse)
 async def web_login(request: Request, error: str = ""):
-    return await render_page("login.html", {"error": error})
+    return await render_login_page(error)
 
 @router.post("/web/login", response_class=HTMLResponse)
 async def web_login_post(request: Request):
@@ -379,12 +388,12 @@ async def web_login_post(request: Request):
     username = body.get("username", "")
     password = body.get("password", "")
     if not ratelimit.allow("login", client_ip(request)):
-        return await render_page("login.html", {"error": "login_rate_limited"})
+        return await render_login_page("login_rate_limited")
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         user = _find_login_user(c, username)
         if not user or not verify_password(password, user["password_hash"]):
-            return await render_page("login.html", {"error": "login_invalid"})
+            return await render_login_page("login_invalid")
         now = datetime.now().timestamp()
         if password_needs_upgrade(user["password_hash"]):
             c.execute("UPDATE users SET password_hash = %s WHERE id = %s",

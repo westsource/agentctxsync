@@ -38,7 +38,7 @@ YOUR_SERVER_IP
 
 ### 表结构
 
-**users** — id, username, password_hash, display_name, is_admin, is_active, created_at, last_login_at, plan (free/unlimited), must_change_password, lang
+**users** — id, username, password_hash, display_name, is_admin, is_active, created_at, last_login_at, plan (free/unlimited), must_change_password, lang, email / email_normalized / email_verified_at / pending_email / pending_email_normalized, account_state, auth_source（已有 `email_normalized` 且 `email_verified_at` 非空的账号，可直接用该邮箱登录）
 
 **workspaces** — id, name, user_id, api_key, description, created_at
 
@@ -280,8 +280,8 @@ python scripts/deploy-remote.py
 |------|------|------|
 | GET | / | 根路径：未登录 → 落地页；已登录 → 跳转 /web/ |
 | GET | /web/ | 主仪表盘 |
-| GET | /web/login | 登录页 |
-| POST | /web/login | 登录提交 |
+| GET | /web/login | 登录页（标识符字段可用**用户名**或**已验证邮箱**，页面提示随邮件功能开关显示） |
+| POST | /web/login | 登录提交（用户名或已验证邮箱 + 密码；用户名优先匹配，大小写不敏感） |
 | GET | /web/logout | 登出 |
 | GET | /web/register | 注册页 (数学验证码，邀请码可选，支持 ?code= 预填) |
 | GET | /web/captcha/new | 注册验证码 (自托管数学题 SVG) |

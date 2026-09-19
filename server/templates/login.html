@@ -24,9 +24,10 @@
 
     <form method="POST" action="/web/login" @submit="loading = true">
       <div class="mb-4">
-        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.login_username }}</label>
+        <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.login_identifier if mail_enabled else t.login_username }}</label>
         <input type="text" name="username" required placeholder="admin" autofocus
                class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm transition-colors">
+        {% if mail_enabled %}<p class="mt-1 text-xs text-gray-400">{{ t.login_identifier_hint }}</p>{% endif %}
       </div>
       <div class="mb-6">
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.login_password }}</label>

@@ -96,6 +96,7 @@ bash ../scripts/deploy-server.sh
 ### 2. 注册用户并创建 Workspace（Web UI）
 
 1. 打开 `https://<your-domain>/web/`（或在服务器本机打开 `http://127.0.0.1:8765/web/`）点击 Register 注册——默认开放注册（自建数学验证码，邀请码可选）
+   * 登录时标识符可填**用户名**，邮箱**验证通过后**也可用该邮箱登录（未验证的邮箱不行）。
 2. 注册成功后自动创建「Default Workspace」；可在概览页点「+ Create」创建更多工作区
 3. 从工作区详情页复制 API Key（格式 `ws_xxx`）
 

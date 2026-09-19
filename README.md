@@ -97,6 +97,7 @@ behind a TLS-terminating reverse proxy (see
 ### 2. Register a user and create a Workspace (Web UI)
 
 1. Open `https://<your-domain>/web/` (or `http://127.0.0.1:8765/web/` on the server) and click Register — registration is open by default (self-hosted math CAPTCHA, invite code optional)
+   * Sign in with your **username** or, once the address is verified, with your **email** — an unverified address cannot be used to log in.
 2. A "Default Workspace" is created automatically after successful registration; create more with "+ Create" on the overview page
 3. Copy the API Key from the Workspace detail page (format `ws_xxx`)
 
