@@ -155,15 +155,20 @@ def fake_execute_values(cur, sql, argslist, template=None, page_size=100, fetch=
 
 class PushTest(unittest.TestCase):
     def _push(self, sessions, existing_ids=(), msg_keys=(), msg_contents=(),
-              next_id=5, ws=None, field_revs=None):
+              next_id=5, ws=None, field_revs=None, paused=()):
         """msg_keys: existing (sid, role, timestamp) triples on the server.
         msg_contents: existing (sid, role, content) triples on the server.
         field_revs: {sid: {"rev": R, "field_rev": {f: rev}}} = the logical
-        clock the server currently holds for that session (UPDATE path)."""
+        clock the server currently holds for that session (UPDATE path).
+        paused: session ids the user paused in the Web UI (the push's FIRST
+        query, so its script must be registered before the generic
+        ``SELECT id FROM sessions`` one -- the fake DB routes in order)."""
         content_by_sid = {}
         for sid, role, content in msg_contents:
             content_by_sid.setdefault(sid, []).append((role, content, None))
         cur = (ScriptedCursor()
+               # sync-pause gate (runs before everything else in push_sync)
+               .add(r"COALESCE\(sync_paused,0\) = 1", [(i,) for i in paused])
                .add(r"SELECT id FROM sessions", [(i,) for i in existing_ids])
                .add(r"SELECT rev, field_rev FROM sessions",
                     {sid: [(v["rev"], json.dumps(v["field_rev"]))]
@@ -488,6 +493,71 @@ class PushTest(unittest.TestCase):
         # user_id None (master key) -> no quota queries at all
         sessions = [{"id": "s1", "messages": []}]
         resp, cur = self._push(sessions)
+        self.assertEqual(resp["imported"], 1)
+
+    # ---- sync pause (decision: 暂停/恢复同步) ----
+
+    def test_paused_session_is_frozen_while_the_batch_syncs(self):
+        """A session the user paused in the Web UI is frozen: the server
+        writes NOTHING for it (no UPDATE, no message rows, no rev anchor)
+        while every other session in the same request still lands, and the
+        skipped id comes back in ``paused_ids`` so the client can keep it
+        un-fingerprinted and re-push after the resume."""
+        sessions = [{"id": "s1", "title": "paused",
+                     "messages": [{"role": "user", "content": "later",
+                                   "timestamp": 1.0}]},
+                    {"id": "s2", "title": "live", "messages": []}]
+        resp, cur = self._push(sessions, existing_ids=("s1", "s2"),
+                               paused=("s1",))
+        self.assertEqual(resp["paused_ids"], ["s1"])
+        self.assertEqual(resp["updated"], 1)      # s2 only
+        self.assertEqual(resp["new_messages"], 0)  # s1's message never lands
+        # no rev anchoring for the paused session (the client must not treat
+        # it as merged), and the live one is anchored as usual
+        self.assertNotIn("s1", resp["session_revs"])
+        self.assertIn("s2", resp["session_revs"])
+        # exactly one session UPDATE (s2's); s1 is untouched, so neither its
+        # content nor its last_synced_at can move while the pause lasts
+        updates = [p for s, p in cur.executed if s.startswith("UPDATE sessions")]
+        self.assertEqual(len(updates), 1)
+        self.assertIn("live", updates[0])
+        self.assertNotIn("paused", str(updates[0]))
+        self.assertFalse([s for s, _ in cur.executed
+                          if s.startswith("INSERT INTO messages")])
+
+    def test_push_of_only_paused_sessions_writes_nothing(self):
+        sessions = [{"id": "s1", "title": "a",
+                     "messages": [{"role": "user", "content": "x",
+                                   "timestamp": 1.0}]},
+                    {"id": "s2", "title": "b", "messages": []}]
+        resp, cur = self._push(sessions, existing_ids=("s1", "s2"),
+                               paused=("s1", "s2"))
+        self.assertEqual(sorted(resp["paused_ids"]), ["s1", "s2"])
+        self.assertEqual((resp["imported"], resp["updated"],
+                          resp["new_messages"]), (0, 0, 0))
+        self.assertEqual(resp["session_revs"], {})
+        self.assertEqual([s for s, _ in cur.executed
+                          if s.startswith(("UPDATE sessions", "INSERT INTO sessions",
+                                           "INSERT INTO messages"))], [])
+
+    def test_paused_sessions_never_reach_the_quota_gate(self):
+        """The pause filter runs BEFORE the quota gate: a paused session is
+        not a "new session" to be counted, so pausing content can never turn
+        a normal push into a quota rejection."""
+        sessions = [{"id": "s1", "messages": []}]
+        resp, cur = self._push(sessions, ws={"workspace_id": 1, "user_id": 7},
+                               paused=("s1",))
+        self.assertEqual(resp["paused_ids"], ["s1"])
+        self.assertFalse(any("FROM users" in s or "quota_config" in s
+                             for s, _ in cur.executed))
+
+    def test_legacy_client_push_without_paused_ids_is_unchanged(self):
+        """Mixed-version window: a client that sends no pause info at all
+        (and a server whose workspace has no paused session) sees the plain
+        push contract -- the new field is purely additive."""
+        sessions = [{"id": "s1", "title": "t", "messages": []}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["paused_ids"], [])
         self.assertEqual(resp["imported"], 1)
 
     # ---- field-level optimistic merge (decision: 字段级乐观并发) ----

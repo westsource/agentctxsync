@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t.alls_title }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% from "_macros.html" import agent_color, agent_label %}
+{% from "_macros.html" import agent_color, agent_label, sync_paused_chip %}
 <!-- Page header -->
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -36,19 +36,47 @@
 
 <!-- Sessions list -->
 <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-    <h2 class="text-[15px] font-semibold text-gray-900">{{ t.alls_title }}</h2>
-    <span class="text-xs text-gray-400">{{ t.alls_count.format(total) }}</span>
+  <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-[15px] font-semibold text-gray-900 mr-1">{{ t.alls_title }}</h2>
+      <label class="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-500 cursor-pointer">
+        <input type="checkbox" class="w-3.5 h-3.5 cursor-pointer accent-[#6E56CF]"
+               onclick="document.querySelectorAll('input.sync-sel').forEach(c=>{c.checked=this.checked})">
+        {{ t.sync_bulk_select_all }}
+      </label>
+      <span class="text-[11px] text-gray-400 hidden sm:inline">{{ t.sync_bulk_hint }}</span>
+      <form id="sync-bulk" method="POST" action="/web/sync/pause" class="flex items-center gap-2">
+        <input type="hidden" name="next"
+               value="/web/all-sessions?q={{ q }}&ws={{ ws_filter }}&agent={{ agent_filter }}&size={{ size }}&page={{ page }}">
+        <button type="submit" formaction="/web/sync/pause"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+          {{ t.sync_bulk_pause }}
+        </button>
+        <button type="submit" formaction="/web/sync/resume"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          {{ t.sync_bulk_resume }}
+        </button>
+      </form>
+    </div>
+    <span class="text-xs text-gray-400 shrink-0">{{ t.alls_count.format(total) }}</span>
   </div>
   <div class="divide-y divide-gray-50">
     {% for s in sessions %}
-    <a href="/web/workspace/{{ s.workspace_id }}/session/{{ s.id }}"
-       class="flex items-center gap-3.5 px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
+    <div class="group flex items-center gap-3.5 px-6 py-4 hover:bg-[#F9F8FD] transition-colors">
+      <input type="checkbox" form="sync-bulk" name="sel" value="{{ s.workspace_id }}:{{ s.id }}"
+             class="sync-sel w-3.5 h-3.5 shrink-0 cursor-pointer accent-[#6E56CF]" aria-label="{{ t.sync_bulk_select_all }}">
+      <a href="/web/workspace/{{ s.workspace_id }}/session/{{ s.id }}"
+         class="flex items-center gap-3.5 min-w-0 flex-1">
       <div class="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 6C4 4.9 4.9 4 6 4H14C15.1 4 16 4.9 16 6V11.5C16 12.6 15.1 13.5 14 13.5H10L7.5 15.8V13.5H6C4.9 13.5 4 12.6 4 11.5V6Z"/></svg>
       </div>
       <div class="min-w-0 flex-1">
-        <p class="text-sm font-medium text-gray-900 truncate">{{ s.title or s.id }}</p>
+        <div class="flex items-center gap-2 min-w-0">
+          {% if s.sync_paused %}{{ sync_paused_chip(t) }}{% endif %}
+          <p class="text-sm font-medium text-gray-900 truncate">{{ s.title or s.id }}</p>
+        </div>
         <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ s.workspace_name }}</span>
           <span class="shrink-0">{{ s.sync_label }}</span>
@@ -64,7 +92,8 @@
         <span class="text-gray-400">{{ t.ws_msg_count }}</span>
       </span>
       <svg class="w-4 h-4 text-gray-300 group-hover:text-[#6E56CF] transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 16 16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M6 3.5L10.5 8L6 12.5"/></svg>
-    </a>
+      </a>
+    </div>
     {% endfor %}
     {% if not sessions %}
     <div class="py-16 text-center text-gray-400">

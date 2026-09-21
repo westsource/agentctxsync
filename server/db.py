@@ -133,6 +133,7 @@ def init_db():
             profile_name TEXT, compression_ineffective_count INTEGER DEFAULT 0,
             pinned INTEGER DEFAULT 0, last_synced_at DOUBLE PRECISION,
             last_activity_at DOUBLE PRECISION,
+            sync_paused INTEGER DEFAULT 0, sync_paused_at DOUBLE PRECISION,
             agent_type TEXT DEFAULT 'hermes', meta JSONB,
             rev BIGINT NOT NULL DEFAULT 0, field_rev JSONB NOT NULL DEFAULT '{}'::jsonb,
             PRIMARY KEY (workspace_id, id)
@@ -219,6 +220,13 @@ def init_db():
         # them can be trusted to compute "newest message" the same way).
         # Existing rows are backfilled once by scripts/backfill-last-activity.py.
         c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at DOUBLE PRECISION")
+        # Sync pause (2026.09.21.1): a session the user paused from the Web UI
+        # stops accepting pushed content -- the server keeps serving the
+        # frozen copy to every device, but /push and the Web import skip it
+        # (see docs/ARCHITECTURE.md "暂停/恢复同步"). sync_paused_at is the
+        # pause instant (display only). Fully reversible: set back to 0.
+        c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS sync_paused INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS sync_paused_at DOUBLE PRECISION")
         # Concurrent pushes from two devices can race past the SELECT-based
         # message dedup (its key snapshot is taken per request), inserting the
         # same (session_id, role, timestamp) triple twice under different ids.

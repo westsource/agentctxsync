@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ ws.name }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% from "_macros.html" import agent_color, agent_label %}
+{% from "_macros.html" import agent_color, agent_label, sync_paused_chip %}
 {% set filter_q = 'agent=' ~ agent ~ '&sort=' ~ sort ~ '&dir=' ~ dir ~ '&q=' ~ (q|urlencode) %}
 <!-- Page header（03 工作空间详情样式）-->
 <div class="mb-5">
@@ -164,6 +164,29 @@
 
   <!-- 会话分组列表 -->
   <div class="p-4">
+    <!-- 批量暂停/恢复同步。行内已经各有一个删除表单，不能嵌套 form，所以
+         每行的勾选框用 form="sync-bulk" 关联到这里的表单；两个提交按钮用
+         formaction 切到 /pause 或 /resume（无 JS 依赖，全选那一下除外）。 -->
+    <form id="sync-bulk" method="POST" action="/web/sync/pause"
+          class="flex flex-wrap items-center gap-2 px-1 pb-3">
+      <input type="hidden" name="next" value="/web/workspace/{{ ws.id }}">
+      <label class="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-500 cursor-pointer">
+        <input type="checkbox" class="w-3.5 h-3.5 cursor-pointer accent-[#6E56CF]"
+               onclick="document.querySelectorAll('input.sync-sel').forEach(c=>{c.checked=this.checked})">
+        {{ t.sync_bulk_select_all }}
+      </label>
+      <span class="text-[11px] text-gray-400">{{ t.sync_bulk_hint }}</span>
+      <button type="submit" formaction="/web/sync/pause"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+        {{ t.sync_bulk_pause }}
+      </button>
+      <button type="submit" formaction="/web/sync/resume"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        {{ t.sync_bulk_resume }}
+      </button>
+    </form>
     {% set pinned_list = sessions|selectattr('pinned')|list %}
     {% set normal_list = sessions|rejectattr('pinned')|list %}
     {% if pinned_list %}
@@ -176,11 +199,14 @@
     <div class="space-y-2.5">
       {% for s in pinned_list %}
       <div class="group relative flex items-center gap-4 pl-4 pr-3 py-3 rounded-xl hover:bg-[#F6F5FA] border border-transparent hover:border-[#6E56CF]/10 hover:shadow-[inset_3px_0_0_0_#6E56CF] transition-all">
+        <input type="checkbox" form="sync-bulk" name="sel" value="{{ ws.id }}:{{ s.id }}"
+               class="sync-sel w-3.5 h-3.5 shrink-0 cursor-pointer accent-[#6E56CF]" aria-label="{{ t.sync_bulk_select_all }}">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
+            {% if s.sync_paused %}{{ sync_paused_chip(t) }}{% endif %}
             <a href="/web/workspace/{{ ws.id }}/session/{{ s.id }}" class="text-sm font-medium text-gray-900 hover:text-[#6E56CF] transition-colors truncate">{{ s.title or s.id }}</a>
           </div>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
@@ -205,6 +231,18 @@
             <span class="text-gray-400">{{ t.ws_msg_count }}</span>
           </span>
         </div>
+        <form method="POST" action="/web/sync/{{ 'resume' if s.sync_paused else 'pause' }}" class="shrink-0">
+          <input type="hidden" name="sel" value="{{ ws.id }}:{{ s.id }}">
+          <input type="hidden" name="next" value="/web/workspace/{{ ws.id }}">
+          <button type="submit" class="p-2 rounded-lg transition-colors {% if s.sync_paused %}text-[#6E56CF] bg-[#EDE9FB]{% else %}text-gray-300 hover:text-[#6E56CF] hover:bg-[#EDE9FB]{% endif %}"
+                  title="{{ t.sync_resume_btn_hint if s.sync_paused else t.sync_pause_btn_hint }}">
+            {% if s.sync_paused %}
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            {% else %}
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+            {% endif %}
+          </button>
+        </form>
         <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/hide"
               class="shrink-0" onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
           <button type="submit" class="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="{{ t.ws_hide_btn_hint }}">
@@ -225,11 +263,14 @@
     <div class="space-y-2.5">
       {% for s in normal_list %}
       <div class="group relative flex items-center gap-4 pl-4 pr-3 py-3 rounded-xl hover:bg-[#F6F5FA] border border-transparent hover:border-[#6E56CF]/10 hover:shadow-[inset_3px_0_0_0_#6E56CF] transition-all">
+        <input type="checkbox" form="sync-bulk" name="sel" value="{{ ws.id }}:{{ s.id }}"
+               class="sync-sel w-3.5 h-3.5 shrink-0 cursor-pointer accent-[#6E56CF]" aria-label="{{ t.sync_bulk_select_all }}">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
+            {% if s.sync_paused %}{{ sync_paused_chip(t) }}{% endif %}
             {% if s.pinned %}
             <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#FFF7E6] border border-[#F2994A]/25 shrink-0" title="{{ t.ws_pinned }}">
               <svg class="w-3 h-3 text-[#F2994A]" fill="currentColor" viewBox="0 0 24 24"><path d="M10.8 2.5L15.5 7.2L11.5 9.5L8.5 12.5L5.5 12.5L2.5 15.5L5.5 12.5V9.5L8.5 6.5L10.8 2.5Z"/></svg>
@@ -259,6 +300,18 @@
             <span class="text-gray-400">{{ t.ws_msg_count }}</span>
           </span>
         </div>
+        <form method="POST" action="/web/sync/{{ 'resume' if s.sync_paused else 'pause' }}" class="shrink-0">
+          <input type="hidden" name="sel" value="{{ ws.id }}:{{ s.id }}">
+          <input type="hidden" name="next" value="/web/workspace/{{ ws.id }}">
+          <button type="submit" class="p-2 rounded-lg transition-colors {% if s.sync_paused %}text-[#6E56CF] bg-[#EDE9FB]{% else %}text-gray-300 hover:text-[#6E56CF] hover:bg-[#EDE9FB]{% endif %}"
+                  title="{{ t.sync_resume_btn_hint if s.sync_paused else t.sync_pause_btn_hint }}">
+            {% if s.sync_paused %}
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            {% else %}
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+            {% endif %}
+          </button>
+        </form>
         <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ s.id }}/hide"
               class="shrink-0" onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
           <button type="submit" class="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="{{ t.ws_hide_btn_hint }}">

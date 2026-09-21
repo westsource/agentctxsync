@@ -276,6 +276,23 @@ def push_sync(body, ws):
     imp_s, imp_m, upd_s, dup_m = 0, 0, 0, 0
     with get_conn() as conn:
         c = conn.cursor()
+        # ---- Sync-pause gate: sessions the user paused from the Web UI
+        # reject every write. The gate runs FIRST, so the quota gate, the
+        # dedup snapshots and the rev bookkeeping below never see a paused
+        # session -- it stays frozen exactly as the user left it, not partly
+        # merged. The ids go back in ``paused_ids``: a client that knows the
+        # field keeps them un-fingerprinted and re-pushes after the resume
+        # (see docs/ARCHITECTURE.md "暂停/恢复同步").
+        paused_ids: list = []
+        if sessions_data:
+            c.execute("SELECT id FROM sessions WHERE workspace_id = %s "
+                      "AND COALESCE(sync_paused,0) = 1 AND id = ANY(%s)",
+                      (wid, [s["id"] for s in sessions_data]))
+            paused_ids = [r[0] for r in c.fetchall()]
+            if paused_ids:
+                _paused = set(paused_ids)
+                sessions_data[:] = [s for s in sessions_data
+                                    if s["id"] not in _paused]
         # ---- Quota gate: enforce plan limits on NEW session writes. ----
         # Existing sessions keep syncing (updates allowed); only new inserts
         # are gated, so lowering a quota never breaks an already-synced pool.
@@ -642,6 +659,7 @@ def push_sync(body, ws):
             (device_id, wid, now, imp_s + upd_s, imp_m))
     return {"sync_at": now, "imported": imp_s, "updated": upd_s,
             "new_messages": imp_m, "duplicates": dup_m,
+            "paused_ids": paused_ids,
             "session_revs": session_revs}
 
 @router.get("/status/{device_id}")

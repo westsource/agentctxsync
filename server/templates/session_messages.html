@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ session.title or session.id }} - Agent Context Sync{% endblock %}
 {% block content %}
-{% from "_macros.html" import agent_color, agent_label %}
+{% from "_macros.html" import agent_color, agent_label, sync_paused_chip %}
 <style>
   .md-body > :first-child { margin-top: 0; }
   .md-body > :last-child { margin-bottom: 0; }
@@ -77,6 +77,22 @@
     <span class="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>{{ agent_label(session.agent_type or 'hermes') }}
   </span>
   <div class="flex items-center gap-2 shrink-0">
+    {% if session.sync_paused %}{{ sync_paused_chip(t) }}{% endif %}
+    <form method="POST" action="/web/sync/{{ 'resume' if session.sync_paused else 'pause' }}" class="inline">
+      <input type="hidden" name="sel" value="{{ ws.id }}:{{ session.id }}">
+      <input type="hidden" name="next" value="/web/workspace/{{ ws.id }}/session/{{ session.id }}">
+      <button type="submit"
+              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium rounded-[10px] border transition-colors {% if session.sync_paused %}text-[#6E56CF] bg-[#EDE9FB] border-[#6E56CF]/25 hover:bg-[#E3DDF8]{% else %}text-[#5A5A72] bg-white border-[#E5E4EE] hover:border-[#6E56CF]/30 hover:text-[#6E56CF]{% endif %}"
+              title="{{ t.sync_resume_btn_hint if session.sync_paused else t.sync_pause_btn_hint }}">
+        {% if session.sync_paused %}
+        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        {{ t.sync_resume_btn }}
+        {% else %}
+        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+        {{ t.sync_pause_btn }}
+        {% endif %}
+      </button>
+    </form>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
        class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#5A5A72] bg-white border border-[#E5E4EE] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>

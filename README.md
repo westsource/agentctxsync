@@ -37,7 +37,7 @@ Every session is pushed to your self-hosted server, so a single-machine crash, a
 
 - **Self-hosted and yours**: data lives on a server you control, not a third-party cloud
 - **Survives anything local**: even if a device or profile is wiped, the full history is recoverable from the server
-- **Export, import, restore**: one-click export (Markdown / JSON.gz) and import, plus a soft-delete trash so even mistakes are reversible
+- **Export, import, restore**: one-click export (Markdown / JSON.gz) and import, plus a soft-delete trash and per-session **pause / resume sync**, so even mistakes are reversible
 
 ### How it changes your day-to-day
 

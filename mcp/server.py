@@ -907,6 +907,7 @@ def push_sessions():
     # no session starves behind a per-cycle cap.
     totals = {"imported": 0, "updated": 0, "new_messages": 0, "sync_at": None}
     processed = 0
+    paused_all: set = set()
     errors: list[str] = []
     meta = _load_field_meta()
     fp = _load_push_fingerprint()
@@ -955,12 +956,29 @@ def push_sessions():
             for k in ("imported", "updated", "new_messages"):
                 totals[k] += result.get(k, 0)
             totals["sync_at"] = result.get("sync_at", totals["sync_at"])
-            processed += len(chunk)
+            # Sessions the user paused in the Web UI: the server refused every
+            # write for them (see docs/ARCHITECTURE.md "暂停/恢复同步"). They
+            # must NOT get a push fingerprint -- a fingerprint means "the
+            # server already holds this content", so recording one here would
+            # leave the server frozen forever after the user resumes (nothing
+            # changes locally to trigger a re-push). No fingerprint = the
+            # session is re-sent every cycle, and the resume lands the whole
+            # content on the next one.
+            paused_now = {str(i) for i in (result.get("paused_ids") or [])}
+            paused_all |= paused_now
+            processed += len(chunk) - len(paused_now)
             for s in chunk:
+                if str(s["id"]) in paused_now:
+                    continue
                 fp[str(s["id"])] = _session_fingerprint(s)
     finally:
         _save_field_meta(meta)
         _save_push_fingerprint(fp)
+    if paused_all:
+        log(f"{len(paused_all)} session(s) are paused in the Web UI: skipped "
+            f"by the server, re-sent every cycle until the user resumes")
+        totals["paused"] = len(paused_all)
+        totals["paused_ids"] = sorted(paused_all)
     if unsendable:
         totals["unsendable"] = [r.split(" (", 1)[0] for r in unsendable]
     if errors:

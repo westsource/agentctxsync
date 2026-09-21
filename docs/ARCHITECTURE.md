@@ -232,6 +232,7 @@ User (admin / user)
 复合主键: `(workspace_id, id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
 多 Agent 扩展列: `agent_type`（默认 `hermes`，存量数据自动归为 hermes）、`meta` (JSONB)
 数据保留/排序扩展列: `hidden`/`hidden_at`（软删除，可逆）、`pinned`（置顶排序）、`profile_name`（来源档案）
+同步暂停列: `sync_paused`/`sync_paused_at`（暂停该会话的上行写入，可逆；见「暂停/恢复同步」）
 派生列: `last_activity_at`（会话真实最后活动时间 = 最新一条可见消息的 `timestamp`，
 **服务端在每次 push 时从本次载荷的消息派生**，客户端只消费不回写——见「会话最后活动时间」
 决策记录；存量行为 NULL，`scripts/backfill-last-activity.py` 一次性补齐）
@@ -680,6 +681,36 @@ O(可见 × |清单|)。
 - 重推不得重置 hidden（客户端仍持有该会话时不得让它复活）——push 的
   `sd.pop("hidden")` 保证。
 
+### 暂停/恢复同步（Sync Pause）
+
+用户可在 Web 端**选定会话**暂停/恢复同步：`sessions.sync_paused=1` + `sync_paused_at`（暂停时刻，
+仅用于显示），可逆（置回 0）。语义是**服务端冻结**，不是把会话从池子里摘掉：
+
+- **冻结**：该会话在此后所有 `/push` 里不写任何一行——会话元数据、消息、`rev`/`field_rev`、
+  `last_synced_at` 全部不动。闸门放在 `push_sync` 最前面，所以配额闸门、消息去重快照与 rev
+  记账都看不到被暂停的会话：它是**整会话冻结**，不是部分合并。
+- **仍在池子里**：`/pull` 照旧下发暂停的会话（冻结版本的内容）。否则其它设备会认为"服务端
+  没有这个会话"，触发「本地删除不是删除信号」的补回逻辑、或让用户以为会话被删。暂停只断上行。
+- **响应回执**：`/push` 返回 `paused_ids`（本次被跳过的会话 id）。客户端据此**不记录 push
+  指纹**——指纹的含义是"服务端已持有这份内容"，记了它，暂停期间的内容在恢复后将永远补不上
+  去（本地无变化 → 指纹命中 → 跳过）。不记指纹 = 每轮重发，恢复后下一轮即补齐。
+- **Web 导入同规则**：`/web/workspace/{id}/import` 跳过暂停会话并在 flash 里报数（不静默丢弃）。
+- **入口**：`POST /web/sync/pause` / `POST /web/sync/resume`，表单字段 `sel` 可重复，值
+  `"<ws_id>:<session_id>"`（会话 id 自身可含冒号，只按**第一个**冒号切分）；只更新调用者
+  自己的 workspace（`workspaces.user_id` 校验），返回路径 `next` 限同源。会话列表页每行勾选框
+  用 `form="sync-bulk"` 关联到行外的表单（行内已有各自的删除表单，不能嵌套 form），单行按钮与
+  查看器按钮提交的是同一个端点。
+
+**混合版本窗口**：`paused_ids` 只有本版客户端认识。旧客户端会把被跳过的会话当成"已同步"并写入
+指纹，于是服务端停在暂停前的快照，直到该会话本地内容再次变化或显式全量推送（`sync_full`）。
+暂停是用户显式操作、且 Web 上有「已暂停同步」标记，所以这个窗口是可解释的；客户端经
+`/api/client/manifest` 自动更新后即消失。
+
+**回归防线**：`server/tests/test_sync.py`（`PushTest` 的 "sync pause" 用例：冻结、零写入、
+响应 `paused_ids`、不触碰配额闸门）、`server/tests/test_sync_pause_ui.py`（`sel` 解析、端点、
+多选、属主校验、`next` 同源、导入跳过与计数、zh/en 词条齐备）、
+`mcp/tests/test_push_pause.py`（不记指纹 + 下轮重发 + 混合版本窗口）。
+
 ### scripts/ 目录脚本（迁移 / 部署 / 测试）
 
 **一次性迁移**：
@@ -1045,6 +1076,8 @@ owner 注册表打 `agent_type`，见 `mcp/adapters/*.py` 的 foreign 路由）�
 子 agent 折叠后隐藏的孤儿行）不下发；`/pull` 增量分支按 `last_synced_at/started_at` 水位线、
 消息按 `timestamp` 增量过滤；分页按 `limit/offset`。唯一例外是按 `ids` 点名的修复取回
 （见「本地删除不是删除信号」）：它绕过水位线截断以便补回本地删掉的行，但 `hidden=0` 过滤照旧。
+**`sync_paused` 不是 pull 过滤条件**：暂停的会话照常下发（冻结版本），暂停只阻止上行写入
+（见「暂停/恢复同步」）。
 
 **落地位置**：`server/sync.py::pull_sync`（docstring）、`server/tests/test_sync.py`
 （`test_agent_param_ignored_full_pool`、`ProjectsPullTest`）为回归防线；客户端
@@ -1110,6 +1143,8 @@ GET  /web/workspace/{id}/session/{sid}/trash          # 消息回收站（已删
 POST /web/workspace/{id}/session/{sid}/message/{mid}/hide     # 删除消息（软删除，移入回收站，可恢复）
 POST /web/workspace/{id}/session/{sid}/message/{mid}/unhide   # 从回收站恢复消息
 POST /web/workspace/{id}/session/{sid}/messages/unhide-all    # 从回收站批量恢复该会话全部消息
+POST /web/sync/pause                                          # 暂停所选会话的同步（sel=<ws_id>:<sid>，可重复；服务端冻结上行写入）
+POST /web/sync/resume                                         # 恢复所选会话的同步（客户端下轮补齐暂停期间的内容）
 GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
 GET  /web/admin/users                             # 用户管理

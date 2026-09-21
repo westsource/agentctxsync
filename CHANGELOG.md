@@ -1,3 +1,41 @@
+## [2026.09.21.1] - 2026-09-21
+
+> 服务端 + 客户端发布：`sessions` 新增 `sync_paused` / `sync_paused_at` 两列（`init_db()`
+> 幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，重启即生效）；`CLIENT_VERSION`
+> 2026.09.13.4 → **2026.09.21.1**（`mcp/updater.py` 与 `server/client_update.py` 同步），
+> 因为客户端 `push_sessions` 必须认识 `/push` 的新响应字段 `paused_ids`（否则恢复后
+> 会把暂停期间的内容永远留在本地）。尚未部署。
+
+### Added
+
+- **按会话暂停 / 恢复同步（Web 端，可多选）**：会话列表（工作空间详情页、全部会话页）每行有
+  勾选框与单行按钮，查看器页也有按钮，批量栏可一次暂停/恢复所选会话。语义是**服务端冻结**：
+  `sessions.sync_paused=1` 的会话在 `/push` 与 Web 导入中**一律不写**（会话元数据、消息、
+  `rev`/`field_rev`、`last_synced_at` 全部不动），闸门放在 `push_sync` 最前面，所以配额闸门、
+  去重快照与 rev 记账都看不到它——整会话冻结，不是部分合并。`/pull` 照旧下发（冻结版本），
+  暂停只断上行；否则其它设备会把它当"服务端已删"而触发补回逻辑。
+- **`/push` 新增响应字段 `paused_ids`**：本次被冻结跳过的会话 id。客户端据此**不记录 push
+  指纹**（指纹含义是"服务端已持有这份内容"）——记了它，暂停期间的内容在恢复后将永远补不上去
+  （本地无变化 → 指纹命中 → 跳过）。不记指纹 = 每轮重发，恢复后下一轮即补齐；客户端日志与
+  返回体给出 `paused` / `paused_ids` 计数。**混合版本窗口**：旧客户端不认该字段，服务端会停在
+  暂停前的快照，直到该会话本地内容再次变化或 `sync_full`。
+- 路由 `POST /web/sync/pause` / `POST /web/sync/resume`：表单字段 `sel` 可重复，值为
+  `"<ws_id>:<session_id>"`（会话 id 自身可含冒号，只按**第一个**冒号切分）；只更新调用者自己的
+  workspace（`workspaces.user_id` 校验），返回路径 `next` 限同源。行内已有各自的删除表单，
+  所以每行勾选框用 `form="sync-bulk"` 关联到行外表单（HTML 不允许嵌套 form），两个提交按钮用
+  `formaction` 区分暂停/恢复。
+- Web 导入（`/web/workspace/{id}/import`）跳过暂停会话并在 flash 中报数（与 `/push` 同规则，
+  不静默丢弃）；新增词条 `sync_pause_*` / `sync_bulk_*` / `ws_import_paused`（zh-CN + en）。
+- 测试：`server/tests/test_sync.py`（`PushTest` 新增 "sync pause" 用例：被暂停会话零写入、
+  同批次的未暂停会话照常落库、响应带 `paused_ids`、暂停的会话不再进入配额闸门）、
+  `server/tests/test_sync_pause_ui.py`（`sel` 解析含冒号 id、端点、多选、属主校验、空选择提示、
+  `next` 同源校验、导入跳过并计数、zh/en 词条齐备）、`mcp/tests/test_push_pause.py`
+  （客户端不为暂停会话写指纹、下一轮重发、混合版本窗口、多 chunk 合并计数）。
+- 文档：`docs/ARCHITECTURE.md` 新增「暂停/恢复同步」决策记录（含混合版本窗口与回归防线）、
+  sessions 表新增两列、路由表、pull 过滤段说明；`docs/server-deployment.md` 的路由表、`/push`
+  响应字段与 sessions 列表同步；`docs/OPERATIONS.md` 在数据保留章节补条目；
+  README（中英）功能要点同步。
+
 ## [2026.09.19.2] - 2026-09-19
 
 > 服务端专用发布：无客户端改动、无 schema 变更。

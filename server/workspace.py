@@ -150,6 +150,7 @@ async def web_all_sessions(request: Request):
         total = c.fetchone()["total"]
         c.execute(f"""
             SELECT s.id, s.workspace_id, s.title, s.agent_type, s.model, s.message_count,
+                   COALESCE(s.sync_paused, 0) AS sync_paused,
                    (SELECT MAX(m.timestamp) FROM messages m
                     WHERE m.session_id = s.id AND m.workspace_id = s.workspace_id
                       AND COALESCE(m.hidden,0) = 0) AS synced_at,
@@ -672,6 +673,75 @@ async def web_session_unhide(ws_id: int, sid: str, request: Request):
         conn.commit()
     return RedirectResponse(url=f"/web/workspace/{ws_id}", status_code=303)
 
+def _sel_pairs(form) -> dict:
+    """Group the batch form's ``sel`` values (``<ws_id>:<session_id>``) by
+    workspace. Session ids keep colons of their own (legacy hermes profile
+    ids like ``default:x``), so only the FIRST colon separates the two."""
+    grouped: dict = {}
+    for raw in form.getlist("sel"):
+        if not isinstance(raw, str):
+            continue
+        ws_part, sep, sid = raw.partition(":")
+        if not sep or not ws_part.isdigit() or not sid:
+            continue
+        grouped.setdefault(int(ws_part), set()).add(sid)
+    return grouped
+
+
+async def _set_sync_paused(request: Request, paused: int):
+    """Pause/resume the sync of every selected session (batch).
+
+    The Web UI's per-row button submits one ``sel`` pair, the multi-select
+    bars submit many -- one route, one ownership check. Only the caller's own
+    workspaces are touched, and the return path stays same-origin.
+    """
+    try:
+        user = get_current_user(request)
+    except:
+        return RedirectResponse(url="/web/login")
+    form = await request.form()
+    t = get_translations(get_lang())
+    target = form.get("next") or request.query_params.get("next") or "/web/"
+    if not (isinstance(target, str) and target.startswith("/")
+            and not target.startswith("//")):
+        target = "/web/"
+    selected = _sel_pairs(form)
+    if not selected:
+        resp = RedirectResponse(url=target, status_code=303)
+        make_flash(resp, t["sync_select_none"], "error")
+        return resp
+    changed = 0
+    now = datetime.now().timestamp()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM workspaces WHERE user_id = %s AND id = ANY(%s)",
+                  (user["sub"], list(selected)))
+        for (ws_id,) in c.fetchall():
+            c.execute("UPDATE sessions SET sync_paused = %s, sync_paused_at = %s "
+                      "WHERE workspace_id = %s AND id = ANY(%s)",
+                      (paused, now if paused else None, ws_id,
+                       sorted(selected[ws_id])))
+            changed += c.rowcount
+        conn.commit()
+    resp = RedirectResponse(url=target, status_code=303)
+    make_flash(resp, t["sync_pause_ok" if paused else "sync_resume_ok"] % changed,
+               "success")
+    return resp
+
+
+@router.post("/web/sync/pause")
+async def web_sync_pause(request: Request):
+    """暂停所选会话的同步：服务端不再接受这些会话的推送内容（冻结），
+    其它设备仍能拉取冻结版本；恢复后由客户端把暂停期间的内容补推上来。"""
+    return await _set_sync_paused(request, 1)
+
+
+@router.post("/web/sync/resume")
+async def web_sync_resume(request: Request):
+    """恢复所选会话的同步。"""
+    return await _set_sync_paused(request, 0)
+
+
 @router.get("/web/workspace/{ws_id}/trash", response_class=HTMLResponse)
 async def web_workspace_trash(ws_id: int, request: Request):
     """Session trash: deleted (soft-hidden) sessions, fully recoverable."""
@@ -841,10 +911,20 @@ async def web_workspace_import(ws_id: int, request: Request):
         sess_cols = {r[0] for r in c.fetchall()}
         c.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'messages'")
         msg_cols = {r[0] for r in c.fetchall()}
+        # Sync-paused sessions are frozen: an import is a write like any
+        # other push, so it skips them (counted and reported, never silently
+        # dropped — mirrors /push, see docs/ARCHITECTURE.md "暂停/恢复同步").
+        c.execute("SELECT id FROM sessions WHERE workspace_id = %s "
+                  "AND COALESCE(sync_paused,0) = 1", (ws_id,))
+        paused_ids = {r[0] for r in c.fetchall()}
+        paused_n = 0
         for session in sessions:
             if not isinstance(session, dict) or not session.get("id"):
                 continue
             sid = session["id"]
+            if sid in paused_ids:
+                paused_n += 1
+                continue
             messages = session.get("messages") or []
             sd = {k: _pg_val(v) for k, v in session.items()
                   if k != "messages" and k in sess_cols and v is not None}
@@ -885,6 +965,8 @@ async def web_workspace_import(ws_id: int, request: Request):
                 c.execute(f"INSERT INTO messages ({cols}) VALUES ({ph})", list(md.values()))
                 imp_m += 1
     msg_text = t["ws_import_ok"] % (imp_s, upd_s, imp_m, dup_m)
+    if paused_n:
+        msg_text += " " + t["ws_import_paused"] % paused_n
     resp = RedirectResponse(url=f"/web/workspace/{ws_id}", status_code=303)
     make_flash(resp, msg_text, "success")
     return resp

@@ -41,3 +41,12 @@
 {%- else -%}{{ a }}
 {%- endif -%}
 {%- endmacro %}
+{# "Sync paused" chip (docs/ARCHITECTURE.md "暂停/恢复同步"). `t` is the
+   translation dict in the current language; the long explanation lives in the
+   title attribute so the chip itself stays one word wide. #}
+{% macro sync_paused_chip(t) -%}
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#F1F0F8] border border-[#A5A5BC]/40 text-[10px] font-semibold text-[#5A5A72] shrink-0" title="{{ t.sync_pause_badge_hint }}">
+  <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+  {{ t.sync_pause_badge }}
+</span>
+{%- endmacro %}

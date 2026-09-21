@@ -44,7 +44,7 @@ YOUR_SERVER_IP
 
 **invites** — id, code (HSYNC-XXXXXXXX), created_by, used, used_by, revoked, expires_at, note, created_at, grant_plan (free/unlimited)
 
-**sessions** — id, workspace_id, title, model, message_count, started_at, hidden/hidden_at (软隐藏), pinned (置顶), profile_name (来源档案), agent_type, meta, ... (共 52 列)
+**sessions** — id, workspace_id, title, model, message_count, started_at, hidden/hidden_at (软隐藏), pinned (置顶), profile_name (来源档案), sync_paused/sync_paused_at (暂停同步，服务端冻结上行写入), agent_type, meta, ... （完整列集以 db.py 的建表 + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 迁移为准）
 
 **messages** — id, session_id, workspace_id, role, content, timestamp, hidden/hidden_at, agent_type, meta, ... (共 27 列)
 
@@ -301,6 +301,8 @@ python scripts/deploy-remote.py
 | POST | /web/workspace/{id}/session/{sid}/message/{mid}/hide | 隐藏消息 |
 | POST | /web/workspace/{id}/session/{sid}/message/{mid}/unhide | 恢复消息 |
 | POST | /web/workspace/{id}/session/{sid}/messages/unhide-all | 恢复会话全部消息 |
+| POST | /web/sync/pause | 暂停所选会话的同步 (sel=<ws_id>:<sid>，可重复；服务端冻结该会话的上行写入) |
+| POST | /web/sync/resume | 恢复所选会话的同步 (客户端下轮补齐暂停期间的内容) |
 | GET | /web/workspace/{id}/export | 导出整个工作区 (JSON.gz) |
 | POST | /web/workspace/{id}/import | 导入备份 (JSON/JSON.gz) |
 | GET | /web/workspace/{id}/delete | 删除工作区 |
@@ -349,7 +351,7 @@ python scripts/deploy-remote.py
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | /pull | 拉取远端会话 |
-| POST | /push | 推送本地会话 |
+| POST | /push | 推送本地会话（响应含 `paused_ids`：被用户暂停同步而跳过的会话；这些会话零写入，客户端据此不记推送指纹） |
 | GET | /status/{device_id} | 设备同步状态 |
 | GET | /sessions | 会话列表 |
 | GET | /users | 设备列表 |
