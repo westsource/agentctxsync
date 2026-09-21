@@ -4,7 +4,19 @@
 > 幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，重启即生效）；`CLIENT_VERSION`
 > 2026.09.13.4 → **2026.09.21.1**（`mcp/updater.py` 与 `server/client_update.py` 同步），
 > 因为客户端 `push_sessions` 必须认识 `/push` 的新响应字段 `paused_ids`（否则恢复后
-> 会把暂停期间的内容永远留在本地）。尚未部署。
+> 会把暂停期间的内容永远留在本地）。
+> 已部署 236（2026-09-21 CST，提交 `9531474`）：11 个文件（6 个 .py + 4 个模板 + `mcp/`
+> 客户端 2 个），对上次部署提交 `cab5a8a` 逐文件（LF 归一化）sha256 预检通过、上传后回读一致、
+> `py_compile` 通过，重启后 active、journal 无 error；`check_drift_236.py` /
+> `check_drift_mcp_236.py` 复核：server/ 50 个文件、mcp/ 15 个文件 drift=0，两端
+> `CLIENT_VERSION` 均为 2026.09.21.1。
+> 线上实测（一次性用户 + 工作空间，用完即删，残留 0 行；20 项检查全 PASS）：`sessions` 两列由
+> `init_db()` 建出；匿名 `POST /web/sync/pause` → 307 `/web/login`（路由已注册）；Web 暂停后
+> `/push` 返回 `paused_ids=['sess-alpha']` 且该会话标题/消息数原封不动、`/pull` 仍下发冻结版本
+> （`sync_paused=1`）；列表页渲染「已暂停同步」徽标与批量栏；恢复后同一次推送补齐暂停期间的
+> 2 条消息；`/api/client/manifest?agent=hermes&v=2026.09.13.4` 返回 version 2026.09.21.1 +
+> `update_available=true`，下载包内 `manifest.json` 版本一致、`mcp/server.py` 的 sha256 与清单
+> 相符且含 `paused_ids`。
 
 ### Added
 
