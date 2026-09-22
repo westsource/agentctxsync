@@ -85,14 +85,17 @@
 
 - **本地设备**：每个 Agent 独立部署一个 MCP Server 实例（`HERMES_SYNC_AGENT` 选择适配器），
   通过 stdio 与 Agent 通信，读写该 Agent 的本地存储（state.db / jsonl / SQLite / JSON）。
-  水位线文件 `.hermes-sync-watermark` 绑定服务器身份（切换服务器自动全量重拉），
-  `.hermes-sync-version` 记录客户端自动更新版本。
+  侧车文件按 Agent 加前缀（`.<agent>-sync-watermark` 绑定服务器身份，切换服务器自动全量重拉；
+  `.<agent>-sync-field-meta*.json` 字段级合并与推送指纹；`.<agent>-sync-foreign.json` 外来会话归属），
+  `.hermes-sync-version` 记录客户端自动更新版本——完整清单见
+  [CONFIGURATION.md](CONFIGURATION.md)。
 - **远程服务器**：单个 FastAPI 进程（`server/main.py` 装配）按业务域拆分模块承载
   Web UI、REST API、Sync API 与客户端更新 API；认证分三层——Web UI 用 JWT（Cookie）、
   REST 用 JWT（Header）、Sync/更新 API 用 Workspace API Key（`ws_xxx`）；
   界面内置 zh-CN / en 双语。模块结构见下节。
-- **部署形态**：systemd 服务（自动重启）+ Docker Compose（PostgreSQL pg18 + pgvector 扩展）+
-  Cron 每日备份（pg_dump → gz，保留 7 天）。
+- **部署形态**：systemd 服务（自动重启）+ PostgreSQL 18（只需标准版自带的 `pg_trgm` 扩展，
+  用于全局搜索的 GIN 索引）+ Cron 每日备份（pg_dump → gz，保留 7 天）。应用单进程 uvicorn、
+  只监听回环 8765，前面必须挂 TLS 反向代理；进程内状态（验证码/限流/flash）意味着**不能多 worker**。
 
 ### 服务端代码结构（server/）
 
@@ -108,11 +111,18 @@
 | `db.py` | psycopg2 连接池、`init_db` 幂等建表迁移、配额策略查询、工作空间查询辅助 | — |
 | `render.py` | Jinja2 渲染（executor 异步化）、flash 消息、请求作用域 ContextVar、中间件 | — |
 | `requestlog.py` | 请求日志中间件：全站 REQ 行 + 每日访问统计（`access_stats`/`access_device` 表，domain/IP 渠道、设备/agent/版本） | 全站中间件；`/web/admin/access`、`/web/admin/access/devices` |
+| `ratelimit.py` | 进程内固定窗口限流（8 个 scope：注册/登录/验证码/发信/找回 + 收件人/账号/地址维度的发信桶），桶表满时失败关闭 | — |
+| `captcha.py` | 注册/找回页的算术验证码：纯矢量 SVG（无可读字符）、进程内一次性挑战 + TTL | `/web/captcha/new` |
+| `mailer.py` | 发信：smtplib + DB 计数的全站日预算（`mail_stats` 的 sent/rejected/failed），三类邮件（验证/重置/换绑通知） | — |
+| `emailverify.py` | 邮箱归一化/掩码 + 一次性令牌（只存 SHA-256 摘要、TTL、重发吊销、已验证邮箱全库唯一） | — |
+| `jsonbody.py` | 请求体解析：非 JSON / 非对象一律 400，避免 500 | — |
+| `announcements.py` | 公告横幅：记录每用户已关闭的条目（feed 由浏览器直取，服务端不出网） | `/web/announcement/dismiss` |
+| `_run_local.py` | 本地开发启动器：先加载 `server/.env` 再跑 uvicorn | — |
 | `translations.py` | i18n 翻译表（zh-CN / en） | — |
 | `agents.py` | Agent 注册表（静态数据，驱动帮助页与客户端包生成） | — |
-| `auth.py` | 认证域：PBKDF2 密码、JWT 签发/校验、API key 依赖、登录/注册/改密/语言、账户状态中间件（强制改密 + 邮箱验证门）、邮箱验证（SMTP 可选开关） | `/`、`/web/login`、`/web/register`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/web/verify-email`、`/web/email`、`/api/auth/*` |
-| `workspace.py` | 工作空间域：仪表盘、全部会话、会话查看器、CRUD、导出/导入、软删除/回收站、REST | `/web/`、`/web/all-sessions`、`/web/workspace/*`、`/api/me`、`/api/workspaces` |
-| `sync.py` | 同步域：pull/push/status/sessions/users，配额执法与审计日志 | `/health`、`/pull`、`/push`、`/status/{device_id}`、`/sessions`、`/users` |
+| `auth.py` | 认证域：PBKDF2 密码（600k 轮，惰性升级）、JWT 签发/校验、API key 依赖、登录（用户名或已验证邮箱）/注册/改密/语言、账户状态中间件（强制改密 + 邮箱验证门）、邮箱验证与安全中心（SMTP 可选开关）、密码重置（邮件一次性令牌） | `/`、`/web/login`、`/web/register`、`/web/forgot`、`/web/reset`、`/web/change-password`、`/web/update-profile`、`/web/set-language/*`、`/web/logout`、`/web/verify-email`、`/web/email`、`/web/security`、`/web/security/reset-request`、`/api/auth/*` |
+| `workspace.py` | 工作空间域：仪表盘、全部会话、会话查看器、CRUD、导出/导入、软删除/回收站、**暂停/恢复同步**、REST | `/web/`、`/web/all-sessions`、`/web/workspace/*`、`/web/sync/pause`、`/web/sync/resume`、`/api/me`、`/api/workspaces` |
+| `sync.py` | 同步域：pull/push/status/sessions/users，配额执法与审计日志，**暂停闸门（push 第一条查询，命中即整会话零写入并回 `paused_ids`）** | `/health`、`/pull`、`/push`、`/status/{device_id}`、`/sessions`、`/users` |
 | `projects.py` | 项目同步域：slug 同名合并、folders 增量合并、remap 路由 | `/api/projects/push`、`/api/projects/pull` |
 | `invites.py` | 邀请码域：邀请管理、创建/撤销 | `/web/invites`、`/web/invite/create`、`/web/invite/{id}/revoke` |
 | `admin.py` | 管理域：用户/全局空间管理/访问统计（仅管理员） | `/web/admin/*`、`/api/admin/*` |
@@ -281,6 +291,32 @@ User (admin / user)
 
 ### audit_log
 运营审计表：`quota_rejected` 等事件由 server 写入；`plan_changed` 等运营操作由运营侧写入。
+
+### user_verification_tokens
+邮箱验证/密码重置的一次性令牌：`user_id` (FK)、`purpose`（`verify_email` / `reset_password`）、
+`token_hash`（**只存 SHA-256 摘要**，明文只在邮件里）、`email_normalized`（令牌绑定的地址）、
+`expires_at`、`consumed_at`、`requested_ip`、`created_at`。重发即吊销该 purpose 的旧令牌；
+换绑邮箱会使未消费的重置令牌失效（令牌里的地址必须仍等于账号当前已验证地址）。
+
+### mail_stats
+全站发信计数：主键 `(stat_date, kind)`，`kind` ∈ `sent` / `rejected` / `failed`。
+计数落库（不是内存），所以重启不清零；超过 `HERMES_SYNC_MAIL_DAILY_CAP` 后拒绝发送并记 `rejected`
+——该字段增长即可作为滥用告警信号。
+
+### access_stats / access_device
+访问统计（`requestlog.py` 中间件写入，`/web/admin/*` 读取）：
+- `access_stats`：主键 `(stat_date, channel, kind)`，`channel` ∈ `web` / `api`，`kind` 记录来源
+  形态（域名 / 回环 / 直连 IP 等）。
+- `access_device`：主键 `(stat_date, device_id, agent, channel, user_id)`，另存 `count`、
+  `last_seen`、`client_version`（同步请求携带的客户端版本）。`user_id` 取 API key 的归属
+  （`0` = 未知：早于该列的行，或用 master key 的请求）。管理端「设备明细」按此展开。
+- 日志里的 `src=` 取 **uvicorn 解析出的真实对端**（不取 `X-Forwarded-For` 最左值，那是调用方可控的），
+  原始链另存 `xff=`。
+
+### announcement_dismissals
+公告横幅的已读记录：主键 `(announcement_id, user_id)`，`dismissed_at`。
+feed 本身是外部静态 JSON（`HERMES_SYNC_ANNOUNCEMENTS_URL`），由**浏览器**直取；服务端只记已读，
+所以自托管实例不会因为公告功能而对外发请求。
 
 ## 关键算法与决策（Key Algorithms & Decisions）
 
@@ -711,6 +747,74 @@ O(可见 × |清单|)。
 多选、属主校验、`next` 同源、导入跳过与计数、zh/en 词条齐备）、
 `mcp/tests/test_push_pause.py`（不记指纹 + 下轮重发 + 混合版本窗口）。
 
+### 账号、访问与内容治理（Accounts / Access / Governance）
+
+**密码与登录**
+- PBKDF2-SHA256，**600,000 轮**，哈希串自带迭代数（`pbkdf2:sha256:<iters>:<salt>:<hash>`）；
+  登录成功时若存量哈希的迭代数低于当前策略，就地重算升级（`password_needs_upgrade`）。
+- 登录标识符：**用户名优先**，其次按 `email_normalized` + `email_verified_at IS NOT NULL`
+  匹配已验证邮箱（大小写不敏感）；未验证邮箱不可登录。失败页对两种标识符**逐字节相同**，
+  不泄露账号是否存在。
+- 首次登录强制改密：`users.must_change_password=1` 时中间件只放行
+  `/web/login`、`/web/change-password`、`/web/logout`、`/web/register`、`/web/set-language`。
+- 账户状态机：`account_state` ∈ `PENDING_EMAIL_VERIFICATION`（SMTP 开启时注册后的状态，锁定到
+  `/web/verify-email`、`/web/email`）/ `ACTIVE` / `LEGACY_UNVERIFIED`。**唯一被门禁的动作是"新建
+  工作空间"**：已有工作空间、其 API key、同步与数据访问永不被拦。
+
+**邮箱验证与安全中心（可选特性，SMTP 未配置则整体休眠）**
+- 开启条件：`HERMES_SYNC_SMTP_HOST` + `USER` + `PASSWORD` + `FROM` 四项齐备（`smtp_configured()`）。
+- 令牌一次性：库里只存 SHA-256 摘要，带 TTL（激活/重置链接 3 小时，由常量派生），重发吊销旧令牌；
+  已验证邮箱在 `email_normalized` 上全库唯一（部分唯一索引）。
+- 安全中心 `/web/security` 是「修改密码 / 重置密码 / 更换邮箱」的**单入口**（各自弹窗）；
+  自愿访问 `/web/change-password`（不带 `forced=1`）会 303 到安全中心；SMTP 关闭时安全中心 303 回
+  `/web/`。自助重置只发给账号**已验证的安全邮箱**，流程与访客 `/web/forgot` 完全一致。
+
+**验证码（自托管，成本门槛而非人性证明）**
+- `/web/register`、`/web/forgot` 使用服务端生成的算术题；图形为纯矢量折线 + 装饰线点，
+  **SVG 标记里没有任何可读字符**（防"一个正则读出算式"）；答案只存服务端、一次性、带 TTL。
+- 真正的天花板是下面的收件人桶与全站日预算：换 IP 不能放大发信额度。
+
+**限流（`ratelimit.py`，进程内固定窗口，按 key 而非仅按 IP）**
+
+| scope | 上限 | 维度 |
+|-------|------|------|
+| `register` | 10 次 / 10 分钟 | 来源 IP |
+| `login` | 30 次 / 10 分钟 | 来源 IP |
+| `captcha` | 30 次 / 5 分钟 | 来源 IP |
+| `email`（绑定/重发验证邮件） | 5 次 / 10 分钟 | 来源 IP |
+| `forgot`（找回密码） | 5 次 / 10 分钟 | 来源 IP |
+| `mail_recipient` | 1 封 / 分钟 + 5 封 / 天 | 收件地址（已解析的已验证邮箱） |
+| `mail_account` | 10 封 / 小时 | 登录账号（`user_id`） |
+| `mail_address` | 1 封 / 10 分钟 | 调用方自填地址 |
+
+- 桶表上限 20000：先淘汰过期条目，**仍满则拒绝该请求并打印告警**（失败关闭）——避免"刷不同 key
+  把所有人的预算一起清零"。
+- 发信另有全站日预算 `HERMES_SYNC_MAIL_DAILY_CAP`（默认 200，计数落 `mail_stats`）。
+
+**访问统计与公告**
+- 每个请求由 `requestlog.py` 写 `access_stats`（按日/渠道）与 `access_device`（按设备/agent/版本/归属），
+  管理端 `/web/admin/access` 与 `/web/admin/access/devices` 读取；同步端点还会记录客户端上报的
+  `client_version`，用于判断各端是否已自动更新。
+- 公告横幅默认关闭；`HERMES_SYNC_ANNOUNCEMENTS_URL` 指向公开 feed 时由**浏览器**直取，
+  服务端只记已读（`announcement_dismissals`），自托管实例不出网。
+
+**全局搜索（`search.py`）**
+- 跨工作空间，按 `w.user_id` 限定归属（**admin 同**），`pg_trgm` GIN 索引 + `ILIKE` 同时命中
+  会话标题/id 与消息内容；LIKE 通配符转义后匹配，结果可深链定位到具体消息
+  （`/web/workspace/{id}/session/{sid}?focus=<mid>`，服务端算出所在页）。
+  细节与回归测试见 [SEARCH.md](SEARCH.md)。
+
+**i18n**
+- 两种语言（zh-CN / en），`translations.TRANSLATIONS` 一份表；模板通过 `t` 取词条。
+  语言解析顺序：JWT 的 `lang` 声明（登录用户，随账号走）→ `lang` cookie（访客）→ `zh-CN`。
+  **新增用户可见字符串必须同时补 zh-CN 与 en**，键必须成对（多处测试断言两语言都含关键键）。
+
+**部署形态约束（勿改）**
+- 服务端**只监听 `127.0.0.1:8765`**，必须置于终止 TLS 的反向代理之后；`proxy_headers=True` 让它
+  信任来自回环的 `X-Forwarded-For`，限流与 `REQ src=` 都依赖这一点。
+- 验证码挑战、限流桶、flash 消息都是**进程内**状态：应用按**单 worker**设计。要多 worker
+  必须先把这三处外置（Redis 等），否则验证码/限流/flash 会随机失效。
+
 ### scripts/ 目录脚本（迁移 / 部署 / 测试）
 
 **一次性迁移**：
@@ -722,15 +826,19 @@ O(可见 × |清单|)。
 | `migrate-fold-subagents.py` | 软隐藏已同步的子代理孤儿会话 |
 | `migrate-local-to-server.py` | 本地 hermes state.db → 远端服务器（首次上云） |
 | `import_doubao.py` | 豆包云端会话导入（豆包无本地稳定存储） |
+| `hide-root-projects.py` | 退役"根路径项目"卡片（`--apply` / `--undo`，默认 dry-run） |
+| `backfill-last-activity.py` | 用可见消息回填 `sessions.last_activity_at` |
+| `backfill-access-device-user.py` | 用 `sync_state` / `workspaces` 回填 `access_device.user_id` |
 
 **部署 / 运维**：
 
 | 脚本 | 用途 |
 |---|---|
-| `deploy-server.sh` | 服务端一键部署（目标机 `/opt/agentctxsync`，模块化 `server/` 全量拷贝） |
-| `deploy-remote.py` | 远端发布辅助：备份 → SSH 上传 server 模块与 `mcp/` 客户端 → 重启服务 → 验证（health + agent_type 探测；`DEPLOY_SSH_HOST` 指定目标） |
+| `deploy-server.sh` | 服务端一键部署（目标机 `/opt/agentctxsync`，模块化 `server/` 全量拷贝 + `mcp/` 客户端包） |
+| `deploy-remote.py` | 远端发布辅助：备份 → SSH 上传 `server/*.py`（按目录实际文件，不再维护硬编码清单）+ templates/static → 重启服务 → 验证（health + agent_type 探测；`DEPLOY_SSH_HOST` 指定目标） |
 | `deploy-local-mcp.sh` | 本地 MCP 客户端部署（bash；按 agent 写入 `config.yaml` 的 `mcp_servers`；openclaw 额外安装 `auto-sync.py` 常驻循环 + Windows 计划任务） |
 | `deploy-local-mcp.ps1` | 同上 PowerShell 版（多 agent，注释含 openclaw 注册示例） |
+| `install-deps.sh` / `install-deps.bat` | 客户端依赖引导（venv + `mcp` + `zstandard`）；随客户端 zip 一起分发 |
 
 **端到端测试**：
 
@@ -1119,6 +1227,12 @@ GET  /web/captcha/new           # 注册验证码（自托管数学题 SVG，进
 GET  /web/register              # 注册页面（自建数学验证码，邀请码可选，支持 ?code= 预填；SMTP 启用时必填邮箱）
 GET  /web/verify-email          # 邮箱验证：等待/确认/无效/过期各态（?token= 仅展示不消费）
 POST /web/verify-email          # 确认并消费令牌，激活账户（事务内建默认工作空间 + 自动登录）
+GET  /web/forgot                # 找回密码（验证码 + 按账号/邮箱发一次性重置链接；统一响应不泄露账号是否存在）
+POST /web/forgot                # 提交找回请求（发信预算/收件人冷却均在此生效）
+GET  /web/reset?token=          # 重置密码页（有效/已用/过期/完成各态）
+POST /web/reset                 # 消费令牌并设置新密码（令牌里的地址必须仍是账号当前已验证地址）
+GET  /web/security              # 安全中心：修改密码 / 重置密码 / 更换邮箱三个弹窗入口（?d=dlgPwd|dlgReset|dlgEmail 自动打开）
+POST /web/security/reset-request  # 给账号已验证的安全邮箱发重置链接（与访客 /web/forgot 同一流程）
 GET  /web/email                 # 安全邮箱设置（存量绑定/更换邮箱状态与表单）
 POST /web/email/bind            # 绑定/更换邮箱（写入 pending_email 并发验证邮件）
 POST /web/email/resend          # 重发验证邮件（撤销旧令牌）
@@ -1147,6 +1261,8 @@ POST /web/sync/pause                                          # 暂停所选会�
 POST /web/sync/resume                                         # 恢复所选会话的同步（客户端下轮补齐暂停期间的内容）
 GET  /web/help                                 # 接入帮助页（MCP 客户端接入帮助；/web/help-hermes 旧入口 301 跳转）
 GET  /web/download/mcp-client?ws_id={id}&agent=X  # 下载 MCP 客户端 zip（Key 为占位符）
+GET  /web/download/deploy-script?agent=X       # 下载该 Agent 的一键部署脚本
+POST /web/announcement/dismiss                 # 关闭公告横幅（记录 announcement_dismissals，feed 由浏览器直取）
 GET  /web/admin/users                             # 用户管理
 POST /web/admin/user/create                       # 创建用户
 GET  /web/admin/user/{uid}/edit                   # 编辑用户

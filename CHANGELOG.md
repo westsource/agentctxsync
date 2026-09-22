@@ -1,3 +1,48 @@
+## [2026.09.21.3] - 2026-09-21
+
+> 服务端 + 客户端发布：`CLIENT_VERSION` 2026.09.21.1 → **2026.09.21.3**（客户端包有改动：
+> `sync_full` 的工具描述与占位 Key 前缀），各端经 `/api/client/manifest` 自动更新；无 schema 变更。
+
+### Fixed
+
+- **工具描述写反**：`sync_full` 的描述是"先推后拉"，而实现与文档契约都是**先拉后推**（拉取先锚定
+  本机每字段基线，再只推脏字段，避免覆盖同侪的较新元数据）。工具描述改为与实现一致，
+  README（中英）同步更正。
+- **占位 Key 前缀**：客户端 `HERMES_SYNC_API_KEY` 的默认占位串 `hsk_placeholder` → `ws_placeholder`；
+  `scripts/migrate-local-to-server.py` 的提示 `hsk_` → `ws_`（`generate_api_key` 一直是 `ws_`）。
+- **CI 两个 job 都是红的**（已持续一段时间）：
+  - 客户端 job 未安装依赖却要 import `mcp/server.py`（该模块在模块级 import MCP SDK），
+    且 dsh 适配器需要 `zstandard` → 补 `pip install mcp zstandard` 并更正过时注释；
+  - 服务端 job 的 import 冒烟测试用 `[r.path for r in app.routes]`，新版 FastAPI/Starlette 把
+    include 进来的 router 包成 `_IncludedRouter`（没有 `.path`）→ 改走 OpenAPI schema 枚举路径。
+  按 CI 的两条命令在干净 venv 里复跑：客户端 **194 项 OK**、服务端 **285 项 OK（2 skip）**。
+- `scripts/deploy-remote.py` 的上传清单是硬编码的，且包含已不存在的 `feedback.py`、漏掉后来新增的
+  模块 → 改为按 `server/*.py` 实际文件上传。
+
+### Changed（文档按代码事实全面校准）
+
+- **README（中英）新增「What you get / 功能总览」**：服务端八个模块面（同步 API、项目 API、
+  Web UI、账号与访问、租户与管理员、配额与套餐、客户端分发、运维）、MCP 客户端（7 适配器、
+  收敛规则、Primary/Standby 并发、自动更新）、侧车与环境变量指引；快速开始的上传清单补 `mcp/`
+  （`deploy-server.sh` 需要它，照抄旧命令会漏）。
+- **`docs/ARCHITECTURE.md`**：模块表补齐 `ratelimit.py`/`captcha.py`/`mailer.py`/`emailverify.py`/
+  `jsonbody.py`/`announcements.py`/`_run_local.py`；schema 由 11 张表补到 **16 张**（新增
+  `user_verification_tokens`、`mail_stats`、`access_stats`、`access_device`、`announcement_dismissals`）；
+  新增「账号、访问与内容治理」决策节（600k 轮 PBKDF2 + 惰性升级、用户名/已验证邮箱登录、
+  账户状态机与"只拦新建工作空间"的门禁、邮箱令牌一次性、验证码、**8 个限流 scope 阈值表**、
+  发信日预算、访问统计与 `src=` 真实性、公告、全局搜索、i18n 解析顺序、单 worker + 回环部署约束）；
+  路由表补 forgot/reset/security/公告/部署脚本下载；`scripts/` 表补 `hide-root-projects.py`、
+  两个 backfill、`install-deps.*`；组件说明纠正"pgvector"（实际只需标准版自带的 `pg_trgm`）
+  与侧车命名（按 agent 前缀）。
+- **`docs/CONFIGURATION.md` 重写**：服务端 12 个变量（补 `PUBLIC_URL`/`ANNOUNCEMENTS_URL`/`SMTP_*`/
+  `MAIL_DAILY_CAP` 及各自缺省行为）、客户端 10 个（补 `omp` 与锁文件覆盖项）、侧车文件清单与
+  "删掉会怎样"。
+- **`CONTRIBUTING.md`**：启动命令 `server/server.py` → `server/main.py`；「服务端还没有单测」
+  → 两套 unittest 的真实命令、数量与 CI 位置。
+- **`SECURITY.md`**：PBKDF2 迭代数 100,000 → **600,000**（并说明每份哈希自带迭代数、登录时惰性升级）；
+  「已知安全设计」补齐租户隔离、限流阈值、自托管验证码、令牌一次性与审计。
+- **`server/.env.example`**：补齐可选变量并标注必填项。
+
 ## [2026.09.21.2] - 2026-09-21
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.21.1），无 schema 变更。

@@ -59,7 +59,7 @@ def migrate():
     status = api_call("GET", f"/status/{DEVICE_ID}")
     if "error" in status:
         print(f"ERROR: API key rejected - {status}")
-        print("Make sure you are using a workspace API key (starts with 'hsk_')")
+        print("Make sure you are using a workspace API key (starts with 'ws_')")
         sys.exit(1)
     print(f"Connected to workspace. Status: {status}")
 

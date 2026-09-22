@@ -50,6 +50,31 @@ Every session is pushed to your self-hosted server, so a single-machine crash, a
 | Profiles / projects fragmented across machines | Single client covers all profiles; sessions and projects sync with zero server changes |
 | Teammates sharing = everyone sees everything | Tenant isolation: admins manage infrastructure, can't read your data |
 
+## What you get
+
+### Server — self-hosted FastAPI + PostgreSQL
+
+| Area | What it does |
+|------|--------------|
+| Sync API (workspace API key) | `POST /pull` · `POST /push` · `GET /status/{device}` · `GET /sessions` · `GET /users` · `GET /health`. Full-pool pull (every client pulls **all** sessions, pushes only its own), message identity `(session_id, role, timestamp)` dedup, field-level optimistic concurrency, soft-hide, per-session **pause / resume sync** |
+| Projects API | `POST /api/projects/push` · `POST /api/projects/pull`: same-name merge by slug, folder union, `project_remap` |
+| Web UI | Dashboard (workspaces, plan usage, sync devices, recent sessions) · all-sessions cross-workspace list with filters and paging · workspace detail (sessions, projects, devices, trash entry) · session viewer (Markdown + code blocks, message search, deep-link from global search) · trash for sessions and messages (restore) · **pause / resume sync** · export (per-session Markdown, per-workspace JSON.gz) and import · workspace CRUD + API-key rotation · account settings · zh-CN / en switch · announcement banner |
+| Accounts & access | Open registration (self-hosted math captcha, optional invite code) · sign in with a username or a **verified** email · forced password change on first login · password reset by mail · email verification and binding · security hub · per-IP rate limits on register / login / captcha / mail |
+| Tenancy & admin | Each workspace belongs to one user; sessions, messages and search are scoped to the owner · admins manage users, invites and workspace metadata only — **they can never read session content** · access statistics per day/channel and a per-device drill-down with agent + client version |
+| Quota & plans | `quota_config` per plan (`max_sessions`, `allowed_agents`); only **new** sessions are gated (an existing pool keeps syncing), rejections carry machine-readable codes and land in `audit_log` |
+| Client distribution | `/api/client/manifest` + `/api/client/download`: per-agent zip built with the deployment's own server address baked in, per-file sha256 manifest, client-side auto-update · `/web/help` install guide per agent |
+| Operations | Schema created/migrated idempotently at startup · `scripts/` migrations and backfills (dry-run by default) · backup script · CI for both test suites |
+
+> The server binds `127.0.0.1:8765` only, and keeps captcha challenges, rate-limit buckets and flash messages in process memory: it is built to run as a **single worker behind a TLS reverse proxy** ([docs/server-deployment.md](docs/server-deployment.md)).
+
+### MCP client — one per agent, auto-updating
+
+- **7 adapters**: Hermes (multi-profile `state.db`), DeepSeek Harness (JSONL/zstd logs), opencode (`opencode.db`), Reasonix (per-session JSONL), OpenClaw (gateway sessions + transcripts), WorkBuddy (JSONL events + `workbuddy.db`), Oh My Pi (JSONL) — one canonical session/message model in both directions ([docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md)).
+- **Convergence rules**: full-pool pull, triple-key dedup, field-level merge with sidecars, push fingerprints (unchanged sessions are skipped), watermark + completeness repair (a session deleted locally comes back while the server still holds it), per-session pause handling, foreign-session owner routing.
+- **Concurrency**: one `Primary` copy per machine runs the background sync (startup pull ~8 s after launch, then every `HERMES_SYNC_INTERVAL`); other copies only answer tools, and mutating tools share the same cross-process lock.
+- **Auto-update**: per-file sha256 verification, activated on the next agent restart; a failed update never blocks syncing.
+- Local sidecars and every environment variable: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
 ## Supported Agents
 
 Covers the AI agents you actually use — **Hermes, DeepSeek Harness, opencode, Reasonix, OpenClaw, WorkBuddy, Oh My Pi**.
@@ -77,8 +102,8 @@ Each Agent deploys its own client and points at the same Workspace, and they syn
 ### 1. Deploy the server
 
 ```bash
-# Upload to the target server and run
-scp -r server/ scripts/ root@<SERVER_IP>:/tmp/hermes-sync/
+# Upload to the target server and run (server/ + mcp/ + scripts/)
+scp -r server/ mcp/ scripts/ root@<SERVER_IP>:/tmp/hermes-sync/
 ssh root@<SERVER_IP>
 cd /tmp/hermes-sync/server
 bash ../scripts/deploy-server.sh
@@ -127,7 +152,7 @@ Each Agent deploys its own instance (one `HERMES_SYNC_AGENT` value + independent
 | `sync_status` (alias `hermes_sync_status`) | View sync status (remote session/message counts, per-device last sync time) |
 | `sync_pull` (alias `hermes_sync_pull`) | Pull sessions from remote to local (`limit`, default 50; `full` ignores the watermark) |
 | `sync_push` (alias `hermes_sync_push`) | Push local sessions to remote (auto-batching avoids large-request timeouts) |
-| `sync_full` (alias `hermes_sync_full`) | Full sync (push first, then pull) |
+| `sync_full` (alias `hermes_sync_full`) | Full sync: pull first (it anchors this device's per-field bases), then push |
 | `project_push` | Push projects from all local profiles' projects.db to remote (same-name merges handled by the server) |
 | `project_pull` | Pull projects from remote into the local projects.db (applies remap, routes per profile) |
 

@@ -57,13 +57,12 @@ def main():
         f"-C {REMOTE} *.py templates static client 2>/dev/null")
     print(f"backup: pre-multiagent-{stamp}.tar.gz")
 
-    # 2. upload server files (modular layout: main.py + domain modules)
+    # 2. upload server files (modular layout: main.py + domain modules).
+    # Derive the list from the source tree: a hardcoded list silently skipped
+    # every module added after it was written (and shipped a `feedback.py`
+    # that no longer exists).
     srv = os.path.join(REPO, "server")
-    for name in ("main.py", "config.py", "db.py", "render.py", "auth.py",
-                 "invites.py", "workspace.py", "admin.py", "sync.py",
-                 "projects.py", "client_update.py", "web_help.py",
-                 "agents.py", "translations.py", "requestlog.py", "feedback.py",
-                 "captcha.py", "search.py"):
+    for name in sorted(n for n in os.listdir(srv) if n.endswith(".py")):
         sftp.put(os.path.join(srv, name), f"{REMOTE}/{name}")
         print(f"uploaded {name}")
     for name in os.listdir(os.path.join(srv, "templates")):

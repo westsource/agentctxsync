@@ -40,8 +40,11 @@ export HERMES_SYNC_PG_DSN=postgresql://user:pass@localhost:5432/agentctxsync
 export HERMES_SYNC_MASTER_KEY=change-me
 export HERMES_SYNC_JWT_SECRET=$(openssl rand -hex 32)
 
-.venv/Scripts/python server/server.py    # serves http://127.0.0.1:8765
+.venv/Scripts/python server/main.py    # serves http://127.0.0.1:8765
 ```
+
+(`server/_run_local.py` is the same thing with `server/.env` loaded into the
+environment first.)
 
 The server auto-creates its schema on startup (idempotent `ALTER TABLE ...
 ADD COLUMN IF NOT EXISTS` migrations — keep new columns in that pattern so
@@ -70,12 +73,23 @@ zero changes — IDs, prefixes and write constraints are adapter concerns.
 
 ## Testing
 
+Both suites are `unittest`-based and need no database (the server tests drive
+scripted fake cursors; `test_migration` skips itself when PostgreSQL is
+unreachable):
+
 ```bash
-.venv/Scripts/python -m pytest mcp/tests -q
+.venv/Scripts/python -m unittest discover -s mcp/tests      # 194 tests
+.venv/Scripts/python -m unittest discover -s server/tests   # 477 tests
 ```
 
-Server-side: no unit suite yet; verify with a smoke run (`/health`, log in,
-create a workspace) against a local PostgreSQL before opening a PR.
+`pytest` works too (`.venv/Scripts/python -m pytest mcp/tests server/tests -q`).
+The client suite imports `mcp/server.py`, which needs the MCP SDK and (for the
+dsh adapter) `zstandard`: `pip install mcp zstandard`. CI runs the same two
+commands — see [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+Before opening a PR: run both suites, and smoke-test the Web UI against a local
+PostgreSQL (`/health`, log in, create a workspace) if your change touches
+templates or routes.
 
 ## Commits
 

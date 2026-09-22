@@ -50,6 +50,31 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 | 多档案 / 项目在多台机器上碎片化 | 一个客户端覆盖全部 profile，会话与项目同步且零服务端改动 |
 | 团队共享 = 所有人都能看到一切 | 租户隔离：管理员只管基础设施，读不到你的数据 |
 
+## 功能总览
+
+### 服务端 —— 自托管 FastAPI + PostgreSQL
+
+| 模块 | 能力 |
+|------|------|
+| 同步 API（Workspace API Key） | `POST /pull` · `POST /push` · `GET /status/{device}` · `GET /sessions` · `GET /users` · `GET /health`。全池拉取（每个客户端拉**全部**会话、只推自己的）、消息身份 `(session_id, role, timestamp)` 三元组去重、字段级乐观并发、软隐藏、按会话**暂停 / 恢复同步** |
+| 项目 API | `POST /api/projects/push` · `POST /api/projects/pull`：同名按 slug 合并、文件夹取并集、`project_remap` 重映射 |
+| Web UI | 信息概览（工作空间、套餐用量、同步设备、最近会话）· 全部会话（跨工作空间列表、筛选、分页）· 工作空间详情（会话列表、项目、同步设备、回收站入口）· 会话查看器（Markdown + 代码块、消息搜索、从全局搜索深链跳转）· 会话/消息回收站（可恢复）· **暂停 / 恢复同步** · 导出（单会话 Markdown、整工作空间 JSON.gz）与导入 · 工作空间增删改 + API Key 轮换 · 账户设置 · 中英切换 · 公告横幅 |
+| 账号与访问 | 开放注册（自托管数学验证码，邀请码可选）· 用户名或**已验证邮箱**登录 · 首次登录强制改密 · 邮件找回密码 · 邮箱验证与绑定 · 安全中心 · 注册/登录/验证码/发信按 IP 限流 |
+| 租户与管理员 | 一个工作空间归属一个用户；会话、消息与搜索一律按归属限定 · 管理员只管理用户、邀请码与工作空间元数据，**读不到任何会话内容** · 按日/渠道的访问统计与按设备明细（含 Agent 与客户端版本） |
+| 配额与套餐 | `quota_config` 按套餐配置（`max_sessions`、`allowed_agents`）；只拦**新建**会话（已有会话继续同步），拒绝返回机器可读错误码并写入 `audit_log` |
+| 客户端分发 | `/api/client/manifest` + `/api/client/download`：按 Agent 打包、把部署自身的服务器地址烧进默认值、逐文件 sha256 清单、客户端自动更新 · `/web/help` 各 Agent 接入指引 |
+| 运维 | 启动时幂等建表/迁移 · `scripts/` 迁移与回填（默认 dry-run）· 备份脚本 · 两套测试的 CI |
+
+> 服务端**只监听 `127.0.0.1:8765`**，且验证码挑战、限流桶、flash 消息都放在进程内存里：它是按**单 worker + TLS 反向代理**设计的（见 [docs/server-deployment.md](docs/server-deployment.md)）。
+
+### MCP 客户端 —— 每个 Agent 一份，自动更新
+
+- **7 个适配器**：Hermes（多档案 `state.db`）、DeepSeek Harness（JSONL/zstd 日志）、opencode（`opencode.db`）、Reasonix（单会话 JSONL）、OpenClaw（网关会话 + transcript）、WorkBuddy（JSONL 事件 + `workbuddy.db`）、Oh My Pi（JSONL）——双向共用同一套 canonical 会话/消息模型（[docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md)）。
+- **收敛规则**：全池拉取、三元组去重、字段级合并（sidecar）、推送指纹（未变化的会话跳过上传）、水位线 + 完整性修复（本地删掉的会话在服务端仍持有时会补回）、暂停会话处理、外来会话归属路由。
+- **并发**：同一台机器只有一个 `Primary` 副本跑后台同步（启动约 8 秒后拉一次，之后每 `HERMES_SYNC_INTERVAL` 一次），其余副本只应答工具；写工具与后台周期共用同一把跨进程锁。
+- **自动更新**：逐文件 sha256 校验，Agent 重启后生效；更新失败绝不影响同步。
+- 本地 sidecar 与全部环境变量：[docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+
 ## 支持的 Agent
 
 覆盖你真正在用的 AI Agent——**Hermes、DeepSeek Harness、opencode、Reasonix、OpenClaw、WorkBuddy、Oh My Pi**。
@@ -77,8 +102,8 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 ### 1. 部署服务器
 
 ```bash
-# 上传到目标服务器并执行
-scp -r server/ scripts/ root@<SERVER_IP>:/tmp/hermes-sync/
+# 上传到目标服务器并执行（server/ + mcp/ + scripts/）
+scp -r server/ mcp/ scripts/ root@<SERVER_IP>:/tmp/hermes-sync/
 ssh root@<SERVER_IP>
 cd /tmp/hermes-sync/server
 bash ../scripts/deploy-server.sh
@@ -126,7 +151,7 @@ bash scripts/deploy-local-mcp.sh
 | `sync_status`（别名 `hermes_sync_status`） | 查看同步状态（远端会话/消息数、各设备最近同步时间） |
 | `sync_pull`（别名 `hermes_sync_pull`） | 从远端拉取会话到本地（`limit`，默认 50；`full` 忽略水位线） |
 | `sync_push`（别名 `hermes_sync_push`） | 推送本地会话到远端（自动分批避免大请求超时） |
-| `sync_full`（别名 `hermes_sync_full`） | 全量同步（先推后拉） |
+| `sync_full`（别名 `hermes_sync_full`） | 全量同步（**先拉后推**：拉取先锚定本机的字段基线，再只推自己改过的字段） |
 | `project_push` | 将所有本地 profile 的 projects.db 推送到远端（同名合并由服务端处理） |
 | `project_pull` | 从远端拉取项目到本地 projects.db（应用 remap，按 profile 路由） |
 

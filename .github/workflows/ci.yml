@@ -21,8 +21,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # mcp/tests are pure-stdlib (sqlite3/unittest); the adapter package
-      # must import cleanly without the mcp SDK installed.
+      # mcp/tests cover the adapters (pure stdlib) AND the sync engine in
+      # mcp/server.py, which imports the MCP SDK at module level; the dsh
+      # adapter needs zstandard for its .zstd session logs. Install both or
+      # the suite cannot even import the modules it tests.
+      - name: Install client deps
+        run: pip install --quiet mcp zstandard
+
       - name: Run adapter unit tests
         run: python -m unittest discover -s mcp/tests -v
 
@@ -67,8 +72,11 @@ jobs:
           os.chdir("server")
           sys.path.insert(0, ".")
           import main
-          routes = [r.path for r in main.app.routes]
-          assert any(p.startswith("/api/") for p in routes), "API routes missing"
-          assert any(p.startswith("/web/") for p in routes), "Web routes missing"
+          # Enumerate through the OpenAPI schema: recent FastAPI/Starlette keep
+          # included routers wrapped (`_IncludedRouter`), so `app.routes`
+          # entries no longer expose `.path` for every route.
+          paths = list(main.app.openapi()["paths"])
+          assert any(p.startswith("/api/") for p in paths), "API routes missing"
+          assert any(p.startswith("/web/") for p in paths), "Web routes missing"
           assert main.db._pool is None, "pool must be lazy (no DB in CI)"
-          print(f"OK: {len(main.app.routes)} routes registered")
+          print(f"OK: {len(paths)} routes registered")

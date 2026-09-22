@@ -48,7 +48,7 @@ import updater
 
 
 SYNC_SERVER = os.environ.get("HERMES_SYNC_SERVER", "https://www.agentctxsync.com")
-SYNC_API_KEY = os.environ.get("HERMES_SYNC_API_KEY", "hsk_placeholder")
+SYNC_API_KEY = os.environ.get("HERMES_SYNC_API_KEY", "ws_placeholder")
 SYNC_INTERVAL = int(os.environ.get("HERMES_SYNC_INTERVAL", "300"))
 # Background auto-sync (startup pull + periodic sync) can be disabled so the
 # client never competes for the local store locks; manual tool calls still
@@ -1187,7 +1187,7 @@ TOOL_SPECS = [
      {"limit": {"type": "integer", "description": "Max sessions to pull (default: 50; a full pull is uncapped unless set)"},
       "full": {"type": "boolean", "description": "Full pull ignoring the sync watermark (default: false)"}}),
     ("sync_push", "Push local sessions to remote server."),
-    ("sync_full", "Full sync: push local changes then pull remote changes."),
+    ("sync_full", "Full sync: pull remote changes then push local ones (the pull anchors this device's per-field bases first, see docs/ARCHITECTURE.md)."),
     ("project_push", "Push local projects (all profiles) to the remote server."),
     ("project_pull", "Pull remote projects into the local projects.db (applies remaps)."),
 ]
