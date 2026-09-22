@@ -2,6 +2,11 @@
 
 > 服务端 + 客户端发布：`CLIENT_VERSION` 2026.09.21.1 → **2026.09.21.3**（客户端包有改动：
 > `sync_full` 的工具描述与占位 Key 前缀），各端经 `/api/client/manifest` 自动更新；无 schema 变更。
+> 已部署 236（2026-09-21 CST，提交 `8a47dde`）：3 个文件（`client_update.py`、`mcp/server.py`、
+> `mcp/updater.py`），对上次部署提交 `b3064f8` 预检通过、上传后回读一致、`py_compile` 通过，
+> 重启后 active、journal 无 error；线上核对：三个文件与仓库逐字节一致、`/api/client/manifest`
+> 返回 2026.09.21.3 + `update_available=true`、下载包内 `manifest.json` 版本一致且 `mcp/server.py`
+> 的 sha256 与清单相符、包内描述已是"先拉后推"且不再含反过来的旧文案、占位 Key 为 `ws_`（7 项全 PASS）。
 
 ### Fixed
 
