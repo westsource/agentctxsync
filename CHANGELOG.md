@@ -1,6 +1,10 @@
 ## [2026.09.21.2] - 2026-09-21
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.09.21.1），无 schema 变更。
+> 已部署 236（2026-09-21 CST，提交 `bb04de2`）：1 个文件（`templates/register.html`），
+> 对上次部署提交 `dc4de72` 预检通过、上传后回读一致、Jinja 模板编译通过，重启后 active、
+> journal 无 error。线上复测（公网 `/web/register`）：两个密码输入各占整行、同 left、各 400px 宽
+> （`passwordRows=2`），用户名/显示名仍并排（`userRow=1`），`grid grid-cols-2` 只剩用户名那一处。
 
 ### Fixed
 
