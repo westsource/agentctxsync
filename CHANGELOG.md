@@ -8,6 +8,14 @@
 > 而 omp 不会重拉 MCP 进程）。验证：`mcp` 套件 **208 项 OK**；真机冒烟（两个真实 `mcp/server.py`
 > 进程 + 私有锁/租约/日志目录 + 不可达 server，避免触碰本地库）**13/13**：A 选举为主、B 为备且拒绝
 > 同步、杀掉 A 后 B 一个周期内自我提升、新副本立刻让位给活属主，`sync_status` 全程如实回报角色与属主。
+> 已部署 236（2026-10-02 CST，提交 `b07eb4d`）：4 个文件（`client_update.py`、`mcp/server.py`、
+> `mcp/updater.py`、`mcp/auto-sync.py`），对上次部署提交 `b8a55ae` 逐文件 LF 归一化预检通过、上传后
+> 回读 sha256 一致、`py_compile` 通过，重启后 active、journal 无 error、回环 `/health=200`；线上核对
+> 9 项全 PASS：`/api/client/manifest?agent=omp&v=2026.09.21.3` 返回 2026.10.02.1 + `update_available=true`、
+> 包内 `manifest.json` 版本一致且 `mcp/server.py` 的 sha256 与清单相符、包内已含租约代码
+> （`HERMES_SYNC_LEASE_FILE` / `_lease_owner_alive` / `promoted from standby`）且不再含 "standby 终身"
+> 旧文案、含 `OpenProcess` + `WaitForSingleObject` 存活探测、`mcp/updater.py` 为新版本号、
+> `mcp/auto-sync.py` 持锁（`run_once`）。
 
 ### Fixed
 
