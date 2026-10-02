@@ -71,7 +71,7 @@ Agent Context Sync 让 Hermes、DeepSeek Harness、opencode、Reasonix、OpenCla
 
 - **7 个适配器**：Hermes（多档案 `state.db`）、DeepSeek Harness（JSONL/zstd 日志）、opencode（`opencode.db`）、Reasonix（单会话 JSONL）、OpenClaw（网关会话 + transcript）、WorkBuddy（JSONL 事件 + `workbuddy.db`）、Oh My Pi（JSONL）——双向共用同一套 canonical 会话/消息模型（[docs/SUPPORTED_AGENTS.md](docs/SUPPORTED_AGENTS.md)）。
 - **收敛规则**：全池拉取、三元组去重、字段级合并（sidecar）、推送指纹（未变化的会话跳过上传）、水位线 + 完整性修复（本地删掉的会话在服务端仍持有时会补回）、暂停会话处理、外来会话归属路由。
-- **并发**：同一台机器只有一个 `Primary` 副本跑后台同步（启动约 8 秒后拉一次，之后每 `HERMES_SYNC_INTERVAL` 一次），其余副本只应答工具；写工具与后台周期共用同一把跨进程锁。
+- **并发**：同一台机器只有一个 `Primary` 副本跑后台同步（启动约 8 秒后拉一次——若同机已有副本在半个周期内同步成功则跳过，之后每 `HERMES_SYNC_INTERVAL` 一次）；角色写在持久租约里，其余副本只应答工具，且会在属主消失后**自行提升**接管；写工具与后台周期共用同一把跨进程锁。
 - **自动更新**：逐文件 sha256 校验，Agent 重启后生效；更新失败绝不影响同步。
 - 本地 sidecar 与全部环境变量：[docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
 
@@ -142,7 +142,7 @@ export HERMES_SYNC_API_KEY=ws_yourkeyhere
 bash scripts/deploy-local-mcp.sh
 ```
 
-每个 Agent 各自部署一个实例（一个 `HERMES_SYNC_AGENT` 值 + 独立锁文件）；将它们都指向同一 Workspace API Key 即可相互同步。客户端行为：启动约 8 秒后做一次增量拉取（首次配对时自动上传本地数据作为 bootstrap），之后每 300 秒自动同步（`HERMES_SYNC_INTERVAL`）。同一台机器上同一 Agent 客户端有多份副本时（Hermes 按 serve 实例/profile 各拉一份），只有启动抢锁成功的副本（`Primary`）跑后台同步，其余只应答工具（`Standby`——角色与 pid 见 mcp-stderr）。写工具（`sync_full`/`sync_pull`/`sync_push`/`project_push`/`project_pull`）与后台周期共用同一跨进程锁：锁被占用时等待 `HERMES_SYNC_TOOL_LOCK_WAIT_S`（默认 20s）后返回 busy 提示，而非并发写库。
+每个 Agent 各自部署一个实例（一个 `HERMES_SYNC_AGENT` 值 + 独立锁文件）；将它们都指向同一 Workspace API Key 即可相互同步。客户端行为：启动约 8 秒后做一次增量拉取（同机兄弟副本半个周期内刚同步成功则跳过；首次配对时自动上传本地数据作为 bootstrap），之后每 300 秒自动同步（`HERMES_SYNC_INTERVAL`）。同一台机器上同一 Agent 客户端有多份副本时（Hermes 按 serve 实例/profile 各拉一份），由持久租约（`hermes-sync-<agent>.primary.json`：属主 pid + 心跳 + 上次成功同步）裁定谁（`Primary`）跑后台同步，其余只应答工具（`Standby`——角色与 pid 同时写 mcp-stderr、落盘日志与 `sync_status`），并且**每周期**复查租约、属主消失即自我提升。写工具（`sync_full`/`sync_pull`/`sync_push`/`project_push`/`project_pull`）与后台周期共用同一跨进程锁：锁被占用时等待 `HERMES_SYNC_TOOL_LOCK_WAIT_S`（默认 20s）后返回 busy 提示，而非并发写库。
 
 ## 同步工具
 

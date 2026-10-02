@@ -1,3 +1,62 @@
+## [2026.10.02.1] - 2026-10-02
+
+> 纯客户端发布：`CLIENT_VERSION` 2026.09.21.3 → **2026.10.02.1**（`mcp/server.py`、`mcp/updater.py`、
+> `server/client_update.py`），各端经 `/api/client/manifest` 自动更新；无服务端 schema / API / Web 变更。
+> 触发场景：同一台机器开多个 omp 窗口，每个窗口各 spawn 一个 MCP 客户端副本；实测只有一份在跑后台
+> 同步（周期完成通知 13:07:32 / 13:13:07 与 sidecar 写入 13:13:00–07 同源），但角色由"启动抢锁"
+> 一次性决定——**关掉拥有后台循环的那个窗口后，其余窗口的后台同步会静默停摆**（输家终身 standby，
+> 而 omp 不会重拉 MCP 进程）。验证：`mcp` 套件 **208 项 OK**；真机冒烟（两个真实 `mcp/server.py`
+> 进程 + 私有锁/租约/日志目录 + 不可达 server，避免触碰本地库）**13/13**：A 选举为主、B 为备且拒绝
+> 同步、杀掉 A 后 B 一个周期内自我提升、新副本立刻让位给活属主，`sync_status` 全程如实回报角色与属主。
+
+### Fixed
+
+- **主/备角色改为持久租约，备副本会自我提升**（`mcp/server.py`）：租约
+  `hermes-sync-<agent>.primary.json` = `{pid, host, started_at, heartbeat, last_sync_ok,
+  last_sync_error, role_reason, client_version}`，`tmp + os.replace` 原子写、属主每周期刷新心跳；
+  启动时属主仍活着就做备（同时启动仍由 O_EXCL 锁选出唯一主），备**每周期**复查租约并在属主失联时
+  接管并继续跑后台循环。「属主失联」= 心跳已过一个完整 `HERMES_SYNC_INTERVAL` **且** pid 探测说死，
+  或心跳超过 `HERMES_SYNC_LEASE_STALE_S`（默认 `INTERVAL+120`，兼作 pid 复用兜底）；心跳优先是为了
+  让 Windows 上偶发的"活进程探测为死"不能造出第二个主，代价是失联后最多晚一个周期接管（与同步间隔
+  同量级，远好于永久停摆）。原实现"锁每周期释放 ⇒ 后启动的副本总能赢下已释放的锁并自认主"也让
+  每次开窗口都重复一次启动全量同步，一并消除。
+- **Windows 判活改用 `OpenProcess(SYNCHRONIZE|QUERY_LIMITED_INFORMATION)` + 零超时
+  `WaitForSingleObject`**：`os.kill(pid, 0)` 实测三种失真——对部分活进程抛 `OSError WinError 87`
+  （被当成死的 ⇒ `_try_acquire_lock` 会窃取**活写者**的锁）、对刚退出但仍被父进程持有句柄的进程
+  返回成功、对 `pid 4` 抛 `SystemError`（不是 `OSError`，原 `except (OSError, ProcessLookupError)`
+  接不住，启动任务直接崩、角色卡在 `starting`：冒烟时真实复现）。不可判定（如 `ACCESS_DENIED`）按
+  **活**处理（保守），POSIX 分支仍走 `os.kill`。
+- **`mcp/auto-sync.py`（OpenClaw 常驻同步）现在真的持锁了**：文档一直写"与 MCP server 共用
+  同一把锁，绝不并发"，但循环体从未取锁——同一台机器上它会与 MCP server 的后台周期并发写库。
+  抽出一轮为 `run_once()`：取同一把跨进程锁，拿不到就跳过本轮（下一 tick 重试），并把文档改成
+  与实现一致。这条对 OpenClaw 之外的 agent 无影响，但正是"多进程写同一个 store"清单里的一项。
+- **stderr 以 UTF-8 字节写出**：宿主（含 MCP SDK 自身的 stdio 客户端）按 UTF-8 读我们的 stderr，
+  中文 locale 下 GBK 编码的库错误信息会让对方 reader 线程抛 `UnicodeDecodeError`（冒烟时实测）。
+
+### Added
+
+- **启动同步新鲜度**：`last_sync_ok` 记在租约里（同机多窗口共享），距上次成功不足 `INTERVAL/2`
+  时跳过启动拉取（同机另一个窗口刚同步过，重复拉全库是纯浪费）；手动 `sync_full/pull/push` 成功后
+  同样刷新，使紧随其后的新窗口不再重复同步。
+- **实例状态可查（`sync_status`）**：新增 `instance` 段——`pid`、`role`、`background_sync`、`host`、
+  `client_version`、`sync_interval_s`、`lock_file`/`lock_holder_pid`、`lease_file`/`lease_owner_pid`/
+  `lease_owner_alive`/`lease`、`log_file`；"谁在同步、有没有重复"不必再靠猜。
+- **落盘日志**：`hermes-sync-<agent>.log`（与锁同目录，单代轮转为 `.log.1`，`HERMES_SYNC_LOG_MAX_BYTES`
+  默认 512 KiB）——宿主通常丢弃 MCP stderr，13:03:04 那次客户端进程崩溃因此没留下任何可查线索。
+- 新环境变量：`HERMES_SYNC_LEASE_FILE`、`HERMES_SYNC_LEASE_STALE_S`、`HERMES_SYNC_STARTUP_DELAY_S`、
+  `HERMES_SYNC_LOG_FILE`、`HERMES_SYNC_LOG_MAX_BYTES`（见 docs/CONFIGURATION.md）。
+
+### Changed
+
+- 文档：ARCHITECTURE「单写者锁 / 存活探测 / 主备角色（持久租约）/ 启动同步新鲜度 / 角色可观测」
+  重写；CONFIGURATION 环境变量表 + 协调文件（锁/租约/日志）落点说明；README（中英）并发条目与
+  客户端行为段；OPERATIONS 两条排障条目（standby 终身失效、没有 stderr 可查）按新行为校正。
+- 测试 194 → **208**（`mcp/tests/test_mcp_server.py`）：新增租约读写与属主存活判定（死 pid、
+  心跳过期、心跳压过负向探测）、备副本按周期延后与自我提升、启动选举/让位、启动新鲜度跳过与执行、
+  手动同步刷新新鲜度、`sync_status` 实例段、日志落盘与轮转、`auto-sync.py` 单轮持锁与忙时跳过；
+  删除把旧行为钉死的 `test_periodic_sync_standby_returns_immediately`。测试套件不再写开发机
+  真实的 LOG_FILE/LEASE_FILE。
+
 ## [2026.09.21.3] - 2026-09-21
 
 > 服务端 + 客户端发布：`CLIENT_VERSION` 2026.09.21.1 → **2026.09.21.3**（客户端包有改动：

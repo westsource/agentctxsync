@@ -39,6 +39,11 @@ When SMTP is not configured the whole email feature is dormant: registration and
 | `HERMES_SYNC_TOOL_LOCK_WAIT_S` | `20` | Seconds a mutating sync tool waits for the cross-process sync lock before returning a "busy" hint (lock shared with the background cycle and across client copies) |
 | `HERMES_SYNC_LOCK_FILE` | derived per agent | Override the sync lock file path (useful when several agents share one machine) |
 | `HERMES_SYNC_UPDATE_LOCK_FILE` | derived per agent | Override the auto-update lock file path |
+| `HERMES_SYNC_LEASE_FILE` | derived per agent | Override the background-sync **lease** path (`<lock>.primary.json`) — the file naming the copy that owns the background loops |
+| `HERMES_SYNC_LEASE_STALE_S` | `INTERVAL + 120` | A heartbeat older than this counts as ownerless (and bounds PID reuse). A live owner that missed a whole `HERMES_SYNC_INTERVAL` also stops counting as alive, so a standby takes over |
+| `HERMES_SYNC_STARTUP_DELAY_S` | `8` | Delay before the first background sync / role election, so the host's startup read burst finishes first |
+| `HERMES_SYNC_LOG_FILE` | derived per agent | Server-side log file (the host usually drops MCP stderr) |
+| `HERMES_SYNC_LOG_MAX_BYTES` | `524288` | Rotate `HERMES_SYNC_LOG_FILE` into one backup (`.1`) once it exceeds this |
 
 ## Server vs client address priority
 
@@ -56,3 +61,5 @@ Sidecars live next to the agent's store (each agent-scoped file is prefixed with
 | `.{agent}-sync-foreign.json` | Owner registry for sessions pulled from other agents (keeps their `agent_type` on re-push) |
 | `.{agent}-projects-field-meta.json` | Same as the field sidecar, for the project store |
 | `.hermes-sync-version` (in `mcp/`) | Installed client version, written by the updater |
+
+The coordination files live in `%LOCALAPPDATA%\hermes` (`$LOCALAPPDATA/hermes`), *not* next to the store, because they are per-machine rather than per-store. One name stem per agent (`hermes-sync` for hermes, `hermes-sync-<agent>` otherwise) yields `<stem>.lock` (per-cycle sync lock), `<stem>.primary.json` (background-sync lease: owner `pid`, heartbeat, `last_sync_ok`), `<stem>-update.lock` and `<stem>.log` (rotated into `.log.1`). `sync_status` reports those paths plus this copy's role, so "which copy is syncing, and is anything duplicated?" is answerable from the agent itself.

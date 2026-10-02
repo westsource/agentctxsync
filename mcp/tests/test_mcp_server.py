@@ -6,10 +6,12 @@ full sync (a full resync pulls/pushes every session on the server).
 """
 
 import asyncio
+import importlib.util
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock as mock
 from pathlib import Path
@@ -17,6 +19,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server  # noqa: E402
+
+# Keep the suite off the developer's real per-agent state files: log() now
+# appends to LOG_FILE and the background loops touch LEASE_FILE, so a test that
+# forgets to patch them would pollute ~/AppData/Local/hermes.
+_STATE_DIR = tempfile.TemporaryDirectory()
+server.LOG_FILE = Path(_STATE_DIR.name) / "test-sync.log"
+server.LEASE_FILE = Path(_STATE_DIR.name) / "test-sync.primary.json"
+
+
+async def _noop_notify(message: str, level: str = "info"):
+    """_notify_host stub: the real one waits up to 30s for a host session."""
+    return None
 
 
 def mk(n_msgs: int) -> dict:
@@ -713,17 +727,26 @@ class SyncLockAndRoleTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         lock = Path(self.tmp.name) / "hermes-sync.lock"
-        self._orig = (server.LOCK_FILE, server.TOOL_LOCK_WAIT_S,
-                      server.TOOL_LOCK_POLL_S, server._role,
-                      server.AUTO_SYNC)
+        self._orig = (server.LOCK_FILE, server.LEASE_FILE, server.LOG_FILE,
+                      server.LOG_MAX_BYTES, server.SYNC_INTERVAL,
+                      server.STARTUP_DELAY_S, server.LEASE_STALE_S,
+                      server.TOOL_LOCK_WAIT_S, server.TOOL_LOCK_POLL_S,
+                      server._role, server.AUTO_SYNC)
         server.LOCK_FILE = lock
+        server.LEASE_FILE = Path(self.tmp.name) / "hermes-sync.primary.json"
+        server.LOG_FILE = Path(self.tmp.name) / "hermes-sync.log"
+        server.SYNC_INTERVAL = 300
+        server.STARTUP_DELAY_S = 0
+        server.LEASE_STALE_S = 420
         server.TOOL_LOCK_WAIT_S = 0.3
         server.TOOL_LOCK_POLL_S = 0.02
         server._role = "starting"
         server.AUTO_SYNC = True
 
     def tearDown(self):
-        (server.LOCK_FILE, server.TOOL_LOCK_WAIT_S, server.TOOL_LOCK_POLL_S,
+        (server.LOCK_FILE, server.LEASE_FILE, server.LOG_FILE,
+         server.LOG_MAX_BYTES, server.SYNC_INTERVAL, server.STARTUP_DELAY_S,
+         server.LEASE_STALE_S, server.TOOL_LOCK_WAIT_S, server.TOOL_LOCK_POLL_S,
          server._role, server.AUTO_SYNC) = self._orig
 
     @staticmethod
@@ -785,10 +808,211 @@ class SyncLockAndRoleTest(unittest.TestCase):
 
         self.assertEqual(self._run(go()), {"done": 2})
 
-    def test_periodic_sync_standby_returns_immediately(self):
+    def _run_loop_briefly(self, coro, predicate=None, timeout=0.15):
+        """Drive a background loop until ``predicate`` holds (or ``timeout``
+        elapses), then cancel it and wait for the cancellation to land — so no
+        cycle is still touching a patched module global after the test."""
+        async def go():
+            task = asyncio.ensure_future(coro)
+            deadline = asyncio.get_event_loop().time() + timeout
+            while asyncio.get_event_loop().time() < deadline:
+                if predicate is not None and predicate():
+                    break
+                await asyncio.sleep(0.005)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._run(go())
+
+    # --- background-sync lease: durable role + failover --------------------
+
+    def test_lease_claim_records_this_process(self):
+        server._claim_lease("test")
+        lease = server._read_lease()
+        self.assertEqual(lease["pid"], os.getpid())
+        self.assertEqual(lease["role_reason"], "test")
+        alive, _ = server._lease_owner_alive()
+        self.assertTrue(alive)
+        # We ARE the owner; there is no other copy to yield to.
+        self.assertIsNone(server._owner_pid_or_none())
+
+    def test_dead_lease_owner_leaves_the_role_free(self):
+        # Heartbeat past one interval, so the pid probe is the deciding signal.
+        server._lease_write({"pid": 424242,
+                             "heartbeat": time.time() - server.SYNC_INTERVAL - 1})
+        with mock.patch.object(server, "_pid_alive", return_value=False):
+            alive, lease = server._lease_owner_alive()
+            self.assertFalse(alive)
+            self.assertEqual(lease["pid"], 424242)
+            self.assertIsNone(server._owner_pid_or_none())
+        with mock.patch.object(server, "_pid_alive", return_value=True):
+            self.assertEqual(server._owner_pid_or_none(), 424242)
+
+    def test_fresh_heartbeat_outvotes_a_negative_probe(self):
+        # Windows answers OpenProcess negatively for some LIVE pids, which
+        # reads exactly like a dead owner; a heartbeat written within half an
+        # interval must win, or two copies would both call themselves primary.
+        server._lease_write({"pid": 424242, "heartbeat": time.time()})
+        with mock.patch.object(server, "_pid_alive", return_value=False):
+            alive, _ = server._lease_owner_alive()
+            self.assertTrue(alive)
+            self.assertEqual(server._owner_pid_or_none(), 424242)
+
+    def test_stale_lease_heartbeat_leaves_the_role_free(self):
+        # A live pid is not enough: Windows keeps a dead process answering
+        # liveness probes while another process holds its handle, and pids are
+        # reused — the heartbeat is the fallback that cannot lie.
+        server._lease_write({"pid": 424242,
+                             "heartbeat": time.time() - server.LEASE_STALE_S - 1})
+        with mock.patch.object(server, "_pid_alive", return_value=True):
+            alive, _ = server._lease_owner_alive()
+            self.assertFalse(alive)
+            self.assertIsNone(server._owner_pid_or_none())
+
+    def test_standby_defers_while_owner_alive(self):
+        server.SYNC_INTERVAL = 0.01
+        server._lease_write({"pid": 424242, "heartbeat": time.time()})
         server._role = "standby"
-        # would loop forever as primary; standby must return at once
-        self._run(server.periodic_sync())
+        synced = []
+        with mock.patch.object(server, "log", lambda *a, **k: None), \
+                mock.patch.object(server, "_pid_alive", return_value=True), \
+                mock.patch.object(server, "full_sync",
+                                  side_effect=lambda: synced.append(1) or {}), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            self._run_loop_briefly(server.periodic_sync(), timeout=0.1)
+        self.assertEqual(synced, [])
+        self.assertEqual(server._role, "standby")
+        # A standby must not claim the live owner's lease.
+        self.assertEqual(server._read_lease()["pid"], 424242)
+
+    def test_standby_promotes_when_owner_is_gone(self):
+        """The whole point of the lease: the surviving window keeps syncing."""
+        server.SYNC_INTERVAL = 0.05
+        server._lease_write({"pid": 424242, "heartbeat": time.time() - 1})
+        server._role = "standby"
+        roles = []
+        with mock.patch.object(server, "log", lambda *a, **k: None), \
+                mock.patch.object(server, "_pid_alive", return_value=False), \
+                mock.patch.object(server, "full_sync",
+                                  side_effect=lambda: roles.append(server._role) or
+                                  {"pull": {}, "push": {}}), \
+                mock.patch.object(server, "adapter",
+                                  mock.Mock(supports_projects=False)), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            self._run_loop_briefly(
+                server.periodic_sync(),
+                predicate=lambda: (server._read_lease() or {}).get(
+                    "last_sync_ok") is not None)
+        self.assertTrue(roles, "the standby never ran a cycle")
+        self.assertEqual(set(roles), {"primary"})
+        lease = server._read_lease()
+        self.assertEqual(lease["pid"], os.getpid())
+        self.assertIn("promoted", lease["role_reason"])
+        self.assertIsNone(server._lock_holder_pid())      # cycle released it
+
+    def test_standby_startup_yields_to_live_owner(self):
+        server._lease_write({"pid": 424242, "heartbeat": time.time()})
+        with mock.patch.object(server, "_pid_alive", return_value=True), \
+                mock.patch.object(server, "pull_sessions",
+                                  side_effect=AssertionError("must not sync")):
+            self._run(server.background_startup_sync())
+        self.assertEqual(server._role, "standby")
+        self.assertIsNone(server._lock_holder_pid())
+        self.assertEqual(server._read_lease()["pid"], 424242)
+
+    def test_standby_startup_elects_when_owner_is_gone(self):
+        with mock.patch.object(server, "_pid_alive", return_value=False), \
+                mock.patch.object(server, "pull_sessions",
+                                  side_effect=lambda *a, **k: {"imported": 0}), \
+                mock.patch.object(server, "push_sessions",
+                                  side_effect=lambda *a, **k: {"imported": 0,
+                                                               "updated": 0}), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            self._run(server.background_startup_sync())
+        self.assertEqual(server._role, "primary")
+        lease = server._read_lease()
+        self.assertEqual(lease["pid"], os.getpid())
+        self.assertIsInstance(lease["last_sync_ok"], float)
+        self.assertIsNone(server._lock_holder_pid())
+
+    # --- startup sync freshness (duplicate-work guard) ---------------------
+
+    def test_startup_sync_skipped_within_freshness_window(self):
+        # The owner died right after a successful sync: its heartbeat is past
+        # one interval (so the role is free) but last_sync_ok is fresh.
+        server._lease_write({"pid": 424242,
+                             "heartbeat": time.time() - server.SYNC_INTERVAL - 1,
+                             "last_sync_ok": time.time()})
+        calls = []
+        with mock.patch.object(server, "_pid_alive", return_value=False), \
+                mock.patch.object(server, "pull_sessions",
+                                  side_effect=lambda *a, **k: calls.append("pull")), \
+                mock.patch.object(server, "push_sessions",
+                                  side_effect=lambda *a, **k: calls.append("push")), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            self._run(server.background_startup_sync())
+        self.assertEqual(calls, [])
+        self.assertEqual(server._role, "primary")   # still takes the loops over
+
+    def test_startup_sync_runs_when_last_success_is_stale(self):
+        stale = time.time() - server.SYNC_INTERVAL
+        server._lease_write({"pid": 424242, "heartbeat": stale,
+                             "last_sync_ok": stale})
+        calls = []
+        with mock.patch.object(server, "_pid_alive", return_value=False), \
+                mock.patch.object(server, "pull_sessions",
+                                  side_effect=lambda *a, **k: calls.append("pull") or
+                                  {"imported": 0}), \
+                mock.patch.object(server, "push_sessions",
+                                  side_effect=lambda *a, **k: calls.append("push") or
+                                  {"imported": 0, "updated": 0}), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            self._run(server.background_startup_sync())
+        self.assertEqual(calls, ["pull", "push"])
+        self.assertGreater(server._read_lease()["last_sync_ok"], stale)
+
+    def test_manual_sync_stamps_the_shared_freshness(self):
+        with mock.patch.object(server, "adapter", mock.Mock(agent_type="omp")), \
+                mock.patch.object(server, "push_sessions",
+                                  return_value={"imported": 1}), \
+                mock.patch.object(server, "_notify_host", new=_noop_notify):
+            out = json.loads(self._run(server._dispatch_tool("sync_push", {})))
+        self.assertEqual(out, {"imported": 1})
+        self.assertIsInstance(server._read_lease()["last_sync_ok"], float)
+
+    def test_sync_status_reports_instance_and_lease(self):
+        server._lease_write({"pid": 424242, "heartbeat": time.time()})
+        server._role = "standby"
+        fake_adapter = mock.Mock(agent_type="omp",
+                                 status=lambda: {"sessions": 3})
+        with mock.patch.object(server, "adapter", fake_adapter), \
+                mock.patch.object(server, "_pid_alive", return_value=True), \
+                mock.patch.object(server, "api_call", return_value={"ok": True}):
+            out = json.loads(self._run(server._dispatch_tool("sync_status", {})))
+        inst = out["instance"]
+        self.assertEqual(inst["pid"], os.getpid())
+        self.assertEqual(inst["role"], "standby")
+        self.assertEqual(inst["lease_owner_pid"], 424242)
+        self.assertTrue(inst["lease_owner_alive"])
+        self.assertEqual(inst["lock_file"], str(server.LOCK_FILE))
+        self.assertEqual(out["local"], {"sessions": 3})
+
+    # --- on-disk log -------------------------------------------------------
+
+    def test_log_appends_with_timestamp_and_rotates(self):
+        server.LOG_MAX_BYTES = 10
+        server.log("first line")
+        server.log("second line")
+        rotated = server.LOG_FILE.with_name(server.LOG_FILE.name + ".1")
+        self.assertTrue(rotated.exists())
+        self.assertIn("first line", rotated.read_text(encoding="utf-8"))
+        body = server.LOG_FILE.read_text(encoding="utf-8")
+        self.assertIn("second line", body)
+        self.assertRegex(
+            body, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} \[hermes-sync\]")
 
     def test_periodic_sync_disabled_flag_returns_immediately(self):
         server.AUTO_SYNC = False
@@ -868,6 +1092,50 @@ class PushIsolationTest(unittest.TestCase):
                                  {"sessions": [{"b": bytes(4)}]})
         self.assertIn("error", result)
         self.assertIn("bytes", str(result["error"]))
+
+
+class OpenClawAutoSyncLockTest(unittest.TestCase):
+    """mcp/auto-sync.py is a second writer of the same local store (OpenClaw's
+    dedicated daemon): its cycle must take the cross-process lock the MCP
+    server's background cycle and manual tool calls share, or the two can
+    write the store concurrently."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
+        spec = importlib.util.spec_from_file_location(
+            "auto_sync_under_test",
+            Path(__file__).resolve().parents[1] / "auto-sync.py")
+        cls.mod = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(os.environ, {"HERMES_SYNC_API_KEY": "ws_test"}):
+            spec.loader.exec_module(cls.mod)
+
+    def setUp(self):
+        self._orig_lock = server.LOCK_FILE
+        server.LOCK_FILE = Path(self.tmp.name) / "auto-sync.lock"
+        server.LOCK_FILE.unlink(missing_ok=True)
+        self.addCleanup(self._restore_lock)
+
+    def _restore_lock(self):
+        server.LOCK_FILE = self._orig_lock
+
+    def test_cycle_runs_under_the_shared_lock(self):
+        with mock.patch.object(server, "full_sync",
+                               return_value={"pull": {}, "push": {}}) as full:
+            out = self.mod.run_once()
+        self.assertEqual(out, {"pull": {}, "push": {}})
+        full.assert_called_once()
+        self.assertIsNone(server._lock_holder_pid())     # released again
+
+    def test_busy_cycle_is_skipped_instead_of_writing(self):
+        server.LOCK_FILE.write_text(str(os.getppid()))
+        with mock.patch.object(server, "full_sync",
+                               side_effect=AssertionError("must not write")) as full:
+            out = self.mod.run_once()
+        self.assertIn("skipped", out)
+        full.assert_not_called()
+        self.assertEqual(server._lock_holder_pid(), os.getppid())
 
 
 if __name__ == "__main__":

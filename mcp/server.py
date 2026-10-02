@@ -92,13 +92,88 @@ LOCK_FILE = Path(os.environ.get(
 UPDATE_LOCK_FILE = Path(os.environ.get(
     "HERMES_SYNC_UPDATE_LOCK_FILE",
     str(Path.home() / "AppData/Local/hermes" / (_lock_name + "-update.lock"))))
+# Durable lease naming the process that OWNS the background sync loops. The
+# per-cycle lockfile above is released between cycles, so it cannot decide a
+# role: a copy starting later would win the freed lock and call itself primary
+# too (duplicate startup syncs), while a copy that lost a simultaneous race
+# stayed standby for its whole life -- closing the window that owned the loops
+# silently stopped background sync for every surviving window. The lease
+# carries the owner pid + a heartbeat; a standby re-checks it every cycle and
+# promotes itself once the owner is gone.
+LEASE_FILE = Path(os.environ.get(
+    "HERMES_SYNC_LEASE_FILE",
+    str(Path.home() / "AppData/Local/hermes" / (_lock_name + ".primary.json"))))
+# Hard bound on trusting a lease: past this the role is free even if the pid
+# still answers, which is what covers pid reuse (a reused pid answers "alive"
+# forever). Between one SYNC_INTERVAL and this bound the pid probe decides --
+# see _lease_owner_alive.
+LEASE_STALE_S = float(os.environ.get(
+    "HERMES_SYNC_LEASE_STALE_S", str(SYNC_INTERVAL + 120)))
+# Delay the first background sync after startup so the host agent's own
+# startup/read burst (e.g. Hermes session.resume) is over before we take
+# SQLite locks.
+STARTUP_DELAY_S = float(os.environ.get("HERMES_SYNC_STARTUP_DELAY_S", "8"))
+# Server-side log file. The host owns our stderr and commonly drops it (omp
+# keeps no MCP stderr anywhere), which left crashes -- e.g. the "MCP transport
+# lost" seen in the field -- with no readable trace.
+LOG_FILE = Path(os.environ.get(
+    "HERMES_SYNC_LOG_FILE",
+    str(Path.home() / "AppData/Local/hermes" / (_lock_name + ".log"))))
+LOG_MAX_BYTES = int(os.environ.get("HERMES_SYNC_LOG_MAX_BYTES",
+                                   str(512 * 1024)))
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
+if sys.platform == "win32":
+    # Windows liveness probe. os.kill(pid, 0) is NOT usable for this: it raises
+    # SystemError for some pids, reports a live process as dead when
+    # OpenProcess(PROCESS_ALL_ACCESS) is refused (WinError 87, seen in the
+    # field on sibling MCP-server processes), and reports a just-exited process
+    # as alive while its parent still holds the handle. OpenProcess + a
+    # zero-timeout wait on the process handle is what tasklist/psutil do and
+    # answers all three correctly. An inconclusive probe (access denied)
+    # returns True -- assuming alive: stealing a live writer's lock, or
+    # promoting a second primary, is worse than waiting, and the lease
+    # heartbeat bounds how long a false "alive" can hold a role.
+    import ctypes
+    from ctypes import wintypes
+
+    _SYNCHRONIZE = 0x00100000
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    _WAIT_TIMEOUT = 258
+    _ERROR_INVALID_PARAMETER = 87
+    _ERROR_NOT_FOUND = 1168
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL,
+                                      wintypes.DWORD]
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    _kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+
+    def _pid_alive(pid: int) -> bool:
+        if not isinstance(pid, int) or pid <= 0:
+            return False
+        handle = _kernel32.OpenProcess(
+            _SYNCHRONIZE | _PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return ctypes.get_last_error() not in (_ERROR_INVALID_PARAMETER,
+                                                   _ERROR_NOT_FOUND)
+        try:
+            return _kernel32.WaitForSingleObject(handle, 0) == _WAIT_TIMEOUT
+        finally:
+            _kernel32.CloseHandle(handle)
+else:
+    def _pid_alive(pid: int) -> bool:
+        if not isinstance(pid, int) or pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+        except Exception:
+            # Inconclusive probe: assume alive (see the Windows note above).
+            return True
 
 def _try_acquire_lock(lock_path: Path | None = None) -> bool:
     """Create the lockfile atomically (O_EXCL). Steal it if the previous
@@ -132,18 +207,21 @@ def _release_lock(lock_path: Path | None = None):
 # ---------------------------------------------------------------------------
 # Instance role + tool-call locking
 #
-# Hermes spawns one copy of this MCP server per serve instance / profile /
-# host. The lockfile above already serializes BACKGROUND sync between the
-# copies (one winner per cycle). These helpers extend the same lock to
-# EXPLICIT tool calls (previously unguarded, so two copies could mutate the
-# store at once) and make each copy's role visible in mcp-stderr so ops can
-# tell which process is doing the work.
+# Hermes/omp spawn one copy of this MCP server per host window, and every copy
+# can mutate the same local store. The lockfile above serializes one CYCLE at
+# a time; the lease below makes the role (which copy runs the background loops
+# at all) durable across cycles, so a widow — the only surviving window — keeps
+# syncing after the owner's window closes instead of silently stopping. The
+# same lock is extended to EXPLICIT tool calls (previously unguarded, so two
+# copies could mutate the store at once), and each copy's role is visible in
+# mcp-stderr plus the on-disk log so ops can tell which process does the work.
 # ---------------------------------------------------------------------------
 
-#: Runtime role of THIS copy. "primary" = won the startup lock and runs the
-#: background sync loops; "standby" = another copy runs them (tools still
-#: served, so a standby must not exit). Never persisted: every process start
-#: re-runs the startup race.
+#: Runtime role of THIS copy. "primary" = owns the background sync loops
+#: (holds the lease); "standby" = another live copy owns them (tools still
+#: served, so a standby must not exit); "starting" = the startup task has not
+#: decided yet. Re-read every cycle: a standby promotes itself when the lease
+#: owner disappears.
 _role = "starting"
 
 #: How long a mutating tool call waits for the cross-process sync lock before
@@ -160,6 +238,130 @@ def _lock_holder_pid(lock_path: Path | None = None) -> int | None:
         return int(lock_path.read_text().strip())
     except Exception:
         return None
+
+
+# --- background-sync lease -------------------------------------------------
+# {pid, host, started_at, heartbeat, last_sync_ok, last_sync_error,
+#  role_reason, client_version}. Written atomically (tmp + os.replace) by the
+# owner at election and refreshed every cycle; read by everyone. Concurrent
+# writers are possible (a standby stamping last_sync_ok while the owner
+# refreshes its heartbeat) and harmless: last writer wins, and every field is
+# a monotone timestamp or a liveness hint, so a lost heartbeat cannot change a
+# role -- the owner writes it again at the start of its next cycle.
+
+def _read_lease() -> dict | None:
+    """Parsed lease, or None when absent/unreadable/malformed."""
+    try:
+        lease = json.loads(LEASE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return lease if isinstance(lease, dict) else None
+
+
+def _lease_write(fields: dict) -> None:
+    """Merge ``fields`` into the lease file atomically."""
+    lease = _read_lease() or {}
+    lease.update(fields)
+    tmp = LEASE_FILE.with_name(LEASE_FILE.name + ".tmp")
+    try:
+        LEASE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(lease, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, LEASE_FILE)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _lease_owner_alive() -> tuple[bool, dict | None]:
+    """(owner_is_alive, lease).
+
+    The heartbeat is the primary signal and the pid probe only a cross-check:
+    a probe NEGATIVE can be a false alarm (Windows refuses OpenProcess for some
+    live pids, which reads exactly like a dead one), while the heartbeat is
+    written by the owner itself. A lease therefore only counts as ownerless
+    once the owner has missed a full cycle (``SYNC_INTERVAL``) AND its pid no
+    longer answers -- or once the heartbeat is stale past ``LEASE_STALE_S``,
+    which is also the bound for pid reuse (a reused pid answers positively
+    forever)."""
+    lease = _read_lease()
+    if not lease:
+        return False, None
+    pid = lease.get("pid")
+    if not isinstance(pid, int):
+        return False, lease
+    if pid == os.getpid():
+        return True, lease
+    heartbeat = lease.get("heartbeat")
+    age = (time.time() - heartbeat) if isinstance(heartbeat, (int, float)) \
+        else None
+    if age is not None and age < SYNC_INTERVAL:
+        return True, lease          # cycled recently: the probe cannot outvote
+    if age is None or age >= LEASE_STALE_S:
+        return False, lease         # missed a cycle plus slack, or no clock
+    return _pid_alive(pid), lease
+
+
+def _owner_pid_or_none() -> int | None:
+    """pid of the LIVE other copy that owns background sync, else None."""
+    alive, lease = _lease_owner_alive()
+    pid = (lease or {}).get("pid")
+    if alive and isinstance(pid, int) and pid != os.getpid():
+        return pid
+    return None
+
+
+def _claim_lease(reason: str) -> None:
+    """Record THIS process as the background-sync owner. The caller must hold
+    the per-cycle lock, so simultaneous starts still elect exactly one owner;
+    existing fields (e.g. last_sync_ok) are preserved for the freshness test."""
+    now = time.time()
+    _lease_write({"pid": os.getpid(), "host": DEVICE_ID, "started_at": now,
+                  "heartbeat": now, "role_reason": reason,
+                  "client_version": CLIENT_VERSION})
+
+
+def _stamp_sync_ok(fields: dict | None = None) -> None:
+    """Refresh the lease heartbeat, and last_sync_ok on a clean cycle.
+
+    Never touches pid: a standby running a manual tool call may stamp the
+    freshness it achieved, but it must not claim ownership."""
+    payload = {"heartbeat": time.time()}
+    if fields:
+        payload.update(fields)
+    _lease_write(payload)
+
+
+def _stamp_after_tool(result) -> None:
+    """A successful manual sync is a real sync: stamp it so a window starting
+    right after it can skip its (now redundant) startup sync."""
+    if isinstance(result, dict) and "error" not in result:
+        _stamp_sync_ok({"last_sync_ok": time.time(), "last_sync_error": None})
+
+
+def instance_status() -> dict:
+    """This copy's role plus the shared lock/lease state.
+
+    Surfaced through sync_status so "who is syncing, and is anything running
+    twice?" is answerable from the agent without reading stderr -- which the
+    host owns and normally drops."""
+    alive, lease = _lease_owner_alive()
+    return {
+        "pid": os.getpid(),
+        "role": _role,
+        "background_sync": "disabled" if not AUTO_SYNC else _role,
+        "host": DEVICE_ID,
+        "client_version": CLIENT_VERSION,
+        "sync_interval_s": SYNC_INTERVAL,
+        "lock_file": str(LOCK_FILE),
+        "lock_holder_pid": _lock_holder_pid(),
+        "lease_file": str(LEASE_FILE),
+        "lease_owner_pid": (lease or {}).get("pid"),
+        "lease_owner_alive": alive,
+        "lease": lease,
+        "log_file": str(LOG_FILE),
+    }
 
 
 async def _acquire_tool_lock() -> bool:
@@ -286,9 +488,50 @@ async def _notify_host(message: str, level: str = "info"):
     except Exception:
         pass
 
+def _rotate_log() -> None:
+    """Single-generation rotation: <agent>.log -> <agent>.log.1 once the file
+    outgrows LOG_MAX_BYTES. Best-effort: a failed rotation (Windows replace
+    against a file another copy is appending to) only keeps growing the
+    current file."""
+    if not LOG_FILE.name:       # HERMES_SYNC_LOG_FILE="" disables the file copy
+        return
+    try:
+        if LOG_FILE.stat().st_size <= LOG_MAX_BYTES:
+            return
+    except OSError:
+        return
+    try:
+        os.replace(LOG_FILE, LOG_FILE.with_name(LOG_FILE.name + ".1"))
+    except OSError:
+        pass
+
 def log(msg):
-    sys.stderr.write(f"[hermes-sync] {msg}\n")
-    sys.stderr.flush()
+    line = f"[hermes-sync] {msg}"
+    # utf-8 on purpose: MCP hosts read our stderr with a utf-8 reader (the
+    # SDK's own stdio client does), while a Chinese Windows locale would encode
+    # an embedded urllib/sqlite error message as GBK and break that reader.
+    buffer = getattr(sys.stderr, "buffer", None)
+    try:
+        if buffer is not None:
+            buffer.write((line + "\n").encode("utf-8", "replace"))
+        else:
+            sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+    except (OSError, ValueError):
+        pass
+    # Same lines on disk: the host owns stderr and usually drops it, so a
+    # crash (role election, transport loss, sync failure) would otherwise
+    # leave no trace anywhere.
+    try:
+        if not LOG_FILE.name:   # HERMES_SYNC_LOG_FILE="" disables the file copy
+            return
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log()
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(f"{stamp} {line}\n")
+    except OSError:
+        pass
 
 def api_call(method, path, data=None):
     url = f"{SYNC_SERVER}{path}"
@@ -1212,7 +1455,8 @@ async def _dispatch_tool(name: str, arguments: dict) -> str:
     if base == "sync_status":
         local = adapter.status()
         remote = api_call("GET", f"/status/{DEVICE_ID}")
-        result = {"agent": adapter.agent_type, "local": local, "remote": remote}
+        result = {"agent": adapter.agent_type, "instance": instance_status(),
+                  "local": local, "remote": remote}
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_pull":
         # A FULL pull means "everything": the default limit=50 would
@@ -1225,12 +1469,15 @@ async def _dispatch_tool(name: str, arguments: dict) -> str:
         result = await _locked_tool(
             loop, lambda: pull_sessions(last_sync_at=0 if full else None,
                                         limit=limit))
+        _stamp_after_tool(result)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_push":
         result = await _locked_tool(loop, push_sessions)
+        _stamp_after_tool(result)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "sync_full":
         result = await _locked_tool(loop, full_sync)
+        _stamp_after_tool(result)
         text = json.dumps(result, indent=2, ensure_ascii=False)
     elif base == "project_push":
         result = await _locked_tool(loop, push_projects)
@@ -1278,20 +1525,37 @@ async def periodic_sync():
     # Startup always sets primary/standby when AUTO_SYNC is on.
     while _role == "starting":
         await asyncio.sleep(1)
-    # Background sync is the STARTUP winner's job alone. A copy that lost the
-    # startup race stays standby for its whole life: waking every cycle to
-    # re-lose would only add log noise and useless retries. Failover happens
-    # naturally when the host respawns a copy after the primary died — the
-    # fresh startup race steals the stale lockfile via _try_acquire_lock.
     if _role != "primary":
-        log(f"Periodic sync disabled: standby instance (pid {os.getpid()})")
-        return
+        log(f"Standby instance (pid {os.getpid()}): not the sync owner; "
+            f"waiting for the lease to free up")
     while True:
         await asyncio.sleep(SYNC_INTERVAL)
+        # Standby: wake every cycle, but only contend for the lock once the
+        # lease looks ownerless (dead pid / stale heartbeat). A standby that
+        # grabbed the lock merely because it woke first would steal a healthy
+        # primary's cycle, delaying the sync by one whole interval.
+        if _role != "primary":
+            owner = _owner_pid_or_none()
+            if owner is not None:
+                log(f"Standby (pid {os.getpid()}): pid {owner} still owns "
+                    f"background sync")
+                continue
         if not _try_acquire_lock():
             log("Periodic sync skipped: another server process holds the lock")
             continue
         try:
+            if _role != "primary":
+                # Re-check under the lock: a sibling may have promoted while
+                # we were waiting for it.
+                owner = _owner_pid_or_none()
+                if owner is not None:
+                    continue
+                previous = (_read_lease() or {}).get("pid")
+                _role = "primary"
+                _claim_lease(f"promoted from standby (owner pid {previous})")
+                log(f"Primary (pid {os.getpid()}): promoted from standby "
+                    f"(previous owner pid {previous}); taking over background "
+                    f"sync")
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, full_sync)
             imported = result.get("pull", {}).get("imported", 0)
@@ -1299,9 +1563,12 @@ async def periodic_sync():
             msgs = result.get("pull", {}).get("new_messages", 0)
             log(f"Periodic sync: pulled {imported} sessions, pushed {pushed} sessions")
             if "error" in result.get("pull", {}) or "error" in result.get("push", {}):
+                _stamp_sync_ok({"last_sync_error": str(result)})
                 await _notify_host(f"Sync finished with errors: {result}",
                                    level="warning")
             else:
+                _stamp_sync_ok({"last_sync_ok": time.time(),
+                                "last_sync_error": None})
                 await _notify_host(
                     f"Sync complete: pulled {imported} session(s), "
                     f"pushed {pushed} session(s), {msgs} new message(s)")
@@ -1317,6 +1584,9 @@ async def periodic_sync():
                 log(f"Projects sync error: {e}")
         except Exception as e:
             log(f"Periodic sync error: {e}")
+            # Keep the heartbeat fresh even on failure: this copy is alive and
+            # working, so a standby must not promote over it.
+            _stamp_sync_ok({"last_sync_error": str(e)})
         finally:
             _release_lock()
 
@@ -1327,7 +1597,17 @@ async def background_startup_sync():
         return
     # Delay the first sync so the host agent's own startup/read burst (e.g.
     # Hermes session.resume) has finished before we take SQLite locks.
-    await asyncio.sleep(8)
+    await asyncio.sleep(STARTUP_DELAY_S)
+    # Role: a live lease owner (another window's server on this machine) keeps
+    # the loops. Only an ownerless lease runs the election below, and the
+    # O_EXCL lockfile -- not this process -- is what makes simultaneous starts
+    # pick exactly one owner.
+    owner = _owner_pid_or_none()
+    if owner is not None:
+        _role = "standby"
+        log(f"Standby (pid {os.getpid()}): pid {owner} owns background sync "
+            f"({LEASE_FILE.name}); tools still served")
+        return
     if not _try_acquire_lock():
         _role = "standby"
         holder = _lock_holder_pid()
@@ -1335,10 +1615,22 @@ async def background_startup_sync():
             f"(pid {holder}) runs background sync; tools still served")
         return
     _role = "primary"
+    _claim_lease("startup election won")
     log(f"Primary (pid {os.getpid()}): starting auto-sync from {SYNC_SERVER} "
         f"(agent: {adapter.agent_type})...")
     try:
         loop = asyncio.get_event_loop()
+        # A copy that synced within half an interval already caught this store
+        # up (every window on a machine shares it), so re-pulling the store at
+        # each window start is duplicate work; the periodic loop takes over.
+        last_ok = (_read_lease() or {}).get("last_sync_ok")
+        if isinstance(last_ok, (int, float)) and \
+                (time.time() - last_ok) < SYNC_INTERVAL / 2:
+            log(f"Startup sync skipped: last success "
+                f"{time.time() - last_ok:.0f}s ago (freshness window "
+                f"{SYNC_INTERVAL / 2:.0f}s)")
+            _stamp_sync_ok()
+            return
         # pull first, then push (matches periodic full_sync). The pull
         # anchors this device's per-field base/adopts server values BEFORE
         # it pushes only its genuinely-dirty fields, so:
@@ -1355,10 +1647,13 @@ async def background_startup_sync():
         push_err = push_result.get("error") if isinstance(push_result, dict) else None
         log(f"Initial sync: pull={result} | push={push_result}")
         if push_err or "error" in result:
+            _stamp_sync_ok({"last_sync_error": str(push_err or result.get("error"))})
             await _notify_host(
                 f"Startup sync failed: pull={result.get('error')} "
                 f"push={push_err or 'ok'}", level="warning")
         else:
+            _stamp_sync_ok({"last_sync_ok": time.time(),
+                            "last_sync_error": None})
             pushed = (push_result.get("imported", 0) + push_result.get("updated", 0)) \
                 if isinstance(push_result, dict) else 0
             await _notify_host(
@@ -1367,6 +1662,7 @@ async def background_startup_sync():
                 f"{result.get('new_messages', 0)} new message(s)")
     except Exception as e:
         log(f"Initial sync failed: {e}")
+        _stamp_sync_ok({"last_sync_error": str(e)})
         await _notify_host(f"Startup sync failed: {e}", level="warning")
     finally:
         _release_lock()
@@ -1421,7 +1717,8 @@ async def main():
     log(f"Device: {DEVICE_ID}")
     log(f"Agent: {adapter.agent_type} (local store: {adapter.discover()})")
     log(f"PID: {os.getpid()} (sync lock: {LOCK_FILE.name}, "
-        f"tool lock wait: {TOOL_LOCK_WAIT_S:.0f}s)")
+        f"lease: {LEASE_FILE.name}, tool lock wait: {TOOL_LOCK_WAIT_S:.0f}s)")
+    log(f"Log file: {LOG_FILE}")
     log(f"Periodic sync enabled: every {SYNC_INTERVAL}s ({SYNC_INTERVAL//60}min)")
     log(f"Client version: {updater.local_version(VERSION_FILE)} "
         f"(auto-update: {'on' if AUTO_UPDATE else 'off'}, "

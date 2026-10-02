@@ -12,8 +12,10 @@ Usage:
     python mcp/auto-sync.py                # defaults from env / server.py
     HERMES_SYNC_INTERVAL=300 python mcp/auto-sync.py
 
-Runs forever; stop with Ctrl-C. Share the same lock file as the MCP server,
-so a manual sync_push via OpenClaw and this loop never run concurrently.
+Runs forever; stop with Ctrl-C. Every cycle takes the same cross-process lock
+file as the MCP server's background cycle and as manual mutating tool calls,
+so this loop never writes the store concurrently with them (a cycle that
+cannot get the lock is skipped and retried on the next tick).
 """
 
 import asyncio
@@ -39,6 +41,21 @@ import server  # noqa: E402  (module-level adapter init; no stdio run)
 INTERVAL = max(60, int(os.environ.get("HERMES_SYNC_INTERVAL", "300")))
 
 
+def run_once():
+    """One sync cycle under the cross-process lock.
+
+    Same lock as the MCP server's background cycle and manual mutating tool
+    calls: without it this daemon could write the local store concurrently
+    with an MCP server cycle of the same agent. A busy cycle is skipped."""
+    if not server._try_acquire_lock():
+        holder = server._lock_holder_pid()
+        return {"skipped": f"another sync holds the lock (pid {holder})"}
+    try:
+        return server.full_sync()
+    finally:
+        server._release_lock()
+
+
 async def run_loop():
     loop = asyncio.get_event_loop()
     # first sync shortly after start (mirrors the MCP server's startup sync)
@@ -46,7 +63,7 @@ async def run_loop():
     while True:
         started = time.time()
         try:
-            result = await loop.run_in_executor(None, server.full_sync)
+            result = await loop.run_in_executor(None, run_once)
             if isinstance(result, dict) and result.get("error"):
                 print(f"[auto-sync] {time.strftime('%H:%M:%S')} error: "
                       f"{result['error']}")

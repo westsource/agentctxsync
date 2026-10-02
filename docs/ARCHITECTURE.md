@@ -183,8 +183,9 @@
   push 的分块与请求编码都要 `json.dumps`，一个不可编码的值会让整轮同步失败。
 - **后台任务**（`server.py`）：启动 8s 增量拉取 → bootstrap push（首次配对）→ 每 300s
   周期同步（push → pull → projects push/pull）→ 自动更新（启动 60s 后、每小时）；单写者锁
-  （后台循环 + 写工具共用）+ 更新锁，多副本时仅启动赢家（主）跑后台同步、其余 standby 只应答
-  工具，详见「增量同步与水位线」「客户端自动更新」及上文主/备角色段。
+  （后台循环 + 写工具共用）+ 持久租约 + 更新锁，多副本时仅租约属主（主）跑后台同步、其余
+  standby 只应答工具并在属主失联后自行提升，详见「增量同步与水位线」「客户端自动更新」及上文
+  主/备角色段。
 - **OpenClaw 常驻同步**（`mcp/auto-sync.py`）：OpenClaw 惰性拉起 MCP server（仅当 agent
   调用工具时），进程内 `HERMES_SYNC_AUTO_SYNC=1` 不会自行触发——独立循环进程按固定间隔
   （默认 300s、最小 60s）跑同一 `server.full_sync`（pull→push、字段级合并、水位线+去重），
@@ -394,7 +395,7 @@ feed 本身是外部静态 JSON（`HERMES_SYNC_ANNOUNCEMENTS_URL`），由**浏�
 - pull 增量语义：服务端 `(last_synced_at > X OR started_at > X)`；客户端发送
   `本地水位线 − 300s` 宽限（水位线是本机时钟、远端 `last_synced_at` 是**别的设备**时钟，
   严格截断会漏掉时钟偏移设备推的会话）；消息增量按 `timestamp > X` 过滤。
-- 客户端后台任务（`mcp/server.py`）：启动 8s 后增量拉取（避开宿主启动读写峰）；每 300s
+- 客户端后台任务（`mcp/server.py`）：启动 8s 后增量拉取（避开宿主启动读写峰，`HERMES_SYNC_STARTUP_DELAY_S`）；每 300s
   周期同步（push → pull → projects push/pull，同周期顺带）；**bootstrap push**——水位线为 0
   （从未同步）且远端为空时，间隔重拉两次确认后把本地全量推上去（误判无害：服务端按三元组去重，
   多余全推是空操作）。
@@ -404,11 +405,35 @@ feed 本身是外部静态 JSON（`HERMES_SYNC_ANNOUNCEMENTS_URL`），由**浏�
   `HERMES_SYNC_TOOL_LOCK_WAIT_S` 可调，超时返回 busy 而非并发写库；同进程自己的后台周期
   持锁时也会等待）；更新锁独立。背景：Hermes 桌面会起两个 serve 实例、各 spawn 一个 MCP
   进程，无锁会并发写同一本地库。
-- **主/备角色**：启动（+8s）抢锁成功的副本为主（`Primary`），负责此后全部后台周期同步；
-  输家为备（`Standby`），整生命周期只应答工具、不再每周期空转抢锁（少日志少唤醒）。故障
-  切换不靠备升级——宿主重拉副本时的新启动竞争窃取陈旧锁重新选出主。启动日志含角色与 pid
-  （`Primary (pid N)` / `Standby (pid N)`），mcp-stderr 可辨识谁在跑后台同步；周期门控等待
+- **存活探测（Windows）**：`os.kill(pid, 0)` 不可用于判活——本机实测三种失真：对部分活进程
+  抛 `OSError WinError 87`（= 看成死的 → 会窃取活写者的锁）、对刚退出但仍被父进程持有句柄的
+  进程返回成功（= 看成活的）、对 `pid 4` 抛 `SystemError`（不是 `OSError`，原实现直接崩）。
+  改用 `OpenProcess(SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION)` + 零超时
+  `WaitForSingleObject`；`ERROR_ACCESS_DENIED` 等不可判定情形按**活**处理（保守：宁可等，
+  不可造出第二个写者），角色的快速切换由下面的租约心跳兜底。POSIX 仍走 `os.kill`。
+- **主/备角色（持久租约）**：角色不由"启动抢锁"一次性决定——锁每周期释放，后启动的副本总能
+  赢下那把已释放的锁并自认主（副本越多越像多主、每次开窗口都重复一次启动全量同步），而抢锁
+  输家则**终身备**（关掉主窗口后其余窗口的后台同步静默停摆）。改为主/备由
+  `hermes-sync-<agent>.primary.json` 租约裁定：`{pid, host, started_at, heartbeat,
+  last_sync_ok, last_sync_error, role_reason, client_version}`，`tmp + os.replace` 原子写、
+  持有者每周期刷新心跳；启动时若租约属主仍活着就做备，租约空/属主失联则用 O_EXCL 锁选举出唯一
+  主（同时启动也只出一个主）。备**每周期**复查租约并自我提升，不再"睡到进程结束"。
+  「属主失联」= 心跳已过一个完整周期（`HERMES_SYNC_INTERVAL`）**且** PID 探测说死，或心跳超过
+  `HERMES_SYNC_LEASE_STALE_S`（默认 `INTERVAL+120`，兼作 PID 复用兜底）——心跳优先是为了让
+  Windows 上偶发的"活进程探测为死"不能造出第二个主；代价是失联后最多晚一个周期接管（同量级于
+  同步间隔，好过永久停摆）。启动/提升日志含角色与双方 pid（`Primary (pid N)` / `Standby (pid N):
+  pid M ...` / `Primary (pid N): promoted from standby (previous owner pid M)`）；周期门控等待
   启动任务决出角色，避免启动早期误报 standby。
+- **启动同步新鲜度**：`last_sync_ok` 写在租约里（同机多窗口共享），若距上次成功不足
+  `INTERVAL/2`，启动同步直接跳过——另一个窗口刚同步过，重复拉全库是纯浪费；手动
+  `sync_full/pull/push` 成功后同样刷新它。
+- **角色/租约可观测（P4）**：`sync_status` 除本地/远端计数外返回 `instance`（`pid`、`role`、
+  `background_sync`、`lock_holder_pid`、`lease`、`lease_owner_alive`、`log_file`、
+  `client_version`），"谁在同步、有没有重复"不必去猜；同一批日志同时落盘
+  `hermes-sync-<agent>.log`（单代轮转，`HERMES_SYNC_LOG_MAX_BYTES`，默认 512KiB），因为宿主
+  通常丢弃 MCP stderr（omp 全平台不留存 stderr，崩溃现场因此无从查证），且 stderr 以 UTF-8
+  字节写出——宿主（含 MCP SDK 自身的 stdio 客户端）按 UTF-8 读，中文 locale 下 GBK 编码会让
+  对方的 reader 线程解码失败。
 - pull 稳健性：每页 15 条（大页实测超时）；「页面与上次相同则停止」（防旧服务端忽略 offset
   死循环）；本地库被宿主锁定时按 0/2/5/10s 退避重试（`busy_timeout=5s` 快速失败，不阻塞宿主读）。
 - **推送侧会话指纹（B5，客户端）**：每会话记录推送指纹 `(message_count, max_timestamp[, 文件 mtime])`
