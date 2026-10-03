@@ -8,22 +8,22 @@
 <style>
   /* ============================================================
      配色体系（与 base.html / login.html / _macros.html 一致）：
-       画布 #F6F5FA · 品牌紫 #6E56CF · 成功绿 #34A853
-       Agent 标识色: hermes #5B45B9 · workbuddy #0D9488 · dsh #4D6BFE · omp #B45309
-                   opencode #64748B · reasonix #D63384 · openclaw #EB5757
+       画布 #F5F8FB · 品牌紫 #496C92 · 成功绿 #328644
+       Agent 标识色: hermes #284767 · workbuddy #AE5B74 · dsh #006332 · omp #008378
+                   opencode #51666E · reasonix #726BBE · openclaw #A25AA8
      ============================================================ */
   :root {
-    --bg: #F6F5FA;
-    --bg-alt: #F4F2FC;
+    --bg: #F5F8FB;
+    --bg-alt: #F5F8FB;
     --card: #ffffff;
-    --border: #E7E5F0;
-    --text: #1A1A2E;
-    --muted: #5A5A72;
-    --muted-2: #9CA3AF;
-    --accent: #6E56CF;
-    --accent-hover: #5B45B9;
-    --accent-soft: #EDE9FB;
-    --success: #34A853;
+    --border: #E9EDF1;
+    --text: #22282E;
+    --muted: #5A5F66;
+    --muted-2: #6A6F75;
+    --accent: #496C92;
+    --accent-hover: #284767;
+    --accent-soft: #F7FBFF;
+    --success: #328644;
     --radius: 1rem;
     --shadow: 0 1px 3px 0 rgba(30,20,60,.06), 0 8px 24px -8px rgba(30,20,60,.08);
     --mono: "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
@@ -58,7 +58,7 @@
     font-size: 13px; padding: 8px 18px; border-radius: 9px; text-decoration: none;
     background: var(--accent); color: #fff; font-weight: 500; transition: background .15s, box-shadow .15s;
   }
-  .nav-cta:hover { background: var(--accent-hover); box-shadow: 0 6px 18px rgba(110,86,207,.3); }
+  .nav-cta:hover { background: var(--accent-hover); box-shadow: 0 6px 18px rgba(73,108,146,.3); }
   .lang-switch {
     display: flex; gap: 2px; padding: 2px;
     border: 1px solid var(--border); background: #fff; border-radius: 999px;
@@ -75,14 +75,14 @@
   .hero::before {
     content: ""; position: absolute; inset: -50% -30% auto; height: 110%;
     background:
-      radial-gradient(ellipse 60% 55% at 50% 0%, rgba(110,86,207,.14), transparent 62%),
-      radial-gradient(ellipse 35% 40% at 82% 8%, rgba(66,133,244,.08), transparent 60%);
+      radial-gradient(ellipse 60% 55% at 50% 0%, rgba(73,108,146,.14), transparent 62%),
+      radial-gradient(ellipse 35% 40% at 82% 8%, rgba(120,157,133,.08), transparent 60%);
     pointer-events: none;
   }
   .hero::after {
     content: ""; position: absolute; inset: 0; opacity: .5;
-    background-image: linear-gradient(rgba(110,86,207,.05) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(110,86,207,.05) 1px, transparent 1px);
+    background-image: linear-gradient(rgba(73,108,146,.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(73,108,146,.05) 1px, transparent 1px);
     background-size: 44px 44px; pointer-events: none;
     -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
             mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
@@ -90,14 +90,14 @@
   .hero .wrap { position: relative; }
   .hero .badge {
     display: inline-flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 18px; border-radius: 999px;
-    border: 1px solid rgba(110,86,207,.28); color: var(--accent);
+    border: 1px solid rgba(73,108,146,.28); color: var(--accent);
     background: rgba(255,255,255,.75); margin-bottom: 28px; font-weight: 500;
-    box-shadow: 0 2px 10px rgba(110,86,207,.08);
+    box-shadow: 0 2px 10px rgba(73,108,146,.08);
   }
-  .hero .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(52,168,83,.18); }
+  .hero .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(50,134,68,.18); }
   .hero h1 { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.16; color: var(--text); }
   .hero h1 .grad {
-    background: linear-gradient(92deg, #6E56CF 0%, #5B45B9 50%, #3D5AC9 100%);
+    background: linear-gradient(92deg, #496C92 0%, #284767 50%, #284767 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .hero .sub { color: var(--muted); font-size: 17.5px; max-width: 660px; margin: 22px auto 0; }
@@ -106,7 +106,7 @@
     display: inline-flex; align-items: center; gap: 8px; padding: 13px 30px; border-radius: 11px; font-size: 15px;
     font-weight: 500; text-decoration: none; transition: all .15s;
   }
-  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 10px 26px rgba(110,86,207,.3); }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 10px 26px rgba(73,108,146,.3); }
   .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
   .btn-ghost { border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,.7); }
   .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
@@ -114,21 +114,21 @@
 
   /* ---------- 终端演示（深色对比焦点） ---------- */
   .terminal {
-    max-width: 780px; margin: 54px auto 0; background: #171331; border: 1px solid rgba(255,255,255,.08);
-    border-radius: 14px; text-align: left; box-shadow: 0 24px 60px rgba(23,19,49,.35);
+    max-width: 780px; margin: 54px auto 0; background: #161E27; border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px; text-align: left; box-shadow: 0 24px 60px rgba(22,30,39,.35);
   }
   .terminal .bar { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
   .terminal .bar i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-  .terminal .bar i:nth-child(1) { background: #FF5F57; }
-  .terminal .bar i:nth-child(2) { background: #FEBC2E; }
-  .terminal .bar i:nth-child(3) { background: #28C840; }
-  .terminal .bar span { margin-left: 10px; font-size: 12px; color: #9A93C8; font-family: var(--mono); }
-  .terminal pre { padding: 20px 24px; font-family: var(--mono); font-size: 13.5px; line-height: 1.95; overflow-x: auto; color: #E6E2F8; white-space: pre-wrap; overflow-wrap: break-word; }
-  .terminal .c { color: #7A72A8; }
-  .terminal .g { color: #34D399; }
-  .terminal .y { color: #FCD34D; }
-  .terminal .b { color: #9B8FEA; }
-  .terminal .t { color: #7DD3FC; }
+  .terminal .bar i:nth-child(1) { background: #F4695F; }
+  .terminal .bar i:nth-child(2) { background: #F5BE4A; }
+  .terminal .bar i:nth-child(3) { background: #3FBF63; }
+  .terminal .bar span { margin-left: 10px; font-size: 12px; color: #9CBBDE; font-family: var(--mono); }
+  .terminal pre { padding: 20px 24px; font-family: var(--mono); font-size: 13.5px; line-height: 1.95; overflow-x: auto; color: #C1D8F2; white-space: pre-wrap; overflow-wrap: break-word; }
+  .terminal .c { color: #37597C; }
+  .terminal .g { color: #45965A; }
+  .terminal .y { color: #AE7D1E; }
+  .terminal .b { color: #9CBBDE; }
+  .terminal .t { color: #2592AB; }
 
   /* ---------- 通用区块 ---------- */
   .section { padding: 84px 0; }
@@ -144,9 +144,9 @@
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 28px; box-shadow: var(--shadow); transition: transform .18s, border-color .18s, box-shadow .18s;
   }
-  .feat:hover { transform: translateY(-4px); border-color: rgba(110,86,207,.4); box-shadow: 0 16px 36px -12px rgba(110,86,207,.18); }
+  .feat:hover { transform: translateY(-4px); border-color: rgba(73,108,146,.4); box-shadow: 0 16px 36px -12px rgba(73,108,146,.18); }
   .feat .icon {
-    width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-soft), #F0EDFB);
+    width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-soft), #EDF5FF);
     display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--accent);
   }
   .feat h3 { font-size: 17.5px; margin: 16px 0 8px; color: var(--text); font-weight: 650; }
@@ -154,21 +154,21 @@
 
   /* ---------- 同步引擎（深色区块） ---------- */
   .engine {
-    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(110,86,207,.25), transparent 60%), #14122B;
-    color: #E6E2F8;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(73,108,146,.25), transparent 60%), #161E27;
+    color: #C1D8F2;
   }
   .engine .section-head h2 { color: #fff; }
-  .engine .section-head p { color: #B9B2DC; }
-  .engine .section-head .tag { color: #9B8FEA; }
+  .engine .section-head p { color: #C1D8F2; }
+  .engine .section-head .tag { color: #9CBBDE; }
   .eng-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
   .eng-item {
     background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 14px;
     padding: 24px; transition: background .18s, border-color .18s, transform .18s;
   }
-  .eng-item:hover { background: rgba(255,255,255,.08); border-color: rgba(155,143,234,.4); transform: translateY(-3px); }
+  .eng-item:hover { background: rgba(255,255,255,.08); border-color: rgba(156,187,222,.4); transform: translateY(-3px); }
   .eng-item .k { display: flex; align-items: center; gap: 9px; font-size: 15.5px; font-weight: 650; color: #fff; }
-  .eng-item .k svg { width: 18px; height: 18px; color: #9B8FEA; flex-shrink: 0; }
-  .eng-item p { color: #B9B2DC; font-size: 13.5px; margin-top: 8px; }
+  .eng-item .k svg { width: 18px; height: 18px; color: #9CBBDE; flex-shrink: 0; }
+  .eng-item p { color: #C1D8F2; font-size: 13.5px; margin-top: 8px; }
 
   /* ---------- Agent 徽章（七色体系，与 _macros.html 一致） ---------- */
   .agents { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 42px; }
@@ -180,9 +180,9 @@
   .agent-pill .a-icon { width: 20px; height: 20px; flex-shrink: 0; }
   .agent-pill .new-tag {
     position: absolute; top: -8px; right: -6px;
-    background: linear-gradient(135deg, #EB5757, #F2994A); color: #fff;
+    background: linear-gradient(135deg, #A25AA8, #A86800); color: #fff;
     font-size: 10px; font-weight: 700; letter-spacing: .5px;
-    padding: 2px 8px; border-radius: 999px; box-shadow: 0 3px 8px rgba(235,87,87,.35);
+    padding: 2px 8px; border-radius: 999px; box-shadow: 0 3px 8px rgba(162,90,168,.35);
   }
 
   /* ---------- 流程 ---------- */
@@ -195,9 +195,9 @@
     counter-increment: step; content: counter(step);
     position: absolute; top: -14px; left: 22px;
     width: 30px; height: 30px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent), #5B45B9); color: #fff; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #284767); color: #fff; font-weight: 700;
     display: flex; align-items: center; justify-content: center; font-size: 14px;
-    box-shadow: 0 4px 12px rgba(110,86,207,.35);
+    box-shadow: 0 4px 12px rgba(73,108,146,.35);
   }
   .step h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); font-weight: 650; }
   .step p { color: var(--muted); font-size: 13.5px; }
@@ -217,7 +217,7 @@
   }
   .os-item .num {
     font-size: 28px; font-weight: 800; color: var(--accent);
-    background: linear-gradient(92deg, #6E56CF, #3D5AC9);
+    background: linear-gradient(92deg, #496C92, #284767);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .os-item .lbl { color: var(--muted); font-size: 13px; margin-top: 4px; }
@@ -230,13 +230,13 @@
 
   /* ---------- CTA ---------- */
   .cta-band {
-    background: linear-gradient(135deg, rgba(110,86,207,.12), rgba(61,90,201,.06));
-    border: 1px solid rgba(110,86,207,.3); border-radius: var(--radius);
+    background: linear-gradient(135deg, rgba(73,108,146,.12), rgba(40,71,103,.06));
+    border: 1px solid rgba(73,108,146,.3); border-radius: var(--radius);
     padding: 56px 32px; text-align: center; margin: 24px 0 84px; position: relative; overflow: hidden;
   }
   .cta-band::before {
     content: ""; position: absolute; inset: -60% -20% auto; height: 90%;
-    background: radial-gradient(ellipse 55% 55% at 50% 0%, rgba(110,86,207,.16), transparent 62%);
+    background: radial-gradient(ellipse 55% 55% at 50% 0%, rgba(73,108,146,.16), transparent 62%);
     pointer-events: none;
   }
   .cta-band h2 { font-size: 30px; font-weight: 800; letter-spacing: -.5px; color: var(--text); position: relative; }
@@ -270,7 +270,7 @@
 <nav>
   <div class="wrap">
     <a class="logo" href="/">
-      <span class="mark" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 4px 10px rgba(94,84,207,.3)">
+      <span class="mark" style="background:linear-gradient(135deg,#496C92,#284767);box-shadow:0 4px 10px rgba(73,108,146,.3)">
         <svg width="18" height="18" viewBox="0 0 44 44" fill="none"><path d="M11.5 13.1 C14.1 8 19.3 5.5 22 5.5 C24.7 5.5 29.9 8 32.5 13.1" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M32.5 13.1 C32.3 15.6 30.4 17.1 28.1 17.1 C30.1 15.9 31.5 14.4 32.5 13.1" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.5 30.9 C29.9 36 24.7 38.5 22 38.5 C19.3 38.5 14.1 36 11.5 30.9" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M11.5 30.9 C11.7 33.4 13.6 34.9 15.9 34.9 C13.9 33.7 12.5 32.2 11.5 30.9" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="22" r="4.5" fill="#FFD166"/></svg>
       </span>
       Agent Context Sync <small>{{ t.lp_nav_oss }}</small>
@@ -436,14 +436,14 @@
       <p>{{ t.lp_agents_sub }}</p>
     </div>
     <div class="agents">
-      <span class="agent-pill" style="background:#EDE9FB;color:#5B45B9"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Hermes</span>
-      <span class="agent-pill" style="background:#F0FDFA;color:#0D9488"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> WorkBuddy</span>
-      <span class="agent-pill" style="background:#EEF1FF;color:#4D6BFE"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> DeepSeek Harness<span class="new-tag">{{ t.lp_agent_newest_tag }}</span></span>
-      <span class="agent-pill" style="background:#F1F5F9;color:#64748B"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenCode</span>
-      <span class="agent-pill" style="background:#FDF2F8;color:#D63384"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Reasonix</span>
-      <span class="agent-pill" style="background:#FDECEC;color:#EB5757"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenClaw</span>
-      <span class="agent-pill" style="background:#FEF3C7;color:#B45309"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Oh My Pi</span>
-      <span class="agent-pill" style="background:#F6F5FA;color:#8A8AA3;border:1px dashed #D9D6EA"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 5v14M5 12h14"/></svg> {{ t.lp_more_agents }}</span>
+      <span class="agent-pill" style="background:#F7FBFF;color:#284767"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Hermes</span>
+      <span class="agent-pill" style="background:#FFF6F8;color:#AE5B74"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> WorkBuddy</span>
+      <span class="agent-pill" style="background:#EBFEF0;color:#006332"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> DeepSeek Harness<span class="new-tag">{{ t.lp_agent_newest_tag }}</span></span>
+      <span class="agent-pill" style="background:#F4F9FB;color:#51666E"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenCode</span>
+      <span class="agent-pill" style="background:#F8F8FF;color:#726BBE"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Reasonix</span>
+      <span class="agent-pill" style="background:#FEF5FF;color:#A25AA8"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> OpenClaw</span>
+      <span class="agent-pill" style="background:#E9FEFA;color:#008378"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg> Oh My Pi</span>
+      <span class="agent-pill" style="background:#F5F8FB;color:#6A6F75;border:1px dashed #DADEE4"><svg class="a-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 5v14M5 12h14"/></svg> {{ t.lp_more_agents }}</span>
     </div>
   </div>
 </section>

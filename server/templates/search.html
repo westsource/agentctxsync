@@ -20,11 +20,11 @@
       <div class="relative flex-1">
         <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>
         <input type="search" name="q" value="{{ q }}" placeholder="{{ t.search_placeholder }}"
-               class="w-full pl-10 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF]"
+               class="w-full pl-10 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#496C92] focus:border-[#496C92]"
                autofocus>
       </div>
       <button type="submit"
-              class="px-4 py-2 rounded-xl text-sm font-medium bg-[#6E56CF] text-white hover:bg-[#5B46C3] transition-colors">
+              class="px-4 py-2 rounded-xl text-sm font-medium bg-[#496C92] text-white hover:bg-[#37597C] transition-colors">
         {{ t.search_submit }}
       </button>
     </form>
@@ -45,14 +45,14 @@
     <div class="divide-y divide-gray-50">
       {% for s in sessions %}
       <a href="/web/workspace/{{ s.workspace_id }}/session/{{ s.id }}"
-         class="flex items-center gap-3.5 px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
+         class="flex items-center gap-3.5 px-6 py-4 hover:bg-[#FAFCFF] transition-colors group">
         <div class="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 {{ agent_color(s.agent_type) }}">
           <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 6C4 4.9 4.9 4 6 4H14C15.1 4 16 4.9 16 6V11.5C16 12.6 15.1 13.5 14 13.5H10L7.5 15.8V13.5H6C4.9 13.5 4 12.6 4 11.5V6Z"/></svg>
         </div>
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium text-gray-900 truncate">{{ s.title or s.id }}</p>
           <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ s.workspace_name }}</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F5F8FB] text-gray-500 shrink-0">{{ s.workspace_name }}</span>
             <span class="shrink-0">{{ s.sync_label }}</span>
           </div>
         </div>
@@ -65,11 +65,11 @@
     {% if session_pages > 1 %}
     <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
       {% if page > 1 %}
-      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_prev }}</a>
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#496C92] hover:underline">{{ t.search_prev }}</a>
       {% else %}<span></span>{% endif %}
       <span class="text-xs text-gray-400">{{ t.search_page.format(page=page) }}</span>
       {% if page < session_pages %}
-      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_next }}</a>
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#496C92] hover:underline">{{ t.search_next }}</a>
       {% else %}<span></span>{% endif %}
     </div>
     {% endif %}
@@ -84,10 +84,10 @@
     <div class="divide-y divide-gray-50">
       {% for m in messages %}
       <a href="/web/workspace/{{ m.workspace_id }}/session/{{ m.session_id }}?focus={{ m.id }}"
-         class="block px-6 py-4 hover:bg-[#F9F8FD] transition-colors group">
+         class="block px-6 py-4 hover:bg-[#FAFCFF] transition-colors group">
         <div class="flex items-center gap-2 text-xs text-gray-400 mb-1.5">
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 shrink-0">{{ m.workspace_name }}</span>
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium {% if m.role == 'user' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}bg-[#E9F9EF] text-[#34A853]{% endif %} shrink-0">{{ m.role }}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F5F8FB] text-gray-500 shrink-0">{{ m.workspace_name }}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium {% if m.role == 'user' %}bg-[#DCEAFB] text-[#496C92]{% else %}bg-[#EEFDEF] text-[#328644]{% endif %} shrink-0">{{ m.role }}</span>
           <span class="truncate font-medium text-gray-600">{{ m.title or m.session_id }}</span>
         </div>
         <p class="text-sm text-gray-700 leading-relaxed break-words">{{ m.snippet }}</p>
@@ -97,11 +97,11 @@
     {% if message_pages > 1 %}
     <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
       {% if page > 1 %}
-      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_prev }}</a>
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page - 1 }}" class="text-[#496C92] hover:underline">{{ t.search_prev }}</a>
       {% else %}<span></span>{% endif %}
       <span class="text-xs text-gray-400">{{ t.search_page.format(page=page) }}</span>
       {% if page < message_pages %}
-      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#6E56CF] hover:underline">{{ t.search_next }}</a>
+      <a href="/web/search?q={{ q|urlencode }}&page={{ page + 1 }}" class="text-[#496C92] hover:underline">{{ t.search_next }}</a>
       {% else %}<span></span>{% endif %}
     </div>
     {% endif %}

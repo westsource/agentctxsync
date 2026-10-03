@@ -11,21 +11,21 @@
   .md-body ul, .md-body ol { margin: 0.4em 0; padding-left: 1.4em; list-style: revert; }
   .md-body li { margin: 0.15em 0; }
   /* Light code blocks per the viewer design (lavender-tinted) */
-  .md-body pre { background: #F8F7FC; border: 1px solid #ECEBF4; border-radius: 10px; overflow: hidden; margin: 0.5em 0; }
-  .md-body pre code { display: block; padding: 0.7em 0.9em; color: #3F3F55; font-size: 0.8em; line-height: 1.5; overflow-x: auto; }
+  .md-body pre { background: #FAFCFF; border: 1px solid #E9EDF1; border-radius: 10px; overflow: hidden; margin: 0.5em 0; }
+  .md-body pre code { display: block; padding: 0.7em 0.9em; color: #33383F; font-size: 0.8em; line-height: 1.5; overflow-x: auto; }
   .md-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .md-body :not(pre) > code { background: #EDE9FB; color: #6E56CF; padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.85em; }
-  .md-body blockquote { border-left: 3px solid #E5E4EE; padding-left: 0.8em; margin: 0.4em 0; color: #8A8AA3; }
+  .md-body :not(pre) > code { background: #DCEAFB; color: #496C92; padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.85em; }
+  .md-body blockquote { border-left: 3px solid #E9EDF1; padding-left: 0.8em; margin: 0.4em 0; color: #6A6F75; }
   .md-body a { text-decoration: underline; }
   .md-body table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
-  .md-body th, .md-body td { border: 1px solid #E5E4EE; padding: 0.3em 0.6em; }
-  .md-body th { background: #F1F0F8; font-weight: 600; }
-  .md-body hr { border: none; border-top: 1px solid #E5E4EE; margin: 0.6em 0; }
+  .md-body th, .md-body td { border: 1px solid #E9EDF1; padding: 0.3em 0.6em; }
+  .md-body th { background: #F3F6F9; font-weight: 600; }
+  .md-body hr { border: none; border-top: 1px solid #E9EDF1; margin: 0.6em 0; }
   /* Code block header bar (language label + copy button) */
-  .code-head { display: flex; align-items: center; justify-content: space-between; background: #F1F0F8; border-bottom: 1px solid #ECEBF4; padding: 0.4em 0.75em; }
-  .code-head span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: #8A8AA3; font-weight: 500; }
-  .code-copy { background: #fff; border: 1px solid #E5E4EE; border-radius: 6px; padding: 1px 8px; font-size: 11px; color: #5A5A72; cursor: pointer; transition: all .15s; }
-  .code-copy:hover { color: #6E56CF; border-color: rgba(110,86,207,.4); }
+  .code-head { display: flex; align-items: center; justify-content: space-between; background: #F3F6F9; border-bottom: 1px solid #E9EDF1; padding: 0.4em 0.75em; }
+  .code-head span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: #6A6F75; font-weight: 500; }
+  .code-copy { background: #fff; border: 1px solid #E9EDF1; border-radius: 6px; padding: 1px 8px; font-size: 11px; color: #5A5F66; cursor: pointer; transition: all .15s; }
+  .code-copy:hover { color: #496C92; border-color: rgba(73,108,146,.4); }
 </style>
 
 <!-- Reusable pagination bar (top and bottom of the message list) -->
@@ -35,22 +35,22 @@
   <div class="text-xs text-gray-400">{{ t.msg_page_info|format(total, page, pages) }}</div>
   <div class="flex items-center gap-2">
     <select onchange="location.href='/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ role }}&size=' + this.value"
-            class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-[#6E56CF]/30 transition-colors">
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white hover:border-[#496C92]/30 transition-colors">
       <option value="20" {% if size == 20 %}selected{% endif %}>20 {{ t.ws_per_page }}</option>
       <option value="50" {% if size == 50 %}selected{% endif %}>50 {{ t.ws_per_page }}</option>
       <option value="100" {% if size == 100 %}selected{% endif %}>100 {{ t.ws_per_page }}</option>
     </select>
     {% if page > 1 %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page=1&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#6E56CF]/30 text-gray-600 hover:text-[#6E56CF] rounded-lg transition-colors">{{ t.ws_first_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#496C92]/30 text-gray-600 hover:text-[#496C92] rounded-lg transition-colors">{{ t.ws_first_page }}</a>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page - 1 }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#6E56CF]/30 text-gray-600 hover:text-[#6E56CF] rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-white border border-gray-200 hover:border-[#496C92]/30 text-gray-600 hover:text-[#496C92] rounded-lg transition-colors">{{ t.ws_prev_page }}</a>
     {% endif %}
     {% if page < pages %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ page + 1 }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-[#6E56CF] hover:bg-[#5B45B9] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_next_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-[#496C92] hover:bg-[#37597C] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_next_page }}</a>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?page={{ pages }}&role={{ role }}&size={{ size }}"
-       class="inline-block px-3 py-1.5 text-xs bg-[#6E56CF] hover:bg-[#5B45B9] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_last_page }}</a>
+       class="inline-block px-3 py-1.5 text-xs bg-[#496C92] hover:bg-[#37597C] text-white rounded-lg transition-colors shadow-sm">{{ t.ws_last_page }}</a>
     {% endif %}
   </div>
 </div>
@@ -60,17 +60,17 @@
 <!-- ========== Viewer header（04 会话查看器设计） ========== -->
 <div class="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 bg-white border-b border-gray-100 h-16 flex items-center gap-3.5">
   <a href="/web/workspace/{{ ws.id }}"
-     class="w-9 h-9 rounded-[10px] bg-white border border-[#E5E4EE] flex items-center justify-center text-[#5A5A72] hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors shrink-0"
+     class="w-9 h-9 rounded-[10px] bg-white border border-[#E9EDF1] flex items-center justify-center text-[#5A5F66] hover:text-[#496C92] hover:border-[#496C92]/30 transition-colors shrink-0"
      title="{{ t.common_back }}">
     <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
   </a>
   <div class="min-w-0 flex-1">
     <h1 class="text-[15px] font-semibold text-gray-900 truncate leading-tight">{{ session.title or session.id }}</h1>
     <div class="flex items-center gap-2 mt-0.5 text-xs min-w-0">
-      <code class="font-mono text-[11px] text-[#A5A5BC] truncate">{{ session.id }}</code>
-      <span class="w-1 h-1 rounded-full bg-[#C9C9DB] inline-block shrink-0"></span>
-      <span class="text-[#8A8AA3] shrink-0">{{ sync_label }}</span>
-      {% if session.model %}<span class="w-1 h-1 rounded-full bg-[#C9C9DB] inline-block shrink-0"></span><span class="text-[#8A8AA3] truncate">{{ session.model }}</span>{% endif %}
+      <code class="font-mono text-[11px] text-[#B6BCC2] truncate">{{ session.id }}</code>
+      <span class="w-1 h-1 rounded-full bg-[#B6BCC2] inline-block shrink-0"></span>
+      <span class="text-[#6A6F75] shrink-0">{{ sync_label }}</span>
+      {% if session.model %}<span class="w-1 h-1 rounded-full bg-[#B6BCC2] inline-block shrink-0"></span><span class="text-[#6A6F75] truncate">{{ session.model }}</span>{% endif %}
     </div>
   </div>
   <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 {{ agent_color(session.agent_type) }}">
@@ -82,7 +82,7 @@
       <input type="hidden" name="sel" value="{{ ws.id }}:{{ session.id }}">
       <input type="hidden" name="next" value="/web/workspace/{{ ws.id }}/session/{{ session.id }}">
       <button type="submit"
-              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium rounded-[10px] border transition-colors {% if session.sync_paused %}text-[#6E56CF] bg-[#EDE9FB] border-[#6E56CF]/25 hover:bg-[#E3DDF8]{% else %}text-[#5A5A72] bg-white border-[#E5E4EE] hover:border-[#6E56CF]/30 hover:text-[#6E56CF]{% endif %}"
+              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium rounded-[10px] border transition-colors {% if session.sync_paused %}text-[#496C92] bg-[#DCEAFB] border-[#496C92]/25 hover:bg-[#DCEAFB]{% else %}text-[#5A5F66] bg-white border-[#E9EDF1] hover:border-[#496C92]/30 hover:text-[#496C92]{% endif %}"
               title="{{ t.sync_resume_btn_hint if session.sync_paused else t.sync_pause_btn_hint }}">
         {% if session.sync_paused %}
         <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -94,14 +94,14 @@
       </button>
     </form>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/export"
-       class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#5A5A72] bg-white border border-[#E5E4EE] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">
+       class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#5A5F66] bg-white border border-[#E9EDF1] rounded-[10px] hover:border-[#496C92]/30 hover:text-[#496C92] transition-colors">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
       {{ t.msg_export }}
     </a>
     <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/hide" class="inline"
           onsubmit="return confirm('{{ t.ws_hide_confirm }}')">
       <button type="submit"
-              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#EB5757] bg-white border border-[#F3C6C6] rounded-[10px] hover:bg-[#FDECEC] transition-colors">
+              class="h-[34px] inline-flex items-center gap-1.5 px-3.5 text-[13px] font-medium text-[#CB4C48] bg-white border border-[#FFDBD7] rounded-[10px] hover:bg-[#FFF5F4] transition-colors">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         {{ t.msg_delete_session }}
       </button>
@@ -114,20 +114,20 @@
   <div class="flex flex-wrap items-center gap-2 mb-5">
     {% for key, label in [('', t.msg_filter_all), ('user', t.msg_filter_user), ('assistant', t.msg_filter_assistant), ('tool', t.msg_filter_tool), ('system', t.msg_filter_system)] %}
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}?role={{ key }}"
-       class="px-3.5 py-1.5 rounded-full text-xs font-medium transition-all {% if role == key %}bg-[#6E56CF] text-white shadow-sm shadow-[#6E56CF]/30{% else %}bg-[#F6F5FA] text-gray-500 hover:bg-[#EDE9FB] hover:text-[#6E56CF]{% endif %}">{{ label }}</a>
+       class="px-3.5 py-1.5 rounded-full text-xs font-medium transition-all {% if role == key %}bg-[#496C92] text-white shadow-sm shadow-[#496C92]/30{% else %}bg-[#F5F8FB] text-gray-500 hover:bg-[#DCEAFB] hover:text-[#496C92]{% endif %}">{{ label }}</a>
     {% endfor %}
     <form method="GET" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}" class="inline-flex items-center gap-1.5 ml-auto relative">
       <input type="hidden" name="role" value="{{ role }}">
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5" stroke-width="1.6"/><path stroke-linecap="round" stroke-width="1.6" d="M13.5 13.5L17 17"/></svg>
       <input type="search" name="q" value="{{ q }}" placeholder="{{ t.msg_search_placeholder }}"
-             class="pl-9 pr-3 py-2 text-xs rounded-[10px] border border-gray-200 bg-[#F6F5FA] focus:bg-white w-44 text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF] transition-colors"
+             class="pl-9 pr-3 py-2 text-xs rounded-[10px] border border-gray-200 bg-[#F5F8FB] focus:bg-white w-44 text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#496C92] focus:border-[#496C92] transition-colors"
              onchange="this.form.submit()">
     </form>
     <a href="/web/workspace/{{ ws.id }}/session/{{ session.id }}/trash"
-       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#6E56CF] hover:border-[#6E56CF]/30 transition-colors">
+       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:text-[#496C92] hover:border-[#496C92]/30 transition-colors">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       {{ t.msg_trash }}
-      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ trash_count }}</span>{% endif %}
+      {% if trash_count %}<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold bg-[#DCEAFB] text-[#496C92]">{{ trash_count }}</span>{% endif %}
     </a>
   </div>
 
@@ -141,14 +141,14 @@
       <!-- 用户消息：右对齐，渐变头像 + 浅紫气泡 + 气泡内时间 -->
       <div class="flex justify-end gap-3" data-mid="{{ m.id }}">
         <div class="max-w-[85%] min-w-0">
-          <div class="relative bg-[#F2F0FA] rounded-2xl rounded-tr-md px-4 py-2.5 group">
+          <div class="relative bg-[#F9FBFE] rounded-2xl rounded-tr-md px-4 py-2.5 group">
             {% if m.meta and m.meta.subagent %}
-            <div class="flex justify-end mb-1"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span></div>
+            <div class="flex justify-end mb-1"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCEAFB] text-[#496C92]">{{ t.msg_subagent }}</span></div>
             {% endif %}
             <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-900 break-words">{{ m.content_md|safe }}</div>
             <div class="flex items-center justify-end gap-2 mt-1.5">
               <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
-                      class="p-1 rounded-md text-gray-300 hover:text-[#6E56CF] hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="p-1 rounded-md text-gray-300 hover:text-[#496C92] hover:bg-white opacity-0 group-hover:opacity-100 transition-opacity"
                       title="{{ t.common_copy }}">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
               </button>
@@ -164,11 +164,11 @@
                   {% endif %}
                 </button>
               </form>
-              <span class="text-[11px] text-[#A5A5BC] shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+              <span class="text-[11px] text-[#B6BCC2] shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             </div>
           </div>
         </div>
-        <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style="background:linear-gradient(135deg,#1A3366,#4066B3)">
+        <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style="background:linear-gradient(135deg,#33383F,#474D54)">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" fill="white" fill-opacity="0.85"/><path stroke="white" stroke-width="1.8" stroke-linecap="round" d="M5 20c1.5-3.5 4-5 7-5s5.5 1.5 7 5"/></svg>
         </div>
       </div>
@@ -182,20 +182,20 @@
           <div class="flex items-center gap-2 mb-1.5">
             <span class="text-[13px] font-semibold text-gray-700">{{ agent_label(session.agent_type or 'hermes') }}</span>
             {% if m.meta and m.meta.subagent %}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCEAFB] text-[#496C92]">{{ t.msg_subagent }}</span>
             {% endif %}
           </div>
-          <div class="relative bg-white border border-[#EFEEF7] rounded-2xl rounded-tl-md px-4 py-3 shadow-[0_3px_10px_-4px_rgba(33,26,72,0.04)] group">
+          <div class="relative bg-white border border-[#E9EDF1] rounded-2xl rounded-tl-md px-4 py-3 shadow-[0_3px_10px_-4px_rgba(33,26,72,0.04)] group">
             {% if m.reasoning_content %}
             <details class="mb-2">
-              <summary class="text-xs text-gray-400 hover:text-[#6E56CF] cursor-pointer select-none">{{ t.msg_thinking }}</summary>
-              <p class="mt-2 px-3 py-2 bg-[#F6F5FA] rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
+              <summary class="text-xs text-gray-400 hover:text-[#496C92] cursor-pointer select-none">{{ t.msg_thinking }}</summary>
+              <p class="mt-2 px-3 py-2 bg-[#F5F8FB] rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
             </details>
             {% endif %}
             <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-800 break-words">{{ m.content_md|safe }}</div>
             <div class="flex items-center gap-2 mt-2">
               <button type="button" onclick="copyMessage(this, 'msg-{{ loop.index0 }}')"
-                      class="p-1 rounded-md text-gray-300 hover:text-[#6E56CF] hover:bg-gray-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="p-1 rounded-md text-gray-300 hover:text-[#496C92] hover:bg-gray-50 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="{{ t.common_copy }}">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
               </button>
@@ -211,7 +211,7 @@
                   {% endif %}
                 </button>
               </form>
-              <span class="text-[11px] text-[#A5A5BC] ml-auto shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
+              <span class="text-[11px] text-[#B6BCC2] ml-auto shrink-0" data-ts="{{ m.timestamp }}">{{ m.timestamp|msg_time if m.timestamp else '' }}</span>
             </div>
           </div>
         </div>
@@ -219,13 +219,13 @@
       {% elif m.role == 'tool' %}
       <!-- 工具消息：折叠卡 -->
       <div class="flex justify-start" x-data="{ open: false }">
-        <div class="relative max-w-[85%] w-full bg-[#F6F5FA] border border-[#ECEBF4] rounded-xl group">
+        <div class="relative max-w-[85%] w-full bg-[#F5F8FB] border border-[#E9EDF1] rounded-xl group">
           <button type="button" @click="open = !open"
                   class="w-full flex items-center gap-2 px-4 py-2.5 pr-20 text-xs font-medium text-gray-500 hover:text-gray-800">
             <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             <span class="text-gray-400">{{ t.msg_tool_label }}</span>
             {% if m.meta and m.meta.subagent %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#EDE9FB] text-[#6E56CF]">{{ t.msg_subagent }}</span>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#DCEAFB] text-[#496C92]">{{ t.msg_subagent }}</span>
             {% endif %}
             <span class="font-mono text-gray-700">{{ m.tool_name or m.tool_call_id or t.common_none }}</span>
             <span class="text-gray-300">·</span>
@@ -253,7 +253,7 @@
       {% else %}
       <!-- 系统消息：居中胶囊 -->
       <div class="relative text-center group">
-        <span class="inline-block text-xs text-gray-400 bg-[#F6F5FA] border border-gray-100 px-3 py-1 rounded-full">{{ m.content or '' }}</span>
+        <span class="inline-block text-xs text-gray-400 bg-[#F5F8FB] border border-gray-100 px-3 py-1 rounded-full">{{ m.content or '' }}</span>
         <form method="POST" action="/web/workspace/{{ ws.id }}/session/{{ session.id }}/message/{{ m.id }}/{{ 'unhide' if m.hidden else 'hide' }}"
               onsubmit="return confirm('{{ t.msg_hide_confirm if not m.hidden else t.msg_unhide_confirm }}')"
               class="absolute -right-16 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -355,7 +355,7 @@ function flashCopied(btn) {
   var el = document.querySelector('[data-mid="' + focus + '"]');
   if (!el) return;
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  el.style.boxShadow = '0 0 0 3px rgba(110,86,207,0.5)';
+  el.style.boxShadow = '0 0 0 3px rgba(73,108,146,0.5)';
   el.style.borderRadius = '14px';
   el.style.transition = 'box-shadow 0.8s ease';
   setTimeout(function () { el.style.boxShadow = ''; }, 4000);

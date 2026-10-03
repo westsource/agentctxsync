@@ -61,7 +61,7 @@ class AdminUsersEmailColumnTest(unittest.TestCase):
         })
         table = re.search(r"<table.*?</table>", html, re.S).group(0)
         headers = [_text(h) for h in re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)]
-        body = re.findall(r"<tr class=\"hover:bg-\[#F6F5FA\][^>]*>(.*?)</tr>", table, re.S)
+        body = re.findall(r"<tr class=\"hover:bg-\[#F5F8FB\][^>]*>(.*?)</tr>", table, re.S)
         cells = [[_text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", r, re.S)]
                  for r in body]
         return headers, cells

@@ -61,7 +61,7 @@ def _html_body(text, url=None):
         body = body.replace(
             html.escape(url),
             f'<a href="{html.escape(url, quote=True)}" '
-            f'style="color:#6E56CF;word-break:break-all;">{html.escape(url)}</a>',
+            f'style="color:#284767;word-break:break-all;">{html.escape(url)}</a>',
             1)
     return ('<div style="font-family:-apple-system,\'Segoe UI\',Roboto,Helvetica,'
             'Arial,sans-serif;font-size:14px;line-height:1.7;color:#1f2937;">'

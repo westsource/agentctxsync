@@ -6,24 +6,42 @@
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <title>{% block title %}Agent Context Sync{% endblock %}</title>
   <script src="/static/tailwind.js"></script>
-  <script>
-    // Brand theme: map the entire `sky` scale to AgentCtxSync lavender (#6E56CF family)
-    // so every existing sky-* utility turns into the new brand color site-wide.
+    <script>
+    // 品牌主题：「淡蓝灰 Slate」。
+    //
+    // 两件事在这里一次做完，覆盖全站 887 处 gray-* 和所有 sky-*：
+    //   1. sky  → 品牌色阶（蓝灰，原来是紫色 lavender）
+    //   2. gray → 蓝灰中性色阶（色相跟着品牌走，这是「整页读成蓝灰」的关键）
+    //
+    // 为什么两个都必须换：只换 sky 会得到「蓝按钮 + 中性冷灰底」，
+    // 比原来的纯紫体系更割裂 —— 蓝灰的底色本身就该带蓝。
     tailwind.config = {
       theme: {
         extend: {
           colors: {
             sky: {
-              50: '#f4f2fc',
-              100: '#e9e5f9',
-              200: '#d3ccf3',
-              300: '#b0a4ea',
-              400: '#8b79de',
-              500: '#6E56CF',
-              600: '#5B45B9',
-              700: '#4a3898',
-              800: '#3d2f7d',
-              900: '#332865'
+              50: '#F7FBFF',
+              100: '#EDF5FF',
+              200: '#DCEAFB',
+              300: '#C1D8F2',
+              400: '#9CBBDE',
+              500: '#496C92',
+              600: '#37597C',
+              700: '#284767',
+              800: '#1A354F',
+              900: '#102438'
+            },
+            gray: {
+              50: '#F9FBFE',
+              100: '#F3F6F9',
+              200: '#E9EDF1',
+              300: '#DADEE4',
+              400: '#B6BCC2',
+              500: '#6A6F75',
+              600: '#5A5F66',
+              700: '#474D54',
+              800: '#33383F',
+              900: '#22282E'
             }
           }
         }
@@ -39,7 +57,7 @@
     body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   </style>
 </head>
-<body class="h-full bg-[#F6F5FA] text-gray-800 antialiased">
+<body class="h-full bg-[#F5F8FB] text-gray-800 antialiased">
 
 {% if user %}
 <div class="flex h-full">
@@ -47,7 +65,7 @@
   <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col px-4 py-5">
     <!-- Logo -->
     <a href="/web/" class="flex items-center gap-3 px-3 py-2 mb-4">
-      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 4px 12px rgba(94,84,207,.3)">
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background:linear-gradient(135deg,#496C92,#37597C);box-shadow:0 4px 12px rgba(73,108,146,.3)">
         <svg width="20" height="20" viewBox="0 0 44 44" fill="none"><path d="M11.5 13.1 C14.1 8 19.3 5.5 22 5.5 C24.7 5.5 29.9 8 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M32.5 13.1 C32.3 15.6 30.4 17.1 28.1 17.1 C30.1 15.9 31.5 14.4 32.5 13.1" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.5 30.9 C29.9 36 24.7 38.5 22 38.5 C19.3 38.5 14.1 36 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M11.5 30.9 C11.7 33.4 13.6 34.9 15.9 34.9 C13.9 33.7 12.5 32.2 11.5 30.9" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="22" r="4.5" fill="#FFD166"/></svg>
       </div>
       <div class="min-w-0">
@@ -59,19 +77,19 @@
     <form method="GET" action="/web/search" class="relative mb-3 px-1">
       <svg class="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>
       <input type="search" name="q" placeholder="{{ t.search_placeholder }}"
-             class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#6E56CF] focus:border-[#6E56CF]">
+             class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#496C92] focus:border-[#496C92]">
     </form>
 
     <!-- Navigation -->
     <nav class="flex-1 space-y-1 overflow-y-auto">
       <a href="/web/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'dashboard' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'dashboard' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
         {{ t.nav_dashboard }}
       </a>
 
       <a href="/web/all-sessions" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'all_sessions' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'all_sessions' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
         {{ t.nav_all_sessions }}
       </a>
@@ -83,7 +101,7 @@
       {% endif %}
       {% for ws in workspaces %}
       <a href="/web/workspace/{{ ws.id }}" class="flex items-center gap-3 pl-9 pr-3 py-2 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'workspace_' ~ ws.id %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'workspace_' ~ ws.id %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
         <span class="truncate">{{ ws.name }}</span>
       </a>
@@ -94,30 +112,30 @@
         <p class="px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ t.nav_admin }}</p>
       </div>
       <a href="/web/admin/users" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'admin_users' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'admin_users' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
         {{ t.nav_user_management }}
       </a>
       <a href="/web/admin/workspaces" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'admin_workspaces' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'admin_workspaces' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
         {{ t.nav_all_workspaces }}
       </a>
       {% endif %}
       <a href="/web/invites" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'admin_invites' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'admin_invites' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
         {{ t.nav_invites }}
       </a>
       {% if user.is_admin %}
       <a href="/web/admin/access" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'admin_access' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'admin_access' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         {{ t.nav_access_stats }}
       </a>
       {% endif %}
       <a href="/web/help" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-        {% if active_page == 'help_hermes' %}bg-[#EDE9FB] text-[#6E56CF] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        {% if active_page == 'help_hermes' %}bg-[#DCEAFB] text-[#496C92] font-semibold{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         {{ t.nav_hermes_help }}
       </a>
@@ -141,16 +159,16 @@
       <div class="flex items-center justify-between px-3 mb-1.5">
         <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ t.dash_quota_title }}</span>
         {% if quota.plan == 'unlimited' %}
-        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#E9F9EF] text-[#34A853]">{{ t.plan_unlimited }}</span>
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#EEFDEF] text-[#328644]">{{ t.plan_unlimited }}</span>
         {% else %}
-        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#FFF7E6] text-[#F2994A]">{{ t.plan_free }}</span>
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#FFF6ED] text-[#A86800]">{{ t.plan_free }}</span>
         {% endif %}
       </div>
       {% if quota.max_sessions is not none %}
         {% if quota.max_sessions > 0 %}
         <div class="flex items-center gap-2 px-3" title="{{ t.dash_quota_used.format(quota.active_count, quota.max_sessions) }}">
           <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div class="h-full bg-[#6E56CF] rounded-full transition-all"
+            <div class="h-full bg-[#496C92] rounded-full transition-all"
                  style="width: {{ [quota.active_count / quota.max_sessions * 100, 100] | min }}%"></div>
           </div>
           <span class="text-[11px] text-gray-400 tabular-nums whitespace-nowrap">{{ quota.active_count }}/{{ quota.max_sessions }}</span>
@@ -169,7 +187,7 @@
       <div class="user-menu relative">
         <div class="flex items-center justify-between cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors">
           <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white shrink-0" style="background:linear-gradient(135deg,#6E56CF,#3D66C9)">{{ (user.display_name or user.username)[0]|upper }}</div>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white shrink-0" style="background:linear-gradient(135deg,#496C92,#284767)">{{ (user.display_name or user.username)[0]|upper }}</div>
             <div class="min-w-0">
               <p class="text-sm font-medium text-gray-900 truncate" title="{{ t.nav_account_menu }}">{{ user.display_name or user.username }}</p>
               <p class="text-xs text-gray-400 truncate">{{ user.username }}</p>
@@ -181,10 +199,10 @@
         </div>
         <!-- Dropdown: language + edit profile (outer layer bridges the hover gap) -->
         <div class="user-dropdown" style="position:absolute;bottom:100%;left:0;width:12rem;z-index:60;padding-bottom:0.5rem;">
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:0.75rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);padding:0.375rem 0;">
+          <div style="background:#fff;border:1px solid #e9edf1;border-radius:0.75rem;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);padding:0.375rem 0;">
             <div class="px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider">{{ t.nav_language }}</div>
-            <a href="/web/set-language/zh-CN" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'zh-CN' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">中文</a>
-            <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#EDE9FB] text-[#6E56CF]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
+            <a href="/web/set-language/zh-CN" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'zh-CN' %}bg-[#DCEAFB] text-[#496C92]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">中文</a>
+            <a href="/web/set-language/en" class="block px-3 py-1.5 text-sm transition-colors {% if lang == 'en' %}bg-[#DCEAFB] text-[#496C92]{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">EN</a>
             <div class="my-1 border-t border-gray-200"></div>
             {% if user.get("account_state") != 'PENDING_EMAIL_VERIFICATION' %}
             <button type="button" onclick="toggleSecurityMenu()" class="block w-full text-left px-3 py-1.5 text-xs font-medium text-gray-600 uppercase tracking-wider hover:text-gray-900 hover:bg-gray-50 transition-colors">
@@ -222,9 +240,9 @@
           var T_DISMISS = {{ t.announcement_dismiss | tojson }};
           var T_LINK = {{ t.announcement_default_link | tojson }};
           var TONE = {
-            info: 'bg-[#EDE9FB] text-[#5B45B9] border-[#6E56CF]/20',
+            info: 'bg-[#DCEAFB] text-[#37597C] border-[#496C92]/20',
             update: 'bg-emerald-50 text-emerald-600 border-emerald-500/20',
-            important: 'bg-[#FDECEC] text-[#C53B3B] border-[#EB5757]/25'
+            important: 'bg-[#FFF5F4] text-[#CE383A] border-[#CB4C48]/25'
           };
 
           function pick(map) {           // language, then zh-CN, then anything
@@ -345,12 +363,12 @@
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.admin_display_name }}</label>
         <input type="text" name="display_name" value="{{ user.display_name or '' }}" maxlength="64"
-               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:border-transparent text-sm">
       </div>
       <p class="text-xs text-gray-400">{{ t.profile_display_only_hint }}</p>
       <div class="flex justify-end gap-3 pt-2">
-        <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#D9D6EC] rounded-[10px] hover:border-[#6E56CF]/30 hover:text-[#6E56CF] transition-colors">{{ t.dash_cancel }}</button>
-        <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#6E56CF] hover:bg-[#5B45B9] rounded-[10px] transition-colors shadow-md shadow-[#6E56CF]/25">{{ t.admin_save }}</button>
+        <button type="button" onclick="document.getElementById('profileModal').classList.add('hidden')" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-gray-600 bg-white border border-[#DADEE4] rounded-[10px] hover:border-[#496C92]/30 hover:text-[#496C92] transition-colors">{{ t.dash_cancel }}</button>
+        <button type="submit" class="inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium text-white bg-[#496C92] hover:bg-[#37597C] rounded-[10px] transition-colors shadow-md shadow-[#496C92]/25">{{ t.admin_save }}</button>
       </div>
     </form>
   </div>
@@ -358,7 +376,7 @@
 
 {% else %}
 <!-- No user - login/register page layout -->
-<div class="min-h-full flex items-center justify-center px-4" style="background:linear-gradient(150deg,#6E56CF 0%,#5B45B9 55%,#3D5AC9 100%)">
+<div class="min-h-full flex items-center justify-center px-4" style="background:linear-gradient(150deg,#496C92 0%,#37597C 55%,#284767 100%)">
   <div class="w-full max-w-md">
     {% block content_full %}{% endblock %}
   </div>

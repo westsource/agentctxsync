@@ -75,20 +75,20 @@
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
         <input type="password" name="old_password" required autocomplete="current-password"
-               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_new_password }}</label>
         <input type="password" name="new_password" required minlength="6" maxlength="128" autocomplete="new-password"
-               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_confirm_password }}</label>
         <input type="password" name="confirm_password" required minlength="6" maxlength="128" autocomplete="new-password"
-               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
       </div>
       <p class="text-xs text-gray-400">{{ t.security_pwd_hint }}</p>
-      <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.security_pwd_btn }}</button>
+      <button type="submit" class="w-full py-2.5 bg-[#496C92] hover:bg-[#37597C] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.security_pwd_btn }}</button>
     </form>
   </div>
 </div>
@@ -106,11 +106,11 @@
       <p class="text-sm text-gray-600 mb-2">{{ t.security_email_section }}: <span class="font-medium">{{ row.email[:1] }}***@{{ row.email.split('@')[-1] if '@' in row.email else row.email }}</span></p>
       <p class="text-xs text-gray-400 mb-5">{{ t.sec_reset_desc }}</p>
       <form method="POST" action="/web/security/reset-request">
-        <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.sec_reset_btn }}</button>
+        <button type="submit" class="w-full py-2.5 bg-[#496C92] hover:bg-[#37597C] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.sec_reset_btn }}</button>
       </form>
     {% else %}
       <p class="text-sm text-gray-600 mb-5">{{ t.reset_no_verified_email }}</p>
-      <a href="/web/security?d=dlgEmail" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.email_bind_btn }}</a>
+      <a href="/web/security?d=dlgEmail" class="block text-center py-2.5 text-sm font-semibold text-[#496C92] hover:text-[#37597C]">{{ t.email_bind_btn }}</a>
     {% endif %}
   </div>
 </div>
@@ -126,22 +126,22 @@
       {{ t.email_pending_status }}: <span class="font-medium">{{ row.pending_email[:1] }}***@{{ row.pending_email.split('@')[-1] if '@' in row.pending_email else row.pending_email }}</span>
     </p>
     <form method="POST" action="/web/email/resend" class="mb-4">
-      <button type="submit" class="w-full py-2.5 border border-[#6E56CF] text-[#6E56CF] hover:bg-[#EDE9FB] font-semibold rounded-xl transition-colors text-sm">{{ t.email_resend_btn }}</button>
+      <button type="submit" class="w-full py-2.5 border border-[#496C92] text-[#496C92] hover:bg-[#DCEAFB] font-semibold rounded-xl transition-colors text-sm">{{ t.email_resend_btn }}</button>
     </form>
     {% endif %}
     <form method="POST" action="/web/email/bind" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.register_email }}</label>
         <input type="email" name="email" required maxlength="254" autocomplete="email"
-               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.dash_current_password }}</label>
         <input type="password" name="old_password" required autocomplete="current-password"
-               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+               class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
       </div>
       <p class="text-xs text-gray-400">{{ t.email_new_hint }}</p>
-      <button type="submit" class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.email_change_btn if row.email else t.email_bind_btn }}</button>
+      <button type="submit" class="w-full py-2.5 bg-[#496C92] hover:bg-[#37597C] text-white font-semibold rounded-xl transition-colors text-sm">{{ t.email_change_btn if row.email else t.email_bind_btn }}</button>
     </form>
   </div>
 </div>

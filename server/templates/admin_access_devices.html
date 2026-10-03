@@ -4,7 +4,7 @@
 <!-- Header -->
 <div class="flex items-center justify-between mb-6">
   <div>
-    <a href="/web/admin/access" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+    <a href="/web/admin/access" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#496C92] transition-colors mb-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
       {{ t.common_back }}
     </a>
@@ -18,7 +18,7 @@
   <div class="overflow-x-auto">
     <table class="w-full">
       <thead>
-        <tr class="border-b border-gray-100 bg-[#F9F8FD]">
+        <tr class="border-b border-gray-100 bg-[#FAFCFF]">
           <th class="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_device }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_clients }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.accs_domain }}</th>
@@ -29,31 +29,31 @@
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for d in devices %}
-        <tr class="hover:bg-[#F6F5FA] transition-colors cursor-pointer" data-device-row="{{ loop.index }}">
+        <tr class="hover:bg-[#F5F8FB] transition-colors cursor-pointer" data-device-row="{{ loop.index }}">
           <td class="px-4 py-4">
             <span class="inline-flex items-center gap-2">
-              <button type="button" class="access-toggle text-gray-400 hover:text-[#6E56CF] transition-colors" data-target="{{ loop.index }}" title="{{ t.accs_expand }}">
+              <button type="button" class="access-toggle text-gray-400 hover:text-[#496C92] transition-colors" data-target="{{ loop.index }}" title="{{ t.accs_expand }}">
                 <svg class="chevron w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
               </button>
               <span class="text-sm font-medium text-gray-900 font-mono">{{ d.device_id }}</span>
             </span>
           </td>
           <td class="px-6 py-4">
-            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F1EDFB] text-[#6E56CF]">{{ d.agents|length }} {{ t.accs_clients_unit }}</span>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FBF4FF] text-[#496C92]">{{ d.agents|length }} {{ t.accs_clients_unit }}</span>
           </td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8F1FE] text-[#4285F4]">{{ d.domain_count }}</span></td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FDECEC] text-[#EB5757]">{{ d.ip_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#EEFBF2] text-[#789D85]">{{ d.domain_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#FFF5F4] text-[#CB4C48]">{{ d.ip_count }}</span></td>
           <td class="px-6 py-4">
             <div class="flex flex-wrap gap-1">
               {% for cl in d.agents %}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#F6F5FA] text-gray-600 font-mono">{{ cl.agent }}<span class="text-gray-400">→</span>{{ cl.client_version or t.common_none }}</span>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#F5F8FB] text-gray-600 font-mono">{{ cl.agent }}<span class="text-gray-400">→</span>{{ cl.client_version or t.common_none }}</span>
               {% endfor %}
             </div>
           </td>
           <td class="px-6 py-4 text-sm text-gray-500 tabular-nums">{{ d.last_seen | timestamp_fmt }}</td>
         </tr>
         <!-- Expandable per-agent detail row -->
-        <tr class="hidden bg-[#F8F7FC]" data-device-detail="{{ loop.index }}">
+        <tr class="hidden bg-[#FAFCFF]" data-device-detail="{{ loop.index }}">
           <td colspan="6" class="px-4 py-0">
             <div class="py-3 pl-10 pr-6">
               <table class="w-full">

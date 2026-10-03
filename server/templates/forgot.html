@@ -4,7 +4,7 @@
 <div x-data="{ loading: false }">
   <div class="bg-white rounded-3xl p-8 shadow-2xl">
     <div class="flex flex-col items-center mb-6">
-      <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:linear-gradient(135deg,#6E56CF,#5B45B9);box-shadow:0 8px 20px rgba(94,84,207,.35)">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style="background:linear-gradient(135deg,#496C92,#37597C);box-shadow:0 8px 20px rgba(73,108,146,.35)">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path stroke="white" stroke-width="2" stroke-linecap="round" d="M15 7a3 3 0 11-6 0 3 3 0 016 0zM4 21a8 8 0 0116 0"/></svg>
       </div>
       <h1 class="text-xl font-bold text-gray-900">{{ t.forgot_title }}</h1>
@@ -12,14 +12,14 @@
 
     {% if mode == 'unavailable' %}
       <p class="text-sm text-gray-500 mb-6">{{ t.forgot_unavailable }}</p>
-      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#496C92] hover:text-[#37597C]">{{ t.forgot_back_login }}</a>
     {% elif mode == 'rate' %}
       <p class="text-sm text-gray-500 mb-6">{{ t.email_rate_limited }}</p>
-      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#496C92] hover:text-[#37597C]">{{ t.forgot_back_login }}</a>
     {% elif mode == 'done' %}
       <h2 class="text-base font-semibold text-gray-900 mb-2">{{ t.forgot_done_title }}</h2>
       <p class="text-sm text-gray-500 mb-6">{{ t.forgot_done_desc }}</p>
-      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#6E56CF] hover:text-[#5B45B9]">{{ t.forgot_back_login }}</a>
+      <a href="/web/login" class="block text-center py-2.5 text-sm font-semibold text-[#496C92] hover:text-[#37597C]">{{ t.forgot_back_login }}</a>
     {% else %}
       <p class="text-sm text-gray-500 mb-6">{{ t.forgot_desc }}</p>
       {% if error %}
@@ -29,7 +29,7 @@
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.forgot_identifier }}</label>
           <input type="text" name="username" required autofocus autocomplete="username" value="{{ identifier or '' }}"
-                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+                 class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
         </div>
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-500 mb-1.5">{{ t.forgot_captcha }}</label>
@@ -38,16 +38,16 @@
             <div id="captcha-box" class="shrink-0 rounded-xl border border-gray-200 overflow-hidden">{{ captcha_svg | safe }}</div>
             <input type="text" name="captcha" id="captcha-input" required autocomplete="off" maxlength="5"
                    placeholder="{{ t.forgot_captcha_placeholder }}" title="{{ t.forgot_captcha_placeholder }}"
-                   class="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 text-center focus:outline-none focus:ring-2 focus:ring-[#6E56CF] focus:bg-white focus:border-transparent text-sm">
+                   class="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 text-center focus:outline-none focus:ring-2 focus:ring-[#496C92] focus:bg-white focus:border-transparent text-sm">
             <button type="button" onclick="refreshCaptcha()" title="{{ t.forgot_captcha_refresh }}"
-                    class="p-2 rounded-xl border border-gray-200 text-gray-400 hover:text-[#6E56CF] hover:border-[#6E56CF] transition-colors shrink-0">
+                    class="p-2 rounded-xl border border-gray-200 text-gray-400 hover:text-[#496C92] hover:border-[#496C92] transition-colors shrink-0">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4.6 9a8 8 0 0114.3-2.6M19.4 15A8 8 0 015.1 17.6"/></svg>
             </button>
           </div>
         </div>
         <p class="text-xs text-gray-400 mb-4">{{ t.forgot_hint }}</p>
         <button type="submit" :disabled="loading"
-                class="w-full py-2.5 bg-[#6E56CF] hover:bg-[#5B45B9] disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm">
+                class="w-full py-2.5 bg-[#496C92] hover:bg-[#37597C] disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm">
           <span x-show="!loading">{{ t.forgot_submit }}</span>
           <span x-show="loading" x-cloak>{{ t.register_submitting }}</span>
         </button>

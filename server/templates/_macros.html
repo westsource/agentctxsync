@@ -1,33 +1,33 @@
 {# Agent badge colors.
-   hermes           -> purple  #5B45B9 (brand 600)
-   dsh              -> indigo  #4D6BFE (DeepSeek brand blue)
-   opencode         -> slate   #64748B
-   reasonix         -> magenta #D63384
-   openclaw         -> red     #EB5757
-   workbuddy        -> teal    #0D9488
-   omp              -> gold    #B45309  (bg #FEF3C7)
-   Unknown/None -> brand purple #6E56CF.
+   hermes           -> purple  #284767 (brand 600)
+   dsh              -> indigo  #006332 (DeepSeek brand blue)
+   opencode         -> slate   #51666E
+   reasonix         -> magenta #726BBE
+   openclaw         -> red     #A25AA8
+   workbuddy        -> teal    #AE5B74
+   omp              -> gold    #008378  (bg #E9FEFA)
+   Unknown/None -> brand purple #496C92.
 #}
 {% macro agent_color(a) -%}
-{%- if a == 'dsh' -%}bg-[#EEF1FF] text-[#4D6BFE]
-{%- elif a == 'hermes' -%}bg-[#EDE9FB] text-[#5B45B9]
-{%- elif a == 'opencode' -%}bg-[#F1F5F9] text-[#64748B]
-{%- elif a == 'reasonix' -%}bg-[#FDF2F8] text-[#D63384]
-{%- elif a == 'openclaw' -%}bg-[#FDECEC] text-[#EB5757]
-{%- elif a == 'workbuddy' -%}bg-[#F0FDFA] text-[#0D9488]
-{%- elif a == 'omp' -%}bg-[#FEF3C7] text-[#B45309]
-{%- else -%}bg-[#EDE9FB] text-[#6E56CF]
+{%- if a == 'dsh' -%}bg-[#EBFEF0] text-[#006332]
+{%- elif a == 'hermes' -%}bg-[#F7FBFF] text-[#284767]
+{%- elif a == 'opencode' -%}bg-[#F4F9FB] text-[#51666E]
+{%- elif a == 'reasonix' -%}bg-[#F8F8FF] text-[#726BBE]
+{%- elif a == 'openclaw' -%}bg-[#FEF5FF] text-[#A25AA8]
+{%- elif a == 'workbuddy' -%}bg-[#FFF6F8] text-[#AE5B74]
+{%- elif a == 'omp' -%}bg-[#E9FEFA] text-[#008378]
+{%- else -%}bg-[#F7FBFF] text-[#496C92]
 {%- endif -%}
 {%- endmacro %}
 {% macro agent_color_solid(a) -%}
-{%- if a == 'dsh' -%}bg-[#4D6BFE]
-{%- elif a == 'hermes' -%}bg-[#5B45B9]
-{%- elif a == 'opencode' -%}bg-[#64748B]
-{%- elif a == 'reasonix' -%}bg-[#D63384]
-{%- elif a == 'openclaw' -%}bg-[#EB5757]
-{%- elif a == 'workbuddy' -%}bg-[#0D9488]
-{%- elif a == 'omp' -%}bg-[#B45309]
-{%- else -%}bg-[#6E56CF]
+{%- if a == 'dsh' -%}bg-[#006332]
+{%- elif a == 'hermes' -%}bg-[#284767]
+{%- elif a == 'opencode' -%}bg-[#51666E]
+{%- elif a == 'reasonix' -%}bg-[#726BBE]
+{%- elif a == 'openclaw' -%}bg-[#A25AA8]
+{%- elif a == 'workbuddy' -%}bg-[#AE5B74]
+{%- elif a == 'omp' -%}bg-[#008378]
+{%- else -%}bg-[#496C92]
 {%- endif -%}
 {%- endmacro %}
 {% macro agent_label(a) -%}
@@ -45,7 +45,7 @@
    translation dict in the current language; the long explanation lives in the
    title attribute so the chip itself stays one word wide. #}
 {% macro sync_paused_chip(t) -%}
-<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#F1F0F8] border border-[#A5A5BC]/40 text-[10px] font-semibold text-[#5A5A72] shrink-0" title="{{ t.sync_pause_badge_hint }}">
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#F3F6F9] border border-[#B6BCC2]/40 text-[10px] font-semibold text-[#5A5F66] shrink-0" title="{{ t.sync_pause_badge_hint }}">
   <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
   {{ t.sync_pause_badge }}
 </span>

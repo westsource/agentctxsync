@@ -5,7 +5,7 @@
 <style>
   [x-cloak] { display: none !important; }
   pre { position: relative; }
-  .code-copy { position: absolute; top: 6px; right: 6px; padding: 1px 8px; border-radius: 6px; font-size: 11px; background: rgba(255,255,255,.1); color: #cbd5e1; cursor: pointer; transition: all .15s; }
+  .code-copy { position: absolute; top: 6px; right: 6px; padding: 1px 8px; border-radius: 6px; font-size: 11px; background: rgba(255,255,255,.1); color: #dadee4; cursor: pointer; transition: all .15s; }
   .code-copy:hover { background: rgba(255,255,255,.22); color: #fff; }
 </style>
 
@@ -14,7 +14,7 @@
   <div class="pt-6 pb-4">
     <!-- ========== 页头 ========== -->
     <div class="mb-4">
-    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#496C92] transition-colors mb-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
       {{ t.common_back }}
     </a>
@@ -26,18 +26,18 @@
   <!-- ========== ① 下载客户端 ========== -->
   <section class="mb-6">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">1</span>
+      <span class="w-9 h-9 rounded-[10px] bg-[#DCEAFB] flex items-center justify-center shrink-0 text-[#496C92] text-[17px] font-bold">1</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_download_section }}</h2>
-      <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F6F5FA] text-gray-500 font-mono border border-gray-100">{{ t.help_client_version }}: {{ client_version }}</span>
+      <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F5F8FB] text-gray-500 font-mono border border-gray-100">{{ t.help_client_version }}: {{ client_version }}</span>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step1_hint }}</p>
-    <p class="text-xs text-[#6E56CF]/80 bg-[#EDE9FB]/40 border border-[#6E56CF]/20 rounded-lg px-3 py-2 mb-4">{{ t.help_deps_hint }}</p>
+    <p class="text-xs text-[#496C92]/80 bg-[#DCEAFB]/40 border border-[#496C92]/20 rounded-lg px-3 py-2 mb-4">{{ t.help_deps_hint }}</p>
     <p class="text-sm text-amber-500 mb-4" x-show="!wsList.length">{{ t.dash_no_workspaces }} <a href="/web/" class="underline">{{ t.dash_create_workspace }}</a></p>
     <!-- 胶囊切换条 -->
     <div class="flex flex-wrap gap-2 mb-4">
       {% for agent_key, agent in agents.items() %}
       <button type="button" @click="selectAgent('{{ agent_key }}')"
-              :class="agent === '{{ agent_key }}' ? 'border-[#6E56CF] bg-[#EDE9FB] text-[#6E56CF] shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-[#6E56CF]/40 hover:text-gray-900'"
+              :class="agent === '{{ agent_key }}' ? 'border-[#496C92] bg-[#DCEAFB] text-[#496C92] shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-[#496C92]/40 hover:text-gray-900'"
               class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-medium transition-all select-none">
         <span class="w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 {{ agent_color(agent_key) }}">
           <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
@@ -72,32 +72,32 @@
           <p class="text-xs text-gray-400 mt-0.5 truncate">{{ agent.desc }}</p>
         </div>
       </div>
-      <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
-      {% if agent.config %}<p class="text-xs text-gray-400 mb-3">{{ t.help_config }}<code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.config }}</code></p>{% endif %}
+      <p class="text-xs text-gray-400 mb-3">{{ t.help_store }}<code class="text-gray-600 bg-[#F5F8FB] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.store }}</code></p>
+      {% if agent.config %}<p class="text-xs text-gray-400 mb-3">{{ t.help_config }}<code class="text-gray-600 bg-[#F5F8FB] px-1.5 py-0.5 rounded border border-gray-100">{{ agent.config }}</code></p>{% endif %}
       {% if agent.downloadable %}
       <div class="flex flex-wrap items-center gap-2 mb-3">
         {% if agent.downloadable %}
         <button type="button" @click.stop="download('{{ agent_key }}')"
                 :disabled="!wsList.length"
-                class="inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                class="inline-flex items-center gap-2 px-4 py-2 bg-[#496C92] hover:bg-[#37597C] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#496C92]/20 disabled:opacity-40 disabled:cursor-not-allowed">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
           {{ t.help_download_btn }}
         </button>
         <span class="text-xs text-amber-500" x-show="!wsList.length">{{ t.help_select_ws }}</span>
         {% else %}
-        <span class="text-xs text-gray-400">{{ t.help_manual_note.replace('{0}', '<code class="text-gray-600 bg-[#F6F5FA] px-1 py-0.5 rounded border border-gray-100">' ~ agent_key ~ '</code>') | safe }}</span>
+        <span class="text-xs text-gray-400">{{ t.help_manual_note.replace('{0}', '<code class="text-gray-600 bg-[#F5F8FB] px-1 py-0.5 rounded border border-gray-100">' ~ agent_key ~ '</code>') | safe }}</span>
         {% endif %}
       </div>
       {% if agent_key == "openclaw" %}
-      <div class="mt-3 rounded-xl bg-[#EDE9FB]/40 border border-[#6E56CF]/20 p-3">
-        <p class="text-sm font-medium text-[#6E56CF] mb-1">{{ t.help_openclaw_oneshot }}</p>
+      <div class="mt-3 rounded-xl bg-[#DCEAFB]/40 border border-[#496C92]/20 p-3">
+        <p class="text-sm font-medium text-[#496C92] mb-1">{{ t.help_openclaw_oneshot }}</p>
         <p class="text-xs text-gray-500 mb-2">{{ t.help_openclaw_oneshot_d | safe }}</p>
         <div class="flex flex-wrap gap-2">
-          <a href="/web/download/deploy-script?file=deploy-local-mcp.ps1" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#6E56CF]/30 text-[#6E56CF] text-xs font-medium rounded-lg hover:bg-[#EDE9FB]/60 transition-colors">
+          <a href="/web/download/deploy-script?file=deploy-local-mcp.ps1" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#496C92]/30 text-[#496C92] text-xs font-medium rounded-lg hover:bg-[#DCEAFB]/60 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
             {{ t.help_openclaw_oneshot_ps }}
           </a>
-          <a href="/web/download/deploy-script?file=deploy-local-mcp.sh" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#6E56CF]/30 text-[#6E56CF] text-xs font-medium rounded-lg hover:bg-[#EDE9FB]/60 transition-colors">
+          <a href="/web/download/deploy-script?file=deploy-local-mcp.sh" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#496C92]/30 text-[#496C92] text-xs font-medium rounded-lg hover:bg-[#DCEAFB]/60 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>
             {{ t.help_openclaw_oneshot_sh }}
           </a>
@@ -105,7 +105,7 @@
       </div>
       {% endif %}
       <details class="group">
-        <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-[#6E56CF] hover:text-[#5B45B9] select-none">
+        <summary class="cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-[#496C92] hover:text-[#37597C] select-none">
           <svg class="w-4 h-4 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           {{ t.help_install_detail }}
         </summary>
@@ -121,7 +121,7 @@
             {% else %}
             {% set ns.step = ns.step + 1 %}
             <li class="flex gap-3">
-              <span class="shrink-0 w-6 h-6 rounded-full bg-[#EDE9FB] text-[#6E56CF] flex items-center justify-center text-xs font-bold">{{ ns.step }}</span>
+              <span class="shrink-0 w-6 h-6 rounded-full bg-[#DCEAFB] text-[#496C92] flex items-center justify-center text-xs font-bold">{{ ns.step }}</span>
               <span class="min-w-0 flex-1">
                 {% if step.text %}<span>{{ step.text | safe }}</span>{% endif %}
               </span>
@@ -154,7 +154,7 @@
   <!-- ========== ② 配置 API Key + 注册命令 ========== -->
   <section class="mb-6" x-show="agents[agent] && agents[agent].downloadable">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">2</span>
+      <span class="w-9 h-9 rounded-[10px] bg-[#DCEAFB] flex items-center justify-center shrink-0 text-[#496C92] text-[17px] font-bold">2</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_key_section }}</h2>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step2_hint }}</p>
@@ -163,7 +163,7 @@
       <!-- 工作空间选择 -->
       <div class="flex flex-wrap items-center gap-3 mb-4" x-show="wsList.length">
         <span class="text-sm font-medium text-gray-700 shrink-0">{{ t.help_ws_label }}</span>
-        <select x-model="wsId" class="text-sm border border-gray-200 rounded-[10px] px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#6E56CF]">
+        <select x-model="wsId" class="text-sm border border-gray-200 rounded-[10px] px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#496C92]">
           <template x-for="w in wsList" :key="w.id">
             <option :value="w.id" x-text="w.name"></option>
           </template>
@@ -171,23 +171,23 @@
       </div>
 
       <!-- 所选工作空间的 Key -->
-      <div class="flex items-center gap-3 p-3 bg-[#F6F5FA] rounded-xl border border-gray-100 mb-4" x-show="selectedWs">
-        <div class="w-9 h-9 rounded-lg bg-[#EDE9FB] flex items-center justify-center shrink-0">
-          <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+      <div class="flex items-center gap-3 p-3 bg-[#F5F8FB] rounded-xl border border-gray-100 mb-4" x-show="selectedWs">
+        <div class="w-9 h-9 rounded-lg bg-[#DCEAFB] flex items-center justify-center shrink-0">
+          <svg class="w-4 h-4 text-[#496C92]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
         </div>
         <div class="min-w-0 flex-1">
           <p class="text-sm font-medium text-gray-900" x-text="selectedWs.name"></p>
           <div class="flex items-center gap-1.5 mt-0.5">
             <code id="helpApiKey" class="block text-xs text-gray-500 break-all font-mono" x-text="showKey ? wsKey : keyMasked(wsKey)"></code>
             <button type="button" @click="showKey = !showKey"
-                    class="shrink-0 p-1 rounded-md text-gray-400 hover:text-[#6E56CF] hover:bg-[#EDE9FB] transition-colors" :title="showKey ? '{{ t.ws_api_key_hide }}' : '{{ t.ws_api_key_show }}'">
+                    class="shrink-0 p-1 rounded-md text-gray-400 hover:text-[#496C92] hover:bg-[#DCEAFB] transition-colors" :title="showKey ? '{{ t.ws_api_key_hide }}' : '{{ t.ws_api_key_show }}'">
               <svg x-show="!showKey" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3" stroke-width="1.8"/></svg>
               <svg x-show="showKey" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4L20 20M10.7 7.1A12 12 0 0 1 12 7c6 0 9.5 5 9.5 5a16.5 16.5 0 0 1-2.2 2.6M6.5 6.5A16.6 16.6 0 0 0 2.5 12s3.5 5 9.5 5c.9 0 1.7-.1 2.4-.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
             </button>
           </div>
         </div>
         <button type="button" @click="copyText(wsKey, $event.currentTarget)"
-                class="shrink-0 px-3 py-1.5 text-xs font-medium text-[#6E56CF] hover:text-[#5B45B9] border border-[#6E56CF]/20 hover:border-[#6E56CF]/40 rounded-lg transition-colors">{{ t.common_copy }}</button>
+                class="shrink-0 px-3 py-1.5 text-xs font-medium text-[#496C92] hover:text-[#37597C] border border-[#496C92]/20 hover:border-[#496C92]/40 rounded-lg transition-colors">{{ t.common_copy }}</button>
       </div>
 
       <!-- 注入 Key 的注册命令 -->
@@ -197,7 +197,7 @@
           <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code id="helpRegisterCmd" x-text="registerCmd"></code></pre>
         </div>
         <button type="button" @click="copyText(registerCmd, $event.currentTarget)"
-                class="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-[#6E56CF] hover:bg-[#5B45B9] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#6E56CF]/20">
+                class="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-[#496C92] hover:bg-[#37597C] text-white text-sm font-medium rounded-xl transition-colors shadow-md shadow-[#496C92]/20">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           {{ t.common_copy }}
         </button>
@@ -209,7 +209,7 @@
   <!-- ========== ③ 启动验证与常见问题 ========== -->
   <section class="mb-6" x-show="agents[agent] && agents[agent].downloadable">
     <div class="flex items-center gap-2.5 mb-1">
-      <span class="w-9 h-9 rounded-[10px] bg-[#EDE9FB] flex items-center justify-center shrink-0 text-[#6E56CF] text-[17px] font-bold">3</span>
+      <span class="w-9 h-9 rounded-[10px] bg-[#DCEAFB] flex items-center justify-center shrink-0 text-[#496C92] text-[17px] font-bold">3</span>
       <h2 class="text-[17px] font-semibold text-gray-900">{{ t.help_verify_section }}</h2>
     </div>
     <p class="text-sm text-gray-400 mb-4">{{ t.help_step3_hint }}</p>
@@ -221,7 +221,7 @@
       </div>
 
       <div class="mt-4 space-y-2">
-        <p class="text-sm text-gray-600">{{ t.help_faq_4_d }} <code class="text-gray-600 bg-[#F6F5FA] px-1.5 py-0.5 rounded border border-gray-100 font-mono text-xs">{{ server_url }}</code></p>
+        <p class="text-sm text-gray-600">{{ t.help_faq_4_d }} <code class="text-gray-600 bg-[#F5F8FB] px-1.5 py-0.5 rounded border border-gray-100 font-mono text-xs">{{ server_url }}</code></p>
         <pre class="px-3 py-2.5 bg-gray-900 rounded-lg text-xs text-gray-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><code>curl -s {{ server_url }}/health</code></pre>
       </div>
 
@@ -229,7 +229,7 @@
         {% set faqs = [('help_faq_1_t', 'help_faq_1_d'), ('help_faq_2_t', 'help_faq_2_d'), ('help_faq_3_t', 'help_faq_3_d')] %}
         {% for tkey, dkey in faqs %}
         <details class="group rounded-xl border border-gray-100 bg-white px-4 py-3">
-          <summary class="cursor-pointer flex items-center justify-between text-sm font-medium text-gray-700 hover:text-[#6E56CF] transition-colors select-none">
+          <summary class="cursor-pointer flex items-center justify-between text-sm font-medium text-gray-700 hover:text-[#496C92] transition-colors select-none">
             {{ t[tkey] }}
             <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </summary>

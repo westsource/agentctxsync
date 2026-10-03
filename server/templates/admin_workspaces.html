@@ -4,7 +4,7 @@
 <!-- Header -->
 <div class="flex items-center justify-between mb-6">
   <div>
-    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#6E56CF] transition-colors mb-2">
+    <a href="/web/" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-[#496C92] transition-colors mb-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
       {{ t.common_back }}
     </a>
@@ -17,8 +17,8 @@
   <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
     <div class="flex items-center justify-between mb-2">
       <p class="text-[13px] font-medium text-gray-400">{{ t.admin_total_workspaces }}</p>
-      <div class="w-8 h-8 rounded-lg bg-[#EDE9FB] flex items-center justify-center">
-        <svg class="w-4 h-4 text-[#6E56CF]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+      <div class="w-8 h-8 rounded-lg bg-[#DCEAFB] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#496C92]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
       </div>
     </div>
     <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ all_workspaces|length }}</p>
@@ -26,8 +26,8 @@
   <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
     <div class="flex items-center justify-between mb-2">
       <p class="text-[13px] font-medium text-gray-400">{{ t.admin_total_sessions }}</p>
-      <div class="w-8 h-8 rounded-lg bg-[#E8F1FE] flex items-center justify-center">
-        <svg class="w-4 h-4 text-[#4285F4]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+      <div class="w-8 h-8 rounded-lg bg-[#EEFBF2] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#789D85]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
       </div>
     </div>
     <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ total_sessions }}</p>
@@ -35,8 +35,8 @@
   <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
     <div class="flex items-center justify-between mb-2">
       <p class="text-[13px] font-medium text-gray-400">{{ t.admin_total_messages }}</p>
-      <div class="w-8 h-8 rounded-lg bg-[#E9F9EF] flex items-center justify-center">
-        <svg class="w-4 h-4 text-[#34A853]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
+      <div class="w-8 h-8 rounded-lg bg-[#EEFDEF] flex items-center justify-center">
+        <svg class="w-4 h-4 text-[#328644]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
       </div>
     </div>
     <p class="text-[28px] font-bold text-gray-900 tabular-nums leading-none">{{ total_messages }}</p>
@@ -48,7 +48,7 @@
   <div class="overflow-x-auto">
     <table class="w-full">
       <thead>
-        <tr class="border-b border-gray-100 bg-[#F9F8FD]">
+        <tr class="border-b border-gray-100 bg-[#FAFCFF]">
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_workspace }}</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ t.admin_owner }}</th>
           {% set cols = [
@@ -61,9 +61,9 @@
           {# current column toggles asc/desc; others jump to that column, desc by default #}
           {% set next_dir = 'asc' if (sort == key and dir == 'desc') else 'desc' %}
           <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider
-                     {% if sort == key %}text-[#6E56CF]{% else %}text-gray-400{% endif %}">
+                     {% if sort == key %}text-[#496C92]{% else %}text-gray-400{% endif %}">
             <a href="/web/admin/workspaces?sort={{ key }}&dir={{ next_dir }}"
-               class="inline-flex items-center gap-1 hover:text-[#6E56CF] transition-colors">
+               class="inline-flex items-center gap-1 hover:text-[#496C92] transition-colors">
               {{ label }}
               {% if sort == key %}<span class="text-[10px]">{{ '▲' if dir == 'asc' else '▼' }}</span>{% endif %}
             </a>
@@ -73,18 +73,18 @@
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for ws in all_workspaces %}
-        <tr class="hover:bg-[#F6F5FA] transition-colors">
+        <tr class="hover:bg-[#F5F8FB] transition-colors">
           <td class="px-6 py-4">
             {% if ws.user_id|string == user.sub %}
-            <a href="/web/workspace/{{ ws.id }}" class="font-medium text-gray-900 hover:text-[#6E56CF] transition-colors">{{ ws.name }}</a>
+            <a href="/web/workspace/{{ ws.id }}" class="font-medium text-gray-900 hover:text-[#496C92] transition-colors">{{ ws.name }}</a>
             {% else %}
             <span class="font-medium text-gray-900">{{ ws.name }}</span>
             {% endif %}
             {% if ws.description %}<p class="text-xs text-gray-400 mt-0.5">{{ ws.description }}</p>{% endif %}
           </td>
           <td class="px-6 py-4 text-sm text-gray-500">{{ ws.owner_name or ws.owner_username or t.common_none }}</td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#EDE9FB] text-[#6E56CF]">{{ ws.session_count }}</span></td>
-          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E9F9EF] text-[#34A853]">{{ ws.message_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#DCEAFB] text-[#496C92]">{{ ws.session_count }}</span></td>
+          <td class="px-6 py-4"><span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#EEFDEF] text-[#328644]">{{ ws.message_count }}</span></td>
           <td class="px-6 py-4 text-sm text-gray-500">{{ ws.last_sync_at|timestamp_fmt if ws.last_sync_at else t.common_never }}</td>
           <td class="px-6 py-4 text-sm text-gray-500">{{ ws.created_at|timestamp_fmt if ws.created_at else t.common_none }}</td>
         </tr>
