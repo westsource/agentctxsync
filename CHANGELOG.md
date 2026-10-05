@@ -1,3 +1,24 @@
+## [2026.10.05.1] - 2026-10-05
+
+> 服务端 Web 修复（单文件：`templates/session_messages.html`），无 schema / API / 客户端变更，
+> 各端无需更新。已部署 236（2026-10-05 CST，提交 `078adb1`）：1 个文件，上传后回读 sha256 与提交
+> 逐字节一致，重启后 active、journal 无 error；线上核对：以真实用户身份拉取一个 omp 会话页面
+> （1676 条消息，其中 590 条 content 为空的 reasoning-only 助手步）——修复前该页 96 个助手气泡
+> 渲染出 **0** 个思考区（全部空白），修复后 **96/96** 都渲染出「思考过程」，reasoning 文本可见。
+> `server` 套件 288 passed / 2 skipped。
+
+### Fixed
+
+- **会话查看器的思考区改读 canonical `reasoning`**（`server/templates/session_messages.html`）：
+  模板原只读 `reasoning_content`——那是 hermes 客户端本地恰好多推的一份副本列（`SQLiteAdapter`
+  1:1 透传本地列）。按 canonical 契约（`ADDING_AGENT.md`：reasoning 内容统一映射到 `reasoning`
+  字段）推送的 omp / opencode / workbuddy，其 reasoning-only 助手步（`content` 为空、`reasoning`
+  有值）因此渲染成完全空白的空气泡——实测线上 omp 会话里 7990 条空 content 消息中 7936 条带
+  `reasoning`，而 `reasoning_content` 只有 275 条，白气泡即由此而来。现改为 `m.reasoning or
+  m.reasoning_content`（canonical 优先，`reasoning_content` 保留为 legacy 兜底）。新增
+  `server/tests/test_session_messages_template.py`（5 例）钉住：canonical reasoning 渲染、
+  legacy `reasoning_content` 兜底、reasoning+正文同现、无 reasoning 不出思考区、标签本地化。
+
 ## [2026.10.02.1] - 2026-10-02
 
 > 纯客户端发布：`CLIENT_VERSION` 2026.09.21.3 → **2026.10.02.1**（`mcp/server.py`、`mcp/updater.py`、
