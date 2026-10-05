@@ -186,10 +186,13 @@
             {% endif %}
           </div>
           <div class="relative bg-white border border-[#E9EDF1] rounded-2xl rounded-tl-md px-4 py-3 shadow-[0_3px_10px_-4px_rgba(33,26,72,0.04)] group">
-            {% if m.reasoning_content %}
+            {# canonical reasoning column first; reasoning_content is the
+               legacy duplicate a few clients still push #}
+            {% set thinking = m.reasoning or m.reasoning_content %}
+            {% if thinking %}
             <details class="mb-2">
               <summary class="text-xs text-gray-400 hover:text-[#496C92] cursor-pointer select-none">{{ t.msg_thinking }}</summary>
-              <p class="mt-2 px-3 py-2 bg-[#F5F8FB] rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ m.reasoning_content }}</p>
+              <p class="mt-2 px-3 py-2 bg-[#F5F8FB] rounded-lg text-xs text-gray-500 whitespace-pre-wrap break-words">{{ thinking }}</p>
             </details>
             {% endif %}
             <div id="msg-{{ loop.index0 }}" class="md-body text-sm text-gray-800 break-words">{{ m.content_md|safe }}</div>
