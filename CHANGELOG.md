@@ -2,13 +2,23 @@
 
 > 客户端 + 服务端变更：**会话的模型名不再同步**（决策记录 2026.10.06.1）。`CLIENT_VERSION`
 > 2026.10.02.1 → **2026.10.06.1**（`mcp/updater.py`、`server/client_update.py`），各端经
-> `/api/client/manifest` 自动更新；服务端 `/push` `/pull` 有配套改动，**待部署**
-> （`$env:DEPLOY_SSH_PASSWORD="…"; python scripts/deploy-remote.py`）。旧服务端仍会把历史
-> `model` 列下发，但客户端上下行两侧都剥离，因此升级后的客户端不会被它覆盖本机选择。验证：
-> `mcp` 套件 **212 项 OK**、`server` 套件 **292 项 OK / 2 skipped**；真机冒烟（真实
-> `mcp/server.py` + stub HTTP 服务 + hermes 形态 SQLite 库）**PASS**：push 载荷及消息级均无
-> `model`（载荷键只有 id/agent_type/cwd/started_at/title/message_count/messages/field_meta），
-> pull 落库新消息后本地 `sessions.model` 仍为本地值 `local-choice-model`。
+> `/api/client/manifest` 自动更新。已部署 236（2026-10-06 CST，提交 `f5be193`）：10 个文件
+> （`sync.py`、`client_update.py`、`mcp/server.py`、`mcp/updater.py`、`mcp/adapters/`
+> 下 base/opencode/workbuddy/openclaw/dsh/omp）对上次部署提交 `65d0d02` 逐文件 LF 归一化预检
+> 通过、上传后回读 sha256 一致、`py_compile` 通过，重启后 active、journal 无 error、回环
+> `/health=200`；线上核对 8 项全 PASS（manifest 返回 2026.10.06.1 + `update_available=true`、
+> 包内 `manifest.json` 版本一致、包内 `mcp/server.py` 含剥离代码且 sha256 与清单相符、
+> `adapters/base.py` 含 `LOCAL_ONLY_SESSION_FIELDS`、`adapters/opencode.py` 已无 `_model_db`）。
+> 真机功能核对（只读 + 一次客户端式重推）：**/pull 不下发 model**——DB 中 631/1012 个会话仍
+> 持有 model 值，线上拉一页 15 条、其中 3 条 DB 里确有值，返回载荷里带 `model` 键的 **0** 条；
+> **/push 不落 model**——把一个真实会话按客户端方式重推并注入
+> `model="PROBE-should-not-be-stored"`，列值仍为原 `deepseek-v4.1-flash`（209 条消息全部去重、
+> `updated=1`）。旧服务端/旧对端仍会把历史 `model` 下发，但客户端上下行两侧都剥离，因此升级后
+> 的客户端不会被它覆盖本机选择。验证：`mcp` 套件 **212 项 OK**、`server` 套件 **292 项
+> OK / 2 skipped**；真机冒烟（真实 `mcp/server.py` + stub HTTP 服务 + hermes 形态 SQLite 库）
+> **PASS**：push 载荷及消息级均无 `model`（载荷键只有
+> id/agent_type/cwd/started_at/title/message_count/messages/field_meta），pull 落库新消息后本地
+> `sessions.model` 仍为本地值 `local-choice-model`。
 
 ### Changed
 
