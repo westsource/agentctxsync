@@ -159,21 +159,6 @@ def _session_uuid() -> str:
     return f"session-{uuid.uuid4()}"
 
 
-
-def _model_parts(model) -> tuple[str, str]:
-    """canonical model -> (provider, model) for dsh source stamps."""
-    if isinstance(model, dict):
-        mid = str(model.get("id") or "")
-        pid = str(model.get("providerID") or "")
-        if mid:
-            return (pid or "unknown", mid)
-    s = str(model or "")
-    if "/" in s and not s.startswith("http"):
-        p, _, m = s.partition("/")
-        return (p or "unknown", m or "unknown")
-    return ("unknown", s or "unknown")
-
-
 def _slug(cwd: str) -> str:
     """Mirror dsh projectKey: '--' + slug + '--'.
 
@@ -812,7 +797,12 @@ class DshAdapter(Adapter):
                 step += 1
                 emit({"type": "step/start",
                       "data": {"turn": turn, "step": step}}, ts)
-            model_s = _model_parts(session.get("model"))
+            # dsh's validator requires source.kind=model with provider/model
+            # strings; the model NAME is never synced
+            # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1), so the
+            # placeholder this already used for model-less sessions is used
+            # for every pulled session.
+            model_s = ("unknown", "unknown")
             emit({"type": "assistant/message", "surfaceOp": "append",
                   "data": {"turn": turn, "step": step,
                            "message": {"id": f"assistant-{_msg_id()}",

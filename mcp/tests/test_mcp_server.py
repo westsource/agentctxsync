@@ -270,10 +270,10 @@ class FieldMergeTest(unittest.TestCase):
     def test_push_omits_non_dirty_fields_keeps_derived(self):
         meta = {"s1": {"cwd": {"base": 4, "val": "D:/old"},
                        "title": {"base": 1, "val": "t"}}}
-        s = {"id": "s1", "title": "t", "cwd": "D:/old", "model": "m",
+        s = {"id": "s1", "title": "t", "cwd": "D:/old", "source": "cli",
              "messages": []}
         out = server._annotate_push_session(s, meta)
-        self.assertEqual(out["model"], "m")        # derived kept
+        self.assertEqual(out["source"], "cli")     # derived kept
         self.assertNotIn("cwd", out)               # not dirty -> omitted
         self.assertNotIn("title", out)
         self.assertEqual(out["field_meta"], {})
@@ -329,6 +329,113 @@ class FieldMergeTest(unittest.TestCase):
         out = server._annotate_push_session(s, meta)
         self.assertNotIn("title", out)
         self.assertEqual(out.get("field_meta"), {})
+
+
+class LocalOnlyModelTest(unittest.TestCase):
+    """``model`` is a device-local field: the model a user picked for a
+    session is never pushed, never applied from a pull, and a model switch is
+    not a content change (LOCAL_ONLY_SESSION_FIELDS, decision record
+    2026.10.06.1)."""
+
+    def test_strip_local_only_drops_model_from_session_and_messages(self):
+        s = {"id": "s1", "model": "gpt-5.2-codex",
+             "messages": [{"role": "assistant", "content": "hi",
+                           "model": "gpt-5.2-codex"}]}
+        self.assertIs(server._strip_local_only(s), s)   # in-place
+        self.assertNotIn("model", s)
+        self.assertNotIn("model", s["messages"][0])
+
+    def test_push_never_sends_a_model_and_ignores_a_model_switch(self):
+        class FakeAdapter:
+            agent_type = "opencode"
+
+            def __init__(self):
+                self.model = "gpt-5.2-codex"
+
+            def discover(self):
+                return "store"
+
+            def read_sessions(self):
+                return [{"id": "s1", "cwd": "c:/x", "title": "t",
+                         "model": self.model,
+                         "messages": [{"session_id": "s1",
+                                       "role": "assistant",
+                                       "content": "hi", "timestamp": 1.0,
+                                       "model": self.model}]}]
+
+            def _is_foreign(self, sid):
+                return False
+
+            def _foreign_agent(self, sid):
+                return None
+
+        a = FakeAdapter()
+        calls = []
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            with mock.patch.object(server, "adapter", a), \
+                    mock.patch.object(server, "FIELD_META_PATH",
+                                      td / "meta.json"), \
+                    mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                      td / "fp.json"), \
+                    mock.patch.object(
+                        server, "api_call",
+                        side_effect=lambda *args, **kw: calls.append(args) or {
+                            "imported": 1, "updated": 0, "new_messages": 1,
+                            "sync_at": 1.0, "session_revs": {}}):
+                server.push_sessions()
+                self.assertEqual(len(calls), 1)
+                sent = calls[0][2]["sessions"][0]
+                self.assertNotIn("model", sent)
+                self.assertNotIn("model", sent["messages"][0])
+                calls.clear()
+                # A model switch alone is not a content change: the stripped
+                # payload keeps the same fingerprint, so nothing is re-sent.
+                a.model = "deepseek-v4-flash"
+                server.push_sessions()
+                self.assertEqual(calls, [])
+
+    def test_pull_never_writes_a_pulled_model(self):
+        received = []
+
+        class FakeAdapter:
+            agent_type = "omp"
+
+            def discover(self):
+                return "store"
+
+            def last_synced_at(self):
+                return 0.0
+
+            def save_sync_watermark(self, ts):
+                pass
+
+            def read_sessions(self):
+                return []
+
+            def write_sessions(self, sessions):
+                received.extend(sessions)
+                return {"imported": len(sessions), "updated": 0,
+                        "new_messages": 0}
+
+        page = {"sessions": [{
+            "id": "s1", "cwd": "D:/x", "title": "t",
+            "model": "peer-model", "field_rev": {},
+            "messages": [{"role": "assistant", "content": "hi",
+                          "timestamp": 1.0, "model": "peer-model"}]}],
+            "sync_at": 5.0, "total_sessions": 1}
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            with mock.patch.object(server, "adapter", FakeAdapter()), \
+                    mock.patch.object(server, "FIELD_META_PATH",
+                                      td / "meta.json"), \
+                    mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                      td / "fp.json"), \
+                    mock.patch.object(server, "api_call", return_value=page):
+                server.pull_sessions()
+        self.assertTrue(received, "adapter must have been written")
+        self.assertNotIn("model", received[0])
+        self.assertNotIn("model", received[0]["messages"][0])
 
 
 class PullTitleAdoptTest(unittest.TestCase):

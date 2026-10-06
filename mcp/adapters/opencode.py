@@ -61,38 +61,6 @@ def _unique_slug(base: str) -> str:
     return slug[:64] or "session"
 
 
-def _model_db(value) -> str | None:
-    """Value for the opencode ``session.model`` column.
-
-    opencode's ``Model.Ref`` schema requires ``{id: string, providerID:
-    string}`` (``variant`` optional) -- it JSON-parses the column and rejects
-    a bare string or a missing ``providerID`` with "Expected string, got
-    undefined", which breaks the whole session list. Emit ``{id, providerID}``
-    (providerID defaulted to "unknown" for foreign sessions) and NULL out
-    missing values.
-    """
-    if value is None or value == "":
-        return None
-    if isinstance(value, dict):
-        m = dict(value)
-        m.setdefault("providerID", "unknown")
-        if "id" not in m:
-            m["id"] = str(m.get("id", "unknown"))
-        return json.dumps(m, ensure_ascii=False)
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            if isinstance(parsed, dict):
-                parsed.setdefault("providerID", "unknown")
-                return json.dumps(parsed, ensure_ascii=False)
-        except (ValueError, TypeError):
-            pass
-        return json.dumps({"id": value, "providerID": "unknown"},
-                          ensure_ascii=False)
-    return json.dumps({"id": str(value), "providerID": "unknown"},
-                      ensure_ascii=False)
-
-
 class OpencodeAdapter(Adapter):
     """opencode SQLite (opencode.db) adapter."""
 
@@ -256,8 +224,9 @@ class OpencodeAdapter(Adapter):
             s["title"] = row["title"]
         if row["directory"]:
             s["cwd"] = row["directory"]
-        if row["model"]:
-            s["model"] = row["model"]
+        # ``session.model`` is deliberately NOT read: the model is this
+        # device's own choice and never part of the canonical payload
+        # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
         meta = {}
         if row["project_id"] and row["project_id"] != "global":
             meta["opencode:projectID"] = row["project_id"]
@@ -323,11 +292,6 @@ class OpencodeAdapter(Adapter):
                "timestamp": (mrow["time_created"] or time.time()) / 1000.0}
         if reasoning:
             out["reasoning"] = "\n".join(reasoning)
-        model = data.get("model")
-        if isinstance(model, dict):
-            m = model.get("modelID")
-            if m:
-                out["model"] = str(m)
         return out
 
     # ------------------------------------------------------------------
@@ -378,10 +342,13 @@ class OpencodeAdapter(Adapter):
                     project_id = self._resolve_project_for_directory(
                         cur, s.get("cwd"))
                 if exists:
+                    # ``model`` is never written: it is the local user's
+                    # choice and the sync payload carries no model
+                    # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
                     cur.execute(
-                        "UPDATE session SET title=?, directory=?, model=?, "
+                        "UPDATE session SET title=?, directory=?, "
                         "time_updated=?, parent_id=? WHERE id=?",
-                        (title, s.get("cwd") or "", _model_db(s.get("model")),
+                        (title, s.get("cwd") or "",
                          updated_ms, s.get("parent_session_id"), sid))
                     stats["updated"] += 1
                 else:
@@ -389,12 +356,12 @@ class OpencodeAdapter(Adapter):
                         "INSERT INTO session (id, project_id, parent_id, slug, "
                         "directory, title, version, time_created, time_updated, "
                         "cost, tokens_input, tokens_output, tokens_reasoning, "
-                        "tokens_cache_read, tokens_cache_write, agent, model) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "tokens_cache_read, tokens_cache_write, agent) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (sid, project_id, s.get("parent_session_id"), slug,
                          s.get("cwd") or "", title, _VERSION,
                          created_ms, updated_ms,
-                         0.0, 0, 0, 0, 0, 0, "opencode", _model_db(s.get("model"))))
+                         0.0, 0, 0, 0, 0, 0, "opencode"))
                     taken.add(sid)
                     stats["imported"] += 1
                     # own opencode ids are bare ses_...; anything pushed under a
@@ -423,8 +390,6 @@ class OpencodeAdapter(Adapter):
                     mid = _gen_id("msg")
                     data = {"role": m.get("role", "assistant"),
                             "time": {"created": ms}}
-                    if m.get("model"):
-                        data["model"] = {"modelID": m["model"]}
                     cur.execute(
                         "INSERT INTO message (id, session_id, time_created, "
                         "time_updated, data) VALUES (?,?,?,?,?)",

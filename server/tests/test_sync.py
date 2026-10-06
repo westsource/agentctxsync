@@ -98,7 +98,10 @@ class JsonRequest:
 
 SESS_COLS = ("id", "workspace_id", "title", "agent_type", "meta", "hidden",
              "pinned", "profile_name", "last_synced_at", "archived",
-             "cwd", "git_repo_root", "rev", "field_rev", "last_activity_at")
+             "cwd", "git_repo_root", "rev", "field_rev", "last_activity_at",
+             # present in the real schema (db.py) and deliberately never
+             # written by a sync (LOCAL_ONLY_SESSION_FIELDS, 2026.10.06.1)
+             "model")
 MSG_COLS = ("id", "session_id", "workspace_id", "role", "content", "timestamp",
             "agent_type", "meta", "hidden")
 
@@ -230,6 +233,21 @@ class PushTest(unittest.TestCase):
         self.assertEqual(sess_rows[0]["workspace_id"], 1)
         # sync_state upsert always happens
         self.assertTrue(any(s.startswith("INSERT INTO sync_state") for s, _ in cur.executed))
+
+    def test_pushed_model_is_never_stored(self):
+        """``model`` is device-local and never synced (LOCAL_ONLY_SESSION_FIELDS,
+        decision record 2026.10.06.1): a client that still sends it must not
+        have it written -- neither on insert nor on update."""
+        sessions = [{"id": "s1", "title": "hi", "model": "gpt-5.2-codex",
+                     "messages": [{"role": "user", "content": "a",
+                                   "timestamp": 1.0}]}]
+        resp, cur = self._push(sessions)
+        self.assertEqual(resp["imported"], 1)
+        self.assertNotIn("model", insert_rows(cur, "sessions")[0])
+        # UPDATE path: the column is not in the SET list either
+        resp, cur = self._push(sessions, existing_ids=("s1",))
+        self.assertEqual(resp["updated"], 1)
+        self.assertNotIn("model", update_set_cols(cur, "sessions"))
 
     def test_existing_session_updates_never_touch_agent_type_or_hidden(self):
         sessions = [{"id": "s1", "title": "new title", "agent_type": "codex",
@@ -726,6 +744,16 @@ class PullTest(unittest.TestCase):
         s = resp["sessions"][0]
         self.assertIsInstance(s["field_rev"], dict)
         self.assertEqual(s["field_rev"], {"cwd": 3, "title": 7})
+
+    def test_pull_never_serves_a_model(self):
+        """Even a row an older client pushed with a model is delivered
+        without it: the model is the receiving device's own choice
+        (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1)."""
+        sessions = [{"id": "a", "title": "A", "started_at": 10.0,
+                     "model": "gpt-5.2-codex"}]
+        resp, _ = self._pull({"device_id": "d", "last_sync_at": 5.0},
+                             sessions, {})
+        self.assertNotIn("model", resp["sessions"][0])
 
     def test_agent_param_ignored_full_pool(self):
         # Full-pool pull: the workspace's whole visible session set is served

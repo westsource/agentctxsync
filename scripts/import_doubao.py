@@ -19,7 +19,7 @@ Get Doubao data any of these ways:
   * Manual: copy the conversation and paste it (--paste).
 
 Usage:
-  python scripts/import_doubao.py --file out.json [--title "标题"] [--model x]
+  python scripts/import_doubao.py --file out.json [--title "标题"]
   python scripts/import_doubao.py --file chat.md
   python scripts/import_doubao.py --paste < chat.txt
   python scripts/import_doubao.py --file chat.json --api-key ws_xxx \
@@ -198,7 +198,7 @@ def detect(ext: str, text: str):
 # ---------------------------------------------------------------------------
 # Canonical session build
 # ---------------------------------------------------------------------------
-def build_session(triples: list, title: str | None, model: str | None) -> dict:
+def build_session(triples: list, title: str | None) -> dict:
     """triples: (role, content, timestamp). Produce one canonical session dict.
 
     A stable, deterministic id is derived from title + earlier timestamps so
@@ -227,8 +227,9 @@ def build_session(triples: list, title: str | None, model: str | None) -> dict:
         "message_count": len(messages),
         "messages": messages,
     }
-    if model:
-        s["model"] = model
+    # No ``model``: it is a device-local field and is never synced
+    # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1) -- the server
+    # drops it anyway.
     return s
 
 
@@ -266,7 +267,6 @@ def main():
     ap.add_argument("--paste", action="store_true",
                     help="Read raw text/JSON from stdin")
     ap.add_argument("--title", help="Session title")
-    ap.add_argument("--model", help="Model name to tag the session (e.g. Doubao-pro)")
     ap.add_argument("--server", default=os.environ.get("HERMES_SYNC_SERVER",
                                                        "http://localhost:8765"))
     ap.add_argument("--api-key", default=os.environ.get("HERMES_SYNC_API_KEY", ""))
@@ -290,7 +290,7 @@ def main():
     if not triples:
         raise SystemExit("No conversational messages parsed. Check the export format.")
 
-    session = build_session(triples, args.title, args.model)
+    session = build_session(triples, args.title)
     n_user = sum(1 for t in triples if t[0] == "user")
     n_asst = sum(1 for t in triples if t[0] == "assistant")
     print(f"Parsed {len(triples)} messages ({n_user} user / {n_asst} assistant)")

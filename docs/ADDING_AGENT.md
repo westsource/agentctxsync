@@ -21,7 +21,8 @@ mcp/tests/test_<name>.py      # fixture 往返单测
 - 数据库 schema：`agent_type` + `meta JSONB` 已承载任意 agent 字段
 - Sync 协议：`/push` `/pull` `/status` `/sessions`（canonical id 前缀解析 + 去重三元组）
 - 同步引擎：启动拉取、bootstrap、周期同步、单写者锁、分页
-- Web UI 通用渲染：会话列表/查看器（role/content/title/model 均为通用列）
+- Web UI 通用渲染：会话列表/查看器（role/content/title 均为通用列；`model` 是本地字段、
+  不参与同步，见 ARCHITECTURE「本地字段：模型选择不同步」）
 
 **边界情况需评估后才可能改动**：
 1. 新 agent 的消息类型超出通用渲染（如新的富媒体 part）→ 仅需 Web UI 增加

@@ -397,8 +397,9 @@ class WorkBuddyAdapter(Adapter):
             }
             if title:
                 s["title"] = title
-            if row.get("model"):
-                s["model"] = str(row["model"])
+            # ``model`` is deliberately NOT read: WorkBuddy's own model for
+            # this session is a local choice and never part of the canonical
+            # payload (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
             if row.get("status"):
                 s["end_reason"] = str(row["status"])
             if row.get("mode"):
@@ -467,7 +468,6 @@ class WorkBuddyAdapter(Adapter):
             # the fallback for a session with no usable timestamp at all.
             updated_ms = max(int((last_act or now_ms / 1000) * 1000), created_ms)
             title = s.get("title")
-            model = s.get("model")
             mode = (s.get("meta") or {}).get("workbuddy:mode")
             # Locally-owned sessions keep their local cwd: WorkBuddy writes
             # their files where IT decides, so a peer-supplied server cwd
@@ -476,7 +476,7 @@ class WorkBuddyAdapter(Adapter):
             # the pulled cwd defines their storage location.
             foreign = session.get("agent_type") not in (None, "workbuddy")
             was_new = self._upsert_session(local_id, cwd, user_id, title,
-                                           model, mode, created_ms,
+                                           mode, created_ms,
                                            updated_ms,
                                            preserve_cwd=not foreign)
             if was_new:
@@ -590,13 +590,16 @@ class WorkBuddyAdapter(Adapter):
             " path TEXT PRIMARY KEY, last_opened_at INTEGER NOT NULL)")
 
     def _upsert_session(self, local_id: str, cwd: str, user_id: str | None,
-                        title, model, mode, created_ms: int, updated_ms: int,
+                        title, mode, created_ms: int, updated_ms: int,
                         preserve_cwd: bool = False) -> bool:
         """Upsert one row in workbuddy.db sessions. Returns True if new.
 
         ``updated_at`` and ``last_activity_at`` both carry the session's real
         last activity (see ``write_sessions``) -- the app's list orders by
         them, so the sync instant must never be written here.
+
+        ``model`` is never written: it is the local user's choice, not synced
+        content (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
 
         ``preserve_cwd`` (locally-owned sessions): keep the row's existing
         cwd on UPDATE so a peer-supplied value can never repoint the read
@@ -617,9 +620,6 @@ class WorkBuddyAdapter(Adapter):
                 if title:
                     sets.append("title = ?")
                     vals.append(title)
-                if model:
-                    sets.append("model = ?")
-                    vals.append(model)
                 if mode:
                     sets.append("mode = ?")
                     vals.append(mode)
@@ -634,11 +634,11 @@ class WorkBuddyAdapter(Adapter):
             cur.execute(
                 "INSERT OR REPLACE INTO sessions "
                 "(id, cwd, user_id, title, status, created_at, updated_at, "
-                " is_playground, mode, model, last_activity_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " is_playground, mode, last_activity_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (local_id, cwd, user_id, title or "Imported session",
                  "completed", created_ms, updated_ms, 0,
-                 mode or "craft", model, updated_ms))
+                 mode or "craft", updated_ms))
             conn.commit()
             return True
         finally:

@@ -15,12 +15,16 @@ Required:
 
 Common (optional) fields -- shared by most agents, stored as first-class
 columns on the server:
-    title, model, ended_at, end_reason, message_count, last_activity_at,
+    title, ended_at, end_reason, message_count, last_activity_at,
     parent_session_id, user_id, source, cwd, git_branch, git_repo_root,
     input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
     cache_write_tokens, estimated_cost_usd, actual_cost_usd,
     display_name, session_key, chat_id, chat_type, thread_id,
     profile_name, pinned, archived
+
+Local-only fields -- NEVER converted, pushed or applied (see
+LOCAL_ONLY_SESSION_FIELDS below). ``model`` is the agent's own model
+selection: a per-device choice, not shared conversation content.
 
 meta (dict) -- anything else the agent stores that has no canonical slot.
 Put agent-specific fields here (e.g. codex history_mode, opencode tokens
@@ -85,7 +89,7 @@ AGENT_PREFIXES = {
 }
 
 CANONICAL_SESSION_FIELDS = (
-    "id", "started_at", "title", "model", "ended_at", "end_reason",
+    "id", "started_at", "title", "ended_at", "end_reason",
     "message_count", "last_activity_at", "parent_session_id", "user_id",
     "source", "cwd",
     "git_branch", "git_repo_root", "input_tokens", "output_tokens",
@@ -94,6 +98,18 @@ CANONICAL_SESSION_FIELDS = (
     "chat_id", "chat_type", "thread_id", "profile_name", "pinned",
     "archived",
 )
+
+#: Session/message fields that belong to the DEVICE, not to the shared
+#: conversation, and MUST never cross the wire in either direction
+#: (decision record 2026.10.06.1). ``model`` is the model the user picked
+#: for a session: it is a local choice, it differs per device for the same
+#: conversation, and syncing it (last-writer-wins, no field-level
+#: concurrency) silently reverted a model switch on the device that had
+#: not pushed yet. It is therefore stripped when a session is read for a
+#: push, when a pulled page is written back to a local store, and by the
+#: server on both endpoints; every adapter's local store keeps its own
+#: value untouched.
+LOCAL_ONLY_SESSION_FIELDS = ("model",)
 
 # User-editable session fields that participate in field-level optimistic
 # concurrency (see docs/ARCHITECTURE.md "字段级乐观并发"). A device only
@@ -603,6 +619,10 @@ class SQLiteAdapter(Adapter):
         """Map native columns onto the canonical dict, skipping empty and
         binary values.
 
+        Local-only fields (``LOCAL_ONLY_SESSION_FIELDS``, e.g. the agent's
+        model choice) are skipped too: canonical dicts are wire payloads and
+        those fields must never reach the server.
+
         Binary columns are dropped: SQLite returns BLOBs as ``bytes``, the
         canonical model is JSON, and a payload the client cannot encode kills
         the whole push cycle (the chunker sizes sessions with ``json.dumps``).
@@ -611,6 +631,8 @@ class SQLiteAdapter(Adapter):
         """
         out = {}
         for k, v in row.items():
+            if k in LOCAL_ONLY_SESSION_FIELDS:
+                continue
             canon = col_map.get(k)
             if canon is None:
                 canon = k

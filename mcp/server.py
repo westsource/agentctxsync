@@ -40,9 +40,9 @@ from mcp.types import Tool, TextContent
 SDK_V2 = not hasattr(Server, "list_tools")
 
 from adapters import get_adapter, available_agents
-from adapters.base import (AGENT_PREFIXES, PROJECT_USER_EDIT_FIELDS,
-                           USER_EDIT_FIELDS, _path_key,
-                           align_path_to_local, build_path_map,
+from adapters.base import (AGENT_PREFIXES, LOCAL_ONLY_SESSION_FIELDS,
+                           PROJECT_USER_EDIT_FIELDS, USER_EDIT_FIELDS,
+                           _path_key, align_path_to_local, build_path_map,
                            strip_root_project_paths)
 import updater
 
@@ -700,6 +700,26 @@ def _field_dirty(field: str, local_val, sidecar_val) -> bool:
     return local_val != sidecar_val
 
 
+def _strip_local_only(session: dict) -> dict:
+    """Drop device-local fields (``LOCAL_ONLY_SESSION_FIELDS``) in place.
+
+    ``model`` is the model the user picked for this session: a per-device
+    setting, not shared conversation content (decision record 2026.10.06.1).
+    It is removed from outgoing payloads BEFORE the push fingerprint (a
+    model switch then neither reaches the server nor counts as a change)
+    and from every incoming page BEFORE the adapter writes it (so a peer --
+    or an older server that still echoes the column -- can never overwrite
+    this device's choice). Message dicts are stripped as well: the wire
+    contract carries no per-message model either.
+    """
+    for f in LOCAL_ONLY_SESSION_FIELDS:
+        session.pop(f, None)
+    for m in session.get("messages") or ():
+        for f in LOCAL_ONLY_SESSION_FIELDS:
+            m.pop(f, None)
+    return session
+
+
 def _annotate_push_session(s, meta: dict):
     """Return a push copy of session ``s`` containing only the user-edit
     fields this device is asserting (dirty / first-contact), tagged with
@@ -873,6 +893,11 @@ def _apply_pull_page(sessions, local_by_id, local_cwd_map, meta):
     """
     for s in sessions:
         sid = str(s["id"])
+        # Device-local fields never arrive from a current server; an older
+        # server (or a peer still on an old client) may still send them, so
+        # they are dropped before the adapter can write them over this
+        # device's own value (decision record 2026.10.06.1).
+        _strip_local_only(s)
         fr = s.get("field_rev") or {}
         sm = meta.get(sid) or {}
         local = local_by_id.get(sid, {})
@@ -1139,6 +1164,10 @@ def push_sessions():
         if adapter._is_foreign(sid):
             agent = adapter._foreign_agent(sid) or "hermes"
         s["agent_type"] = agent
+        # Device-local fields (the model choice) are stripped before the
+        # fingerprint below, so a model switch is not a push trigger and
+        # never reaches the server (decision record 2026.10.06.1).
+        _strip_local_only(s)
 
     # Batch pushes so each request stays small and fast: the remote server
     # does a per-message dedup SELECT for every row, so one giant request

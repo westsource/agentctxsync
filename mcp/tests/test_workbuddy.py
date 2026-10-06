@@ -108,7 +108,9 @@ class WorkBuddyReadTest(unittest.TestCase):
             s = sessions[0]
             self.assertEqual(s["id"], SID)
             self.assertEqual(s["title"], "Fixture chat")
-            self.assertEqual(s["model"], "custom-local:deepseek-v4-flash")
+            # the local model column is never read into the canonical
+            # payload (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1)
+            self.assertNotIn("model", s)
             self.assertEqual(s["cwd"], cwd)
             self.assertAlmostEqual(s["started_at"], TS_MS / 1000.0, places=3)
             msgs = s["messages"]
@@ -140,7 +142,6 @@ class WorkBuddyWriteTest(unittest.TestCase):
             "id": sid,
             "started_at": TS_MS / 1000.0,
             "title": title,
-            "model": "deepseek-v4-flash",
             "cwd": cwd,
             "messages": [
                 {"session_id": sid, "role": "user",
@@ -230,6 +231,24 @@ class WorkBuddyWriteTest(unittest.TestCase):
             sessions = a.read_sessions()
             self.assertEqual(len(sessions[0]["messages"]), 6)
 
+
+    def test_upsert_preserves_local_model(self):
+        """A pulled session carrying a model must not overwrite the local
+        model column: the model is WorkBuddy's own choice and never synced
+        (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1)."""
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            cwd = (td / "WorkProject").as_posix()
+            home = make_fixture(td / ".workbuddy", cwd)
+            a = WorkBuddyAdapter(home)
+            c = self._canonical(cwd, title="Fixture chat")
+            c["model"] = "pulled-from-a-peer"
+            a.write_sessions([c])
+            conn = sqlite3.connect(home / "workbuddy.db")
+            row = conn.execute("SELECT model FROM sessions WHERE id=?",
+                               (SID,)).fetchone()
+            conn.close()
+            self.assertEqual(row[0], "custom-local:deepseek-v4-flash")
 
     def test_upsert_preserves_local_cwd(self):
         """B1 regression: a workbuddy-owned session's row cwd must survive a

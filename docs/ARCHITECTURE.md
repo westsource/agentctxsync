@@ -150,7 +150,7 @@
 | `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，世代化事件日志 `session.vN.jsonl[.zstd]`，当前 v3、逐行 zstd 帧、写入发布后继且冻结前代；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算；项目同步 = `workspaces` 表 + `.workbuddy-sync-projects.json` 身份侧车） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
-| `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析、`model` 列写 `{id, providerID}` JSON）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
+| `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析；`model` 列属本地字段，同步不读不写——见「本地字段：模型选择不同步」）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
 | `adapters/openclaw.py` | OpenClaw 网关会话库（`sessions.json` 索引 + JSONL v3 transcript；`openclaw:server_id` 元数据保往返 id 稳定；运行中网关会覆写索引——建议关闭 OpenClaw 后同步） |
 
 - **目录布局**：
@@ -249,6 +249,10 @@ User (admin / user)
 决策记录；存量行为 NULL，`scripts/backfill-last-activity.py` 一次性补齐）
 多端字段合并扩展列: `rev`（会话级全局递增版本，默认 0）、`field_rev`（JSONB，
 每字段最后被接受的 `rev`，默认 `{}`）——见「字段级乐观并发」决策记录
+本地字段（既非 user-edit 也非 derived，**完全不同步**）: `model` —— 该列在 schema 中保留
+（历史行仍带值、Web/API 仍可读到旧值），但 `/push` 不写入、`/pull` 不下发、客户端读写两侧
+都剥掉：模型是每台设备自己的选择，不属于共享对话内容——见「本地字段：模型选择不同步」
+（决策记录 2026.10.06.1）
 
 ### messages
 复合主键: `(workspace_id, session_id, id)`; 外键: `workspace_id -> workspaces(id) ON DELETE CASCADE`
@@ -504,7 +508,9 @@ O(可见 × |清单|)。
 
 - **概念**：`user-edit` 字段（纳入版本合并）= `cwd, git_branch, git_repo_root, title, pinned,
   archived, display_name`；`derived` 字段（保留现状 LWW + 既有守卫，不纳入）= `message_count,
-  *tokens, *cost, model, source, started_at…`。字段冲突概率低/派生性质，维持原语义即可。
+  *tokens, *cost, source, started_at…`。字段冲突概率低/派生性质，维持原语义即可。
+  **`model` 既非 user-edit 也非 derived：它是设备本地字段，完全不同步**（见
+  `LOCAL_ONLY_SESSION_FIELDS` + "本地字段模型选择"一节）。
 - **base_rev / field_rev**：服务器分配的**逻辑版本**（非墙钟，跨端时钟偏移不影响判定）。
   客户端只记录并回显，**从不生成**。约定规则：
   - 服务器持有 `sessions.rev`（全局递增）+ `field_rev[f]`（字段 f 最后被接受的 `rev`，基线 0）。
@@ -557,6 +563,28 @@ O(可见 × |清单|)。
     （此前会在每轮日志里报一次 AttributeError）。
 - 回归防线：`server/tests/test_sync.py`（base=None 拒绝 / 已知 base 接受 / no-op / 并发到达
   LWW / 旧客户端回退）、`mcp/tests`（脏检测、pull 不覆盖脏字段、sidecar 惰性填充）。
+
+### 本地字段：模型选择不同步（决策记录 2026.10.06.1）
+
+- **契约**：会话的 `model`（用户为该会话选的模型）是**设备本地字段**，**绝不跨线**：
+  `mcp/adapters/base.py` 的 `LOCAL_ONLY_SESSION_FIELDS` 是唯一定义处，
+  `CANONICAL_SESSION_FIELDS` 不再包含它。
+- **客户端**：`_strip_local_only()`（`mcp/server.py`）在**推送指纹计算之前**剥掉 `model`
+  （含消息级副本），所以切模型既不进服务端也不算"内容变更"（不会触发重推）；拉取页在交给
+  适配器写库前同样剥掉，旧服务端/旧对端仍带着它也不会覆盖本机选择。各适配器本地的
+  `model` 列/条目原样保留（hermes 通用列映射直接跳过该列，opencode/workbuddy 不再读写，
+  omp 不再写 `model_change`，openclaw 新建 transcript 的 `model_change` 用 `unknown`
+  占位，dsh 的 assistant `source` 用 `unknown/unknown` 占位）。
+- **服务端**：`/push` 丢弃 `model`（不写列，`sessions.model` 历史值保留不动），`/pull`
+  在返回前剥掉。
+- **为什么**：原先 `model` 属 derived/LWW（无字段级并发保护），而 `sync_full` 先拉后推——
+  设备刚切的模型会在同一轮被服务端旧值覆盖；且各 agent 落地并不一致（omp/dsh/reasonix
+  从不上行，opencode/hermes/workbuddy/openclaw 双向），语义混乱。模型本就是"这台机器上我
+  这次选用什么"，与对话内容无关。
+- **回归防线**：`mcp/tests/test_mcp_server.py::LocalOnlyModelTest`、`mcp/tests/test_opencode.py`
+  （拉取不写本机 model）、`mcp/tests/test_workbuddy.py::test_upsert_preserves_local_model`、
+  `server/tests/test_sync.py::test_pushed_model_is_never_stored` /
+  `test_pull_never_serves_a_model`。
 
 ### 项目同名合并（Project Slug Merge）
 
@@ -935,11 +963,11 @@ O(可见 × |清单|)。
   （`agent-switched`/`model-switched`/`compaction`/`step` 跳过，`shell` → `tool`）；
   `part` 行聚合 text/reasoning/tool 引用（tool 以 `[tool:name] input` 文本并入 content）；
   tokens 进 `meta["opencode:tokens"]`；`project_id` 进 `meta["opencode:projectID"]`。
-- **写入红线**：`session.model` 列必须写 `{id, providerID}` JSON（opencode 的
-  `Model.Ref` JSON-parses 该列，裸字符串或缺 providerID 会整个会话列表报错，providerID
-  缺省 `unknown`）；`project_id` NOT NULL 且 FK——写前按 `cwd` 最长前缀匹配
-  `project`/`project_directory` 解析归属项目（`_resolve_project_for_directory`），兜底
-  `global`；`slug` 唯一性模拟桌面端（`-N` 后缀）；外来 id 经 idmap 分配新 `ses_` id。
+- **写入红线**：**`session.model` 列永不被写**——模型是本机用户的选择，属于本地字段、不同步
+  （`LOCAL_ONLY_SESSION_FIELDS`，决策记录 2026.10.06.1）；本地已有的值原样保留，新建的外来
+  会话该列留空（opencode 自身回退默认模型）。`project_id` NOT NULL 且 FK——写前按 `cwd`
+  最长前缀匹配 `project`/`project_directory` 解析归属项目（`_resolve_project_for_directory`），
+  兜底 `global`；`slug` 唯一性模拟桌面端（`-N` 后缀）；外来 id 经 idmap 分配新 `ses_` id。
   写入 = 直接 SQLite INSERT/UPDATE（autocommit），连接显式关闭（Windows 未关闭句柄会
   锁库）。
 - **边界**：正在运行的 opencode 实例有内存缓存，写入后 UI 立即可见性不保证——建议宿主
@@ -1106,7 +1134,7 @@ O(可见 × |清单|)。
 | header `cwd` | `sessions.cwd`（参与字段级乐观并发） |
 | header `parentSession`（跨会话 fork） | `sessions.parent_session_id` |
 | 标题（`session_info` / `title_change`） | `sessions.title` + 字段级并发 |
-| 模型（`model_change` 现值） | `sessions.model`（切换历史 → meta） |
+| 模型（`model_change`） | **不同步**：本地字段，读时容忍该条目、写时不产出（`LOCAL_ONLY_SESSION_FIELDS`，2026.10.06.1） |
 | 文本内容 | `messages.content` |
 | thinking 块 | `messages.reasoning`（契约强制映射） |
 | 工具调用 / 结果 | `tool` 角色 + `tool_call_id`/`tool_name`/`tool_calls` |

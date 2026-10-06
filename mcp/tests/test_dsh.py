@@ -564,8 +564,6 @@ class CurrentGenerationWriteTest(unittest.TestCase):
         """Write one two-turn Session (second turn has two model steps)."""
         sess = {"id": "hermes:20260531_232319_1e131a", "started_at": 1.0,
                 "cwd": r"E:\OpenCode\agentctxsync", "title": "Pulled",
-                "model": {"id": "deepseek-v4-flash",
-                          "providerID": "deepseek-official"},
                 "messages": [
                     {"session_id": "x", "role": "user", "content": "q1",
                      "timestamp": 2.0},
@@ -646,7 +644,12 @@ class CurrentGenerationWriteTest(unittest.TestCase):
             self.assertIsInstance(data["stream"], list)
             # the v0 codec rejects sourceEventSeqs and dsh never writes it
             self.assertNotIn("sourceEventSeqs", data)
-            self.assertEqual(data["message"]["source"]["kind"], "model")
+            # the model NAME is never synced (LOCAL_ONLY_SESSION_FIELDS,
+            # decision record 2026.10.06.1): the required source stamp is a
+            # placeholder, even when the pulled session carried a model
+            self.assertEqual(data["message"]["source"],
+                             {"kind": "model", "provider": "unknown",
+                              "model": "unknown"})
 
     def test_legacy_v0_session_gets_a_current_generation_successor(self):
         """A store pulled before the fix (v0 artifacts only) is repaired by

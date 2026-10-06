@@ -274,7 +274,6 @@ class OpenClawAdapter(Adapter):
             s = {
                 "id": sid,
                 "started_at": started,
-                "model": entry.get("model"),
                 "cwd": cwd or None,
                 "agent_type": owner or "openclaw",
                 "meta": {"openclaw:session_key": key,
@@ -381,8 +380,6 @@ class OpenClawAdapter(Adapter):
             entry.setdefault("sessionStartedAt",
                              int((s.get("started_at") or
                                   time.time()) * 1000))
-            if s.get("model"):
-                entry["model"] = s["model"]
             if meta:
                 entry["meta"] = meta
             index[key] = entry
@@ -393,7 +390,11 @@ class OpenClawAdapter(Adapter):
         """Create a fresh transcript file; returns (written, last id)."""
         now = time.time()
         started = session.get("started_at") or now
-        model = session.get("model") or "unknown"
+        # The transcript shape requires a model_change event; the model name
+        # itself is never synced (LOCAL_ONLY_SESSION_FIELDS, decision record
+        # 2026.10.06.1), so a placeholder is written and the gateway's own
+        # local model choice stays untouched.
+        model = "unknown"
         mc_id = secrets.token_hex(4)
         lines = [
             {"type": "session", "version": 3, "id": sid,

@@ -8,10 +8,13 @@ Format mirrors what omp itself writes (pi-coding-agent session manager):
             {"type":"title","v":1,"title":...,"source":"auto","updatedAt":...,"pad":"..."}
     line 2: session header:
             {"type":"session","version":3,"id":"<uuid>","timestamp":"<iso>","cwd":"<abs>"}
-    line 3: model_change root entry (optional but always written here)
     then:   one record per message:
             {"type":"message","id":"<8hex>","parentId":"<prev>","timestamp":"<iso>",
              "message":{"role":"user|assistant","content":[...],"timestamp":<ms>}}
+
+A ``model_change`` root entry (which omp writes for its own sessions) is
+tolerated on read but never written here: the model is a local choice and
+never synced (``LOCAL_ONLY_SESSION_FIELDS``, decision record 2026.10.06.1).
 
 Directory name: cwd is classified as home-relative / tmp-relative / absolute
 exactly like omp's computeDefaultSessionDir (see session-paths.ts):
@@ -104,26 +107,6 @@ def _encode_relative(prefix: str, relative: str) -> str:
 
 def _msg_id() -> str:
     return "".join(secrets.choice(_MSG_ID_ALPHABET) for _ in range(8))
-
-
-def _model_str(value) -> str | None:
-    """canonical model -> omp 'provider/id' string (unknown provider -> id)."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, dict):
-        mid = str(value.get("id") or "")
-        pid = str(value.get("providerID") or "")
-        if not mid:
-            return None
-        return f"{pid}/{mid}" if pid and pid != "unknown" else mid
-    s = str(value)
-    try:
-        parsed = json.loads(s)
-        if isinstance(parsed, dict):
-            return _model_str(parsed)
-    except (ValueError, TypeError):
-        pass
-    return s or None
 
 
 class OmpAdapter(Adapter):
@@ -522,14 +505,11 @@ class OmpAdapter(Adapter):
         header = {"type": "session", "version": _VERSION, "id": sid,
                   "timestamp": started_iso, "cwd": cwd}
         out += json.dumps(header, ensure_ascii=False) + "\n"
-        model = _model_str(session.get("model"))
+        # No model_change entry is written: the model is the local user's
+        # choice and never synced (LOCAL_ONLY_SESSION_FIELDS, decision record
+        # 2026.10.06.1). omp/pi treat the entry as optional and a session
+        # has always been written without it when no model was known.
         prev = None
-        if model:
-            mc = {"type": "model_change", "id": _msg_id(), "parentId": None,
-                  "timestamp": started_iso, "model": model,
-                  "resolvedModelIsFallback": False}
-            out += json.dumps(mc, ensure_ascii=False) + "\n"
-            prev = mc["id"]
         by_ts = {}
         for m in msgs:
             ts = m.get("ts")

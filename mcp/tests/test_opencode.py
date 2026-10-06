@@ -106,7 +106,10 @@ class OpencodeAdapterTest(unittest.TestCase):
         s = sessions[0]
         self.assertEqual(s["id"], "ses_000000000000000000000000000000")
         self.assertEqual(s["title"], "Opencode Chat")
-        self.assertEqual(s["model"], "claude-sonnet-4")
+        # The local session.model column is never read into the canonical
+        # payload: the model is a device-local choice and is not synced
+        # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
+        self.assertNotIn("model", s)
         self.assertEqual(s["cwd"], "D:/work/x")
         self.assertEqual(s["started_at"], 1767300000.0)
         self.assertEqual(len(s["messages"]), 1)
@@ -145,23 +148,25 @@ class OpencodeAdapterTest(unittest.TestCase):
         self.assertEqual(row[0], "global")
         con.close()
 
-    def test_write_wraps_plain_model_as_json_object(self):
-        # opencode JSON-parses session.model; a bare string breaks its session
-        # list. Any plain (non-JSON) model must be stored as a JSON object.
+    def test_write_never_touches_the_local_model(self):
+        """A pulled session must not overwrite the local model column: the
+        model is this device's own choice, never synced content
+        (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1)."""
         a = OpencodeAdapter(db_path=self.db)
-        a.write_sessions([{
-            "id": "workbuddy:model-probe", "title": "M", "started_at": 1.0,
-            "model": "deepseek-v4-flash",
-            "messages": [{"session_id": "workbuddy:model-probe", "role": "user",
-                          "content": "hi", "timestamp": 1.0}]}])
         con = sqlite3.connect(self.db)
-        row = con.execute("SELECT model FROM session WHERE title='M'").fetchone()[0]
+        before = con.execute("SELECT model FROM session").fetchone()[0]
         con.close()
-        parsed = json.loads(row)          # must be parseable JSON
-        # opencode Model.Ref requires {id, providerID} -- missing providerID
-        # breaks the whole session list ("Expected string, got undefined")
-        self.assertEqual(parsed["id"], "deepseek-v4-flash")
-        self.assertIsInstance(parsed.get("providerID"), str)
+        self.assertEqual(before, "claude-sonnet-4")   # fixture's local choice
+        a.write_sessions([{
+            "id": "ses_000000000000000000000000000000", "title": "M",
+            "started_at": 1.0, "model": "pulled-from-a-peer",
+            "messages": [{"session_id": "ses_000000000000000000000000000000",
+                          "role": "user", "content": "hi", "timestamp": 1.0}]}])
+        con = sqlite3.connect(self.db)
+        rows = con.execute("SELECT id, model FROM session").fetchall()
+        con.close()
+        self.assertEqual(rows, [("ses_000000000000000000000000000000",
+                                 "claude-sonnet-4")])
 
     def test_write_resolves_project_id_from_directory(self):
         # opencode desktop scopes its session list by project_id; a pulled

@@ -1,3 +1,43 @@
+## [2026.10.06.1] - 2026-10-06
+
+> 客户端 + 服务端变更：**会话的模型名不再同步**（决策记录 2026.10.06.1）。`CLIENT_VERSION`
+> 2026.10.02.1 → **2026.10.06.1**（`mcp/updater.py`、`server/client_update.py`），各端经
+> `/api/client/manifest` 自动更新；服务端 `/push` `/pull` 有配套改动，**待部署**
+> （`$env:DEPLOY_SSH_PASSWORD="…"; python scripts/deploy-remote.py`）。旧服务端仍会把历史
+> `model` 列下发，但客户端上下行两侧都剥离，因此升级后的客户端不会被它覆盖本机选择。验证：
+> `mcp` 套件 **212 项 OK**、`server` 套件 **292 项 OK / 2 skipped**；真机冒烟（真实
+> `mcp/server.py` + stub HTTP 服务 + hermes 形态 SQLite 库）**PASS**：push 载荷及消息级均无
+> `model`（载荷键只有 id/agent_type/cwd/started_at/title/message_count/messages/field_meta），
+> pull 落库新消息后本地 `sessions.model` 仍为本地值 `local-choice-model`。
+
+### Changed
+
+- **模型名不再同步：`model` 是设备本地字段（决策记录 2026.10.06.1）**。此前 `model` 走
+  canonical 会话字段 + derived/LWW（无字段级并发保护），而 `sync_full` 先拉后推——设备刚切的
+  模型会在同一轮被服务端旧值回写覆盖；且各 agent 落地并不一致（omp/dsh/reasonix 从不上行，
+  opencode/hermes/workbuddy/openclaw 双向），"选中的模型"跨设备同步语义本就是错的。
+  - **契约**：`mcp/adapters/base.py` 新增 `LOCAL_ONLY_SESSION_FIELDS = ("model",)`，
+    `CANONICAL_SESSION_FIELDS` 移除 `model`；通用 `SQLiteAdapter._map_cols` 跳过该列
+    （hermes 等按列 1:1 映射的适配器不再把它读进 canonical 载荷）。
+  - **客户端**：新增 `_strip_local_only()`（`mcp/server.py`）。推送侧在**指纹计算之前**剥离
+    `model` 与消息级副本 → 切模型既不进服务端、也不算内容变更（不会触发重推）；拉取侧在交给
+    适配器写库前剥离 → 旧服务端/旧对端带着它也不会覆盖本机选择。
+  - **适配器**：opencode 不再读 `session.model`/消息 `model`、不再写 `model` 列（删除
+    `_model_db`；本机已有值原样保留，新建外来会话该列留空）；workbuddy 不再读写 `model`
+    列（`_upsert_session` 去掉 model 参数）；openclaw 索引不再读写 model，新建 transcript 的
+    必需 `model_change` 事件写 `unknown` 占位；dsh 的 assistant `source` 戳改为
+    `unknown/unknown`（删除 `_model_parts`）；omp 不再写 `model_change` 条目（读时仍容忍）。
+    `scripts/import_doubao.py` 删除 `--model`。
+  - **服务端**：`push_sync` 丢弃载荷中的 `model`（INSERT/UPDATE 均不写该列），`pull_sync`
+    在返回前剥掉。既有行里的历史值**保留不动**（Web/API 仍可读到，但不再更新）。
+  - **回归防线**：`mcp/tests/test_mcp_server.py::LocalOnlyModelTest`（剥离、push 载荷无 model、
+    切模型不触发重推、pull 不写回）、`mcp/tests/test_opencode.py`（新增
+    `test_write_never_touches_the_local_model`）、`mcp/tests/test_workbuddy.py`
+    （`test_upsert_preserves_local_model`）、`mcp/tests/test_dsh.py`（source 占位）、
+    `server/tests/test_sync.py`（`test_pushed_model_is_never_stored` /
+    `test_pull_never_serves_a_model`；测试 schema 的 `SESS_COLS` 补上 `model`，否则假 schema
+    会替实现挡掉该字段、让断言失去意义）。
+
 ## [2026.10.05.1] - 2026-10-05
 
 > 服务端 Web 修复（单文件：`templates/session_messages.html`），无 schema / API / 客户端变更，

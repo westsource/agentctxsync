@@ -14,8 +14,10 @@ from db import _pg_val, get_conn, normalize_path_sep, plan_limits, quota_check
 # User-editable session fields that participate in field-level optimistic
 # concurrency (see docs/ARCHITECTURE.md "字段级乐观并发"). These are the
 # fields a user actually edits/conflicts across devices; everything else
-# (message_count, tokens, cost, model, source, ...) is derived/append and
-# keeps the legacy last-writer-with-guards semantics (NOT dirtiness-tracked).
+# (message_count, tokens, cost, source, ...) is derived/append and keeps the
+# legacy last-writer-with-guards semantics (NOT dirtiness-tracked). ``model``
+# is neither: it is local-only and never synced at all
+# (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1).
 USER_EDIT_FIELDS = frozenset((
     "cwd", "git_branch", "git_repo_root", "title", "pinned", "archived",
     "display_name",
@@ -181,6 +183,12 @@ def pull_sync(body, ws):
                 by_sid.setdefault(m["session_id"], []).append(dict(m))
             for s in sessions:
                 s["messages"] = by_sid.get(s["id"], [])
+                # Device-local fields are never delivered: a session's model
+                # is the receiving device's own choice, not shared content
+                # (decision record 2026.10.06.1). Dropped even for rows an
+                # older client pushed, so a pulled page can never overwrite a
+                # local model selection.
+                s.pop("model", None)
                 # Server canonical path: always serve '/'; local separators
                 # are the client's concern on pull-write.
                 for _pk in ("cwd", "git_repo_root"):
@@ -273,6 +281,12 @@ def push_sync(body, ws):
         for _pk in ("cwd", "git_repo_root"):
             if session.get(_pk):
                 session[_pk] = normalize_path_sep(session[_pk])
+    # Device-local fields (the session's model choice) are never stored: the
+    # model belongs to the device, not to the shared conversation (decision
+    # record 2026.10.06.1). Older clients still send it, so it is dropped
+    # here rather than trusted; values already in the column are left alone.
+    for session in sessions_data:
+        session.pop("model", None)
     imp_s, imp_m, upd_s, dup_m = 0, 0, 0, 0
     with get_conn() as conn:
         c = conn.cursor()
