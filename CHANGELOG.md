@@ -1,3 +1,43 @@
+## [2026.10.07.1] - 2026-10-07
+
+> 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.10.06.1），无 schema 变更。
+> 会话查看器新增「隐藏仅思考过程的消息」，默认隐藏。改动 4 个文件：`templates/session_messages.html`、
+> `translations.py`、`tests/test_session_messages_template.py`、README（中英）。
+
+### Changed
+
+- **会话查看器：仅思考过程的消息默认隐藏，可一键显示**（`server/templates/session_messages.html`）。
+  「仅思考过程的消息」= assistant 步骤有 reasoning（canonical `reasoning` 或 legacy
+  `reasoning_content`）而正文为空或纯空白 —— omp / opencode / workbuddy 等按契约落库的推理步骤
+  正是这个形态，它们过去渲染成「只有一个空气泡 + 折叠的思考过程」，长会话里噪音很大。
+  - **标记与隐藏**：消息容器加 `think-only` 类（判定在模板里，用的仍是原有
+    的 `m.reasoning or m.reasoning_content` 优先级）；CSS `.hide-think-only .think-only { display: none }`
+    负责隐藏，`<html>` 上的 `hide-think-only` 是唯一开关。页首内联脚本排在消息之前执行，所以消息
+    一渲染就已隐藏，不会先闪一下再收起。
+  - **选项**：筛选条（角色筛选旁）新增勾选项「隐藏仅思考过程的消息」，**默认勾上**；改动写入
+    `localStorage.acs_hide_think_only`，翻页、切角色、换会话、重开标签页后都保持；DOMContentLoaded
+    时按 `<html>` 的类名回填勾选状态。localStorage 不可用（`file://`、隐私模式抛错）时同样默认隐藏。
+  - **边界**：正文非空的消息（哪怕同时带 reasoning）永不隐藏；正文纯空白的算隐藏；`?focus=<mid>`
+    深链若指向被隐藏的这类消息，只对该条临时露出（`think-only-focus` 类），不改用户偏好。
+  - **纯显示层**：不动 SQL / 分页 / 搜索 / 导出 / 回收站，`messages` 数据与 `hidden`（回收站）语义
+    均不变。
+- i18n：新增 `msg_hide_thinking_only`、`msg_hide_thinking_only_hint`（zh-CN + en 各两条）。
+- README（中英）功能总览的会话查看器条目补上该选项。
+
+### Tests
+
+- `server/tests/test_session_messages_template.py` 5 → **11 项**：新增 `ViewerThinkingOnlyToggleTest`
+  —— 勾选项默认勾上且文案本地化、thinking-only 步骤带标记类、正文非空/纯空白/legacy
+  `reasoning_content` 三类边界、两种语言都带新 key。测试渲染器 `_render()` 末尾追加一条哨兵消息，
+  让 `_bubble()` 用「下一条消息」作右边界（原先最后一条消息只能截 4000 字符，会滑进页面尾部
+  `<script>` 里的文案，断言被污染）。
+- 验证：`server` 套件 **298 项 OK / 2 skipped**（uv + Python 3.12，与 CI 同一条
+  `unittest discover` 命令；`mcp` 套件未涉及，未跑）。真机冒烟（渲染真实模板 → 本地静态 HTTP →
+  Chromium）逐项核对：首次访问 `<html>` 带 `hide-think-only`、3 条仅思考消息
+  `display:none`、勾选项默认勾上；取消勾选后三条全部可见；刷新后偏好保持（`localStorage=0`）；
+  重新勾选再刷新仍隐藏；`?focus=2` 时目标那条可见且带 `think-only-focus` 而其余仍隐藏；
+  有正文与工具消息始终可见。
+
 ## [2026.10.06.1] - 2026-10-06
 
 > 客户端 + 服务端变更：**会话的模型名不再同步**（决策记录 2026.10.06.1）。`CLIENT_VERSION`
