@@ -3,6 +3,15 @@
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.10.06.1），无 schema 变更。
 > 会话查看器新增「隐藏仅思考过程的消息」，默认隐藏。改动 4 个文件：`templates/session_messages.html`、
 > `translations.py`、`tests/test_session_messages_template.py`、README（中英）。
+> 已部署 236（2026-10-08 CST，提交 `6990ace`）：2 个文件（`templates/session_messages.html`、
+> `translations.py`）对上次部署提交 `078adb1` 逐文件 LF 归一化预检通过（盒子上的模板是 CRLF，
+> 按 LF 归一化后与 `078adb1` 一致）、上传后回读 sha256 一致、`py_compile` 与 Jinja 模板编译
+> 通过，重启后 active、journal 无 error、回环 `/health=200`。线上核对 PASS：真实会话
+> （默认空间 ws=4，`01a10ad1-…`，整会话 879 条消息）第 1 页渲染出的 **88 条** `think-only` 标记
+> 与库中该页 88 条「有 reasoning、无正文」的 assistant 行逐条吻合（该页 assistant 共 93 条，
+> 未标记 5 条），勾选项与其文案、页首默认隐藏脚本、`?focus` 临时露出规则都在线上 HTML 里；
+> Chromium 直连该页实测：首次访问（无 localStorage）即隐藏且勾选项为勾、取消勾选后全部可见、
+> 刷新后偏好保持（`acs_hide_think_only=0`）、再勾选刷新仍隐藏，控制台无报错。
 
 ### Changed
 
