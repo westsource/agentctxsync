@@ -1,3 +1,80 @@
+## [2026.10.09.1] - 2026-10-09
+
+> 客户端发布：适配新版 **DSH Desktop 0.2.0-rc.2**（会话格式已到 **v4**）。`CLIENT_VERSION`
+> 2026.10.06.1 → **2026.10.09.1**（`mcp/updater.py`、`server/client_update.py`），各端经
+> `/api/client/manifest` 自动更新。改动 `mcp/adapters/dsh.py` + `mcp/tests/test_dsh.py` + 文档。
+
+### Fixed（dsh 同步下来的会话在新版 DSH Desktop 里打不开 —— v3 日志过不了 v4 校验）
+
+- **根因**：DSH Desktop 0.2.0-rc.2 的当前会话格式已是 **v4**（挂载
+  `@deepseek-ai/dsh-session-format-v3-to-v4`），而适配器仍宣称「当前世代 = v3」并按 v3 形态发布。
+  dsh 读器对 v3 产物跑 v3→v4 迁移，其目标校验（`session-format-v3-to-v4`）要求
+  **`session/title` 在 `source.kind='user'` 时 `messageSeqs` 必须为空**，而适配器给用户标题写了
+  `messageSeqs: [<首个 user/message 的 seq>]`。于是**每个带标题的同步会话**在桌面打开时都报
+  「历史加载失败：… session/title messageSeqs must be empty exactly for a user title; source v3
+  artifact remains unchanged」（`gateway/internal`）。
+- **定位（用 dsh 自己的读器，非自证）**：把桌面 `app.asar` 的 `dsh/node_modules` 解出，用其中的
+  `dsh-session-format-catalog` / `dsh-session-query` 对真实 store 跑 `listSessions` + `readSession`：
+  410 个日志 **6 通过 / 404 失败**，错误全为上面的标题规则；把单个日志的标题事件改成
+  `messageSeqs: []` 后同法复跑即通过。改掉标题后又暴露出两处 **v4 原生接纳**（不再经迁移）的问题：
+  连续 user 行会让上一回合悬空（`turn/start does not open the expected turn`）、首行即 assistant 的
+  会话缺少受保护的首个 system head（`system/message requires a protected first surface head`）。
+- **修复**（`mcp/adapters/dsh.py`）：
+  - `_CURRENT_LOG_GENERATION` 3 → **4**：按 v4 原生形态发布，不再依赖迁移链；旧世代日志**即使没有
+    新消息也升级**（`legacy` 判定用当前世代），前代逐字节冻结、后继写成 `session.v4.*`。
+  - 用户标题事件写 `messageSeqs: []`（v4 目标规则）。
+  - 每轮注入的 `system/message` 来源由 v3 的 `{kind:'plugin', plugin:'@deepseek-ai/dsh-system-prompt'}`
+    改为 v4 要求的 `{kind:'system-prompt'}`（`dsh-session` 校验器）。
+  - 回合骨架修正：开新回合前**关闭上一个回合**（该回合有模型回复 → `turn/end.reason.kind='completed'`，
+    否则 `'interrupted'`）；首行即模型回复的会话也**先开回合并写入 system head**，保证整份日志的第一个
+    表层事件是受保护的 system 消息。
+- **顺带修掉长路径会话静默丢失**：`_log_file` / `_session_files` / `_find_any_log` / `_log_meta` /
+  `status` / 投影缓存写入此前用裸 `Path.iterdir()` / `read_bytes()`，store 根一深（path ≥ MAX_PATH）就
+  抛 `OSError` 被吞，会话既不读也不写（`_session_files` 少返、`_log_file` 返回 `None`）。现统一走
+  `_lp()` 扩展长度形式（新增 `_isdir` / `_scan` / `_mtime` 纯辅助）。实测副本根把某些会话目录顶到
+  267 字符时，修复前 **404/413**、修复后 **414/414**。
+- **端到端验证（dsh 自己的读器，非自证）**：
+  - 把真实 store 的 409 个会话经修复后的适配器全量写入空 store（`imported: 409 /
+    new_messages: 26066`），再用 `dsh-session-query` 对写入结果逐个 `readSession` —— **409/409 全通过**
+    （含 1018 事件的长会话、CJK/超长路径会话、`_no-cwd` 会话）。
+  - 对真实 store 的副本跑一次升级写（`updated: 413、new_messages: 0`）：前代 v3 逐字节冻结、每会话新增
+    `session.v4.jsonl.zstd` 后继，**414/414 后继 `readSession` 通过**（修复前 404/413）。
+  - 桌面实机：重启后打开同步会话正常渲染历史（不再报历史加载失败）。
+- **测试**：`mcp/tests/test_dsh.py` —— 当前世代落盘为 v4、用户标题 `messageSeqs` 为空、
+  `system/message` 为 `system-prompt` 来源、当前世代就地重写、v3 前代升级为 v4 且前代逐字节不变、
+  连续 user 行以 `interrupted` 收口、模型先行会话以 system head 打头、超 MAX_PATH 的会话目录仍能被
+  `_log_file` 读到；mcp 套件 **223 项 OK**。
+
+### Fixed（dsh 同步的会话全堆在「未分组」—— Workspace 索引只在首启扫描）
+
+- **根因**：DSH Desktop 侧栏按 Workspace 分组，成员来自 `workspace` 存储域
+  （`<home>/storages/workspace.json`）每条记录的 `sessionIds`；dsh **只在首次初始化**
+  （`initialized` 尚为 false 时）按会话头 bootstrap 一次，之后永不重扫。适配器此前刻意不写该域
+  （旧版合成行会破坏其不变式），于是所有同步进来的会话都留在「未分组」—— 实测 414 个会话里
+  383 个本可归属，域里却只有 1 个。
+- **修复**（`mcp/adapters/dsh.py::_refresh_workspace_index`，每次写入后运行）：镜像 dsh 自己的
+  header bootstrap **加性**重建归属 —— 按 `fs.realpath(cwd)` 分组（Python `os.path.realpath`
+  与 dsh 的 `fs/promises.realpath` 同为规范大小写，已逐例实测一致），把本机会话挂到路径相同的
+  记录、缺失目录时新建记录（标题取末段、时间取组内最新会话）。既有记录、标题与展示顺序全部
+  保留（新记录按 dsh `create` 的约定前置）；CJK/超长路径、大小写漂移、junction 都经同一规范。
+  **只动已初始化且结构自洽的 unit**：文件缺失、外来 unit（name/version 不符）、
+  `initialized: false`、`workspaceIds` 与表键不一致或存在 `pendingMutation` 时一律不碰（交给
+  dsh）；cwd 不存在或没有 cwd（`_no-cwd`）的会话不分组 —— 与 dsh 自身一致。
+- **验证（dsh 真实域 + 桌面实机）**：真实 store 副本上先跑一遍：记录 33 → **45**、成员 1 →
+  **383**，三条不变式（唯一所有者 / 一目录一记录 / 顺序 == 表键）断言通过、二次运行幂等；
+  对真实 store 应用后重启桌面实测：侧栏出现 `service / client / diagramon / OpenCode / work /
+  Desktop / D:\ …` 等新分组，`agentctxsync`(69)、`中医健康`(16)、`hermes-sync-foreign`(121) 等
+  各归其位，「未分组」只剩 cwd 在本机不存在的会话（本次快照 24 个）。
+- **测试**：`mcp/tests/test_dsh.py::WorkspaceIndexTest` 7 例 —— 新会话建记录（规范路径/标题/
+  顺序）、既有记录保留标题/顺序/成员且新成员前置、`updatedAt` 刷新、幂等、cwd 无法解析不分组、
+  无 cwd 不分组、域缺失/未初始化/不一致不触碰；mcp 套件 **223 项 OK**。
+
+### Docs
+
+- `docs/SUPPORTED_AGENTS.md`（DSH 行）与 `docs/ARCHITECTURE.md`（dsh 小节）：当前世代 v3 → **v4**，补上
+  用户标题 `messageSeqs` 为空、`system-prompt` 来源、v3→v4 边与 v4 原生接纳的拒绝规则；workspace
+  域由「外部不写」改为「按会话头加性重建归属」并写明其不变式与延迟可见（需重启桌面）。
+
 ## [2026.10.07.1] - 2026-10-07
 
 > 服务端专用发布：无客户端改动（`CLIENT_VERSION` 保持 2026.10.06.1），无 schema 变更。

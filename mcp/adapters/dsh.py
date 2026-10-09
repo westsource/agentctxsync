@@ -1,38 +1,48 @@
 """
 dsh (official DeepSeek Harness, deepseek-ai/deepseek-harness) adapter.
 
-Local store (0.1.2-rc.1 layout, as written by DSH Desktop / dsh):
+Local store (0.2.0-rc.2 layout, as written by DSH Desktop / dsh):
 
-    <dsh home>/sessions/--<cwd-slug>--/<encoded-session-id>/session.v3.jsonl.zstd
+    <dsh home>/sessions/--<cwd-slug>--/<encoded-session-id>/session.v4.jsonl.zstd
 
     - one session per DIRECTORY named <encoded-session-id> (ids look like
       ``session-<uuid>`` and encode unchanged);
     - one file per generation inside: ``session.jsonl`` (v0 name) or
       ``session.vN.jsonl``; compressed with zstd when the store is configured
       for it (the desktop default), suffix ``.zstd``. The adapter publishes the
-      CURRENT generation (v3) and leaves an older predecessor byte-identical
+      CURRENT generation (v4) and leaves an older predecessor byte-identical
       beside it -- the convention dsh's own write path follows;
-    - file = header line ``{"type":"session","version":3,"id":...,"createdAt":ms,
-      "cwd":...,"isSeeded":false,"agentPreset":"standard"}`` followed by typed
-      event envelopes ``{"type":T,"seq":N,"time":ms,"data":{...}}`` with seq
-      contiguous from 0. A written log opens with the seed head
+    - file = header line ``{"type":"session","version":4,"id":...,"createdAt":ms,
+      "cwd":...,"isSeeded":false,"delegationDepth":0,"agentPreset":"standard"}``
+      followed by typed event envelopes ``{"type":T,"seq":N,"time":ms,"data":{...}}``
+      with seq contiguous from 0. A written log opens with the seed head
       (``permission/preset``, ``sandbox/mode``, ``approval/policy``) and one
       ``turn/start`` + ``step/start`` frame per conversation row: dsh's reader
-      migrates older artifacts through v0->v1->v2->v3 and REFUSES message-only
-      logs ("format v2 surface before first step cannot acquire a system head
-      without changing chronology"), which left every synced Session
-      unopenable in DSH Desktop;
+      opens the highest generation and its v0->v1->v2->v3->v4 migration chain
+      plus the v4 native admission REFUSE malformed shapes (message-only v0
+      logs, ``sourceEventSeqs`` on v0, a user ``session/title`` carrying
+      ``messageSeqs``), which surfaced every synced Session in DSH Desktop as
+      "历史加载失败";
     - conversation text lives in ``user/message`` (data.role='user') and
       ``assistant/message`` (data.message.role='assistant', content = typed
       blocks incl. ``{type:"text",text}``) -- the latter also carries the
-      ``usage``/``stream`` settlement block dsh's validator requires;
+      ``usage``/``stream`` settlement block dsh's validator requires; the
+      harness-injected ``system/message`` head of each turn carries
+      ``source.kind='system-prompt'`` (the v4 form; v3 used a plugin name);
       reasoning/tool/compaction events are not conversation text and are
       skipped on read;
-    - titles arrive as log events ``session/title`` (data.title);
-    - the DSH Desktop session list additionally reads
-      ``<home>/storages/workspace.json`` (+ a projection cache); external
-      writers update workspace.json best-effort, the cache is left to the
-      harness, so newly written sessions may need a desktop restart to show.
+    - titles arrive as log events ``session/title`` (data.title); a user title
+      carries an EMPTY ``messageSeqs`` -- the v4 validator requires it empty
+      exactly when ``source.kind='user'``;
+    - the DSH Desktop session sidebar groups Sessions by Workspace: the
+      ``workspace`` storage domain (``<home>/storages/workspace.json``) keeps one
+      record per project directory whose ``sessionIds`` are its members, plus a
+      projection cache for list titles. dsh only groups from session headers on
+      the ONE-TIME first boot, so this adapter ATTACHES its Sessions to the
+      matching record itself (grouping by ``fs.realpath(cwd)``, additively --
+      existing records, titles and the durable order survive) and folds the
+      projection cache; both are read at desktop boot, so a freshly grouped
+      store may need a desktop restart to show.
 
 Write constraints: we author whole new session logs (header + events, seq
 contiguous) and rewrite existing ones atomically (temp + rename), mirroring
@@ -59,6 +69,12 @@ _WATERMARK = ".dsh-sync-watermark"
 _FOREIGN = ".dsh-sync-foreign.json"
 _NO_CWD = "_no-cwd"
 
+# The ``workspace`` storage domain (dsh-workspace): one record per project
+# directory; ``sessionIds`` is the ordered membership account. The adapter only
+# touches an initialized, structurally-consistent unit of this exact identity.
+_WORKSPACE_UNIT = "workspace"
+_WORKSPACE_UNIT_VERSION = 2
+
 try:
     import zstandard as _zstd  # type: ignore
     HAVE_ZSTD = True
@@ -76,18 +92,21 @@ _HEX_SEP_RE = re.compile(r"[/\\:]+")
 # vN generation, whose physical header carries that same version. dsh selects
 # the NUMERICALLY HIGHEST generation for both read and write, and a write open
 # publishes a successor while leaving the source byte-identical — so a migrated
-# session's v0 file is frozen history and only its v3 file keeps growing.
+# session's v0 file is frozen history and only its newest-generation file keeps
+# growing.
 _LOG_FILENAME_RE = re.compile(r"^session(?:\.v(\d+))?\.jsonl(?:\.zstd)?$")
 
 # The generation dsh currently releases (mirrors the toVersion of
-# ``@deepseek-ai/dsh-session-format-v2-to-v3``). New Sessions are published in
-# it: dsh's reader migrates older artifacts through v0->v1->v2->v3, and that
-# chain REFUSES the message-only logs this adapter used to write for new
-# Sessions ("format v2 surface before first step cannot acquire a system head
-# without changing chronology"; a v0 artifact additionally rejects
-# ``sourceEventSeqs``), which left every synced Session unopenable in DSH
-# Desktop ("历史加载失败：network error（gateway/internal）").
-_CURRENT_LOG_GENERATION = 3
+# ``@deepseek-ai/dsh-session-format-v3-to-v4``, the last edge DSH Desktop
+# 0.2.0-rc.2 mounts). New Sessions are published in it: dsh's reader opens the
+# numerically highest generation and migrates older artifacts along the
+# v0->v1->v2->v3->v4 chain, whose validators REFUSE malformed predecessors --
+# a v0 artifact rejects ``sourceEventSeqs`` and the message-only v3 shape this
+# adapter used to write for new Sessions, while the v3->v4 edge rejects a user
+# ``session/title`` that carries ``messageSeqs`` ("session/title messageSeqs
+# must be empty exactly for a user title"). Every such Session surfaced in DSH
+# Desktop as "历史加载失败" and could not be opened.
+_CURRENT_LOG_GENERATION = 4
 
 # Seed-head events a current-generation Session opens with, and the permission
 # triple they (and the projection-cache ``permissions`` row) carry. Values
@@ -100,10 +119,12 @@ _SEED_HEAD_EVENTS = (
     ("sandbox/mode", {"mode": _SANDBOX_MODE}),
     ("approval/policy", {"policy": _APPROVAL_POLICY}),
 )
-# The system-message head dsh injects into the first step of a turn; the plugin
-# name marks it as harness-injected (the desktop filters these out of the
-# transcript, and ``_event_message`` ignores role ``system``).
-_SYSTEM_HEAD_PLUGIN = "@deepseek-ai/dsh-system-prompt"
+# The system-message source the harness-injected head of a current-generation
+# (v4) turn carries. The released v3 shape used a plugin name instead
+# (``@deepseek-ai/dsh-system-prompt``), which the v3->v4 migration rewrites to
+# this kind and the v4 validator (``dsh-session``) requires; ``_event_message``
+# ignores role ``system`` either way.
+_SYSTEM_MESSAGE_SOURCE = {"kind": "system-prompt"}
 # dsh's agentPreset default for a Session that was not seeded from a preset.
 _DEFAULT_AGENT_PRESET = "standard"
 # assistant/message settlement block. Token counts are not part of the synced
@@ -148,6 +169,101 @@ def _lp(path) -> str:
     """Long-path-safe string for open()/os.* on Windows, plain text elsewhere."""
     s = os.path.abspath(str(path))
     return _extended(s) if os.name == "nt" else s
+
+
+def _isdir(path) -> bool:
+    """os.path.isdir through the long-path-safe form (Path.is_dir fails past
+    MAX_PATH and turns a real store into "no sessions")."""
+    try:
+        return os.path.isdir(_lp(path))
+    except OSError:
+        return False
+
+
+def _scan(path) -> list[tuple[str, bool, bool, float]]:
+    """``[(name, is_dir, is_file, mtime)]`` for one directory, read through the
+    long-path-safe form so a deep store root cannot silently hide sessions."""
+    out: list[tuple[str, bool, bool, float]] = []
+    with os.scandir(_lp(path)) as it:
+        for e in it:
+            try:
+                mtime = e.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            out.append((e.name, e.is_dir(), e.is_file(), mtime))
+    return out
+
+
+def _mtime(path) -> float:
+    """Modification time through the long-path-safe form (0.0 when unreadable)."""
+    try:
+        return os.stat(_lp(path)).st_mtime
+    except OSError:
+        return 0.0
+
+
+def _read_header_line(path: Path) -> dict | None:
+    """The session log's header line, decoding only the first zstd frame (the
+    log is one frame per line, so the header is cheap to reach)."""
+    try:
+        with open(_lp(path), "rb") as f:
+            if path.name.endswith(".zstd"):
+                if not HAVE_ZSTD:
+                    return None
+                with _zstd.ZstdDecompressor().stream_reader(f) as r:
+                    # the reader exposes read() only; a bounded chunk covers
+                    # the header line without decoding the whole log
+                    line = r.read(1 << 16).split(b"\n", 1)[0]
+            else:
+                line = f.readline()
+    except (OSError, ImportError, ValueError):
+        return None
+    try:
+        rec = json.loads(line.decode("utf-8", "replace"))
+    except (ValueError, TypeError):
+        return None
+    return rec if isinstance(rec, dict) else None
+
+
+def _iso_from_ms(ms: int) -> str:
+    """``Date(ms).toISOString()`` in UTC, the timestamp form the workspace
+    domain stores."""
+    t = time.gmtime(ms / 1000.0)
+    return "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" % (
+        t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
+        int(ms) % 1000)
+
+
+def _norm_path(path) -> str:
+    """Case/separator-insensitive comparison key for two path spellings."""
+    if not isinstance(path, str):
+        return ""
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _canon_dir(cwd) -> str | None:
+    """``fs.realpath`` canon of a cwd that exists as a directory, else None.
+
+    Mirrors dsh's ``realpathNormalize``: the workspace registry stamps this
+    canon as ``record.path`` and compares it to the same canon of each session
+    header's cwd, so only an existing directory has a place in the grouping.
+    """
+    if not isinstance(cwd, str) or not cwd or not os.path.isabs(cwd):
+        return None
+    try:
+        canon = os.path.realpath(cwd)
+    except OSError:
+        return None
+    return canon if os.path.isdir(canon) else None
+
+
+def _default_title(path: str) -> str:
+    """dsh's ``defaultWorkspaceTitle``: final segment, else the root spelling."""
+    base = os.path.basename(path)
+    if base:
+        return base
+    drive, _rest = os.path.splitdrive(path)
+    return (drive + os.sep) if drive else path
 
 
 def _msg_id() -> str:
@@ -223,7 +339,7 @@ class DshAdapter(Adapter):
             Path(os.environ.get("USERPROFILE", "")) / ".dsh" / "sessions",
         ])
         for p in candidates:
-            if p.is_dir():
+            if _isdir(p):
                 return p
         return None
 
@@ -247,7 +363,7 @@ class DshAdapter(Adapter):
         if f is None or not f.exists():
             return {}
         try:
-            d = json.loads(f.read_text(encoding="utf-8"))
+            d = json.loads(Path(_lp(f)).read_text(encoding="utf-8"))
             return d if isinstance(d, dict) else {}
         except (OSError, ValueError):
             return {}
@@ -255,7 +371,8 @@ class DshAdapter(Adapter):
     def _save_idmap(self, m: dict[str, str]):
         f = self._idmap_file()
         if f is not None:
-            f.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+            Path(_lp(f)).write_text(json.dumps(m, ensure_ascii=False),
+                                    encoding="utf-8")
 
     def _local_id_for(self, canonical: str) -> str:
         """Canonical id -> local dsh id. Own (session-<uuid>) ids pass
@@ -279,20 +396,29 @@ class DshAdapter(Adapter):
         newest-first. Walk <root>/<project-slug>/<encoded-id>/session*.jsonl*.
         """
         out: list[tuple[Path, str]] = []
-        if not self.sessions_root or not self.sessions_root.is_dir():
+        if not self.sessions_root or not _isdir(self.sessions_root):
             return out
-        for proj in self.sessions_root.iterdir():
-            if not proj.is_dir() or proj.name.startswith("."):
+        try:
+            projects = _scan(self.sessions_root)
+        except OSError:
+            return out
+        for proj_name, is_dir, _, _ in projects:
+            if not is_dir or proj_name.startswith("."):
                 continue
-            for sdir in proj.iterdir():
-                if not sdir.is_dir():
+            proj = self.sessions_root / proj_name
+            try:
+                entries = _scan(proj)
+            except OSError:
+                continue
+            for sdir_name, sdir_is_dir, _, _ in entries:
+                if not sdir_is_dir:
                     continue
-                fid = self._log_file(sdir)
+                fid = self._log_file(proj / sdir_name)
                 if fid is None:
                     continue
                 # local id = the session dir name, decoded if it was escaped
-                out.append((fid, _decode_id(sdir.name)))
-        out.sort(key=lambda t: t[0].stat().st_mtime, reverse=True)
+                out.append((fid, _decode_id(sdir_name)))
+        out.sort(key=lambda t: _mtime(t[0]), reverse=True)
         return out
 
     @staticmethod
@@ -307,24 +433,20 @@ class DshAdapter(Adapter):
         the compressed root wins over the raw one; mtime breaks any remaining
         tie.
         """
-        if not sdir.is_dir():
-            return None
         try:
-            entries = [p for p in sdir.iterdir() if p.is_file()]
+            entries = _scan(sdir)
         except OSError:
             return None
         best: tuple[tuple[int, int, float], Path] | None = None
-        for p in entries:
-            generation = _log_generation(p.name)
+        for name, _is_dir, is_file, mtime in entries:
+            if not is_file:
+                continue
+            generation = _log_generation(name)
             if generation is None:
                 continue
-            try:
-                mtime = p.stat().st_mtime
-            except OSError:
-                continue
-            key = (generation, 1 if p.name.endswith(".zstd") else 0, mtime)
+            key = (generation, 1 if name.endswith(".zstd") else 0, mtime)
             if best is None or key > best[0]:
-                best = (key, p)
+                best = (key, sdir / name)
         return best[1] if best is not None else None
 
     # ------------------------------------------------------------------
@@ -435,12 +557,15 @@ class DshAdapter(Adapter):
     # writing: canonical -> files
     # ------------------------------------------------------------------
     def write_sessions(self, sessions: list[dict]) -> dict:
-        if not sessions:
-            return {"imported": 0, "updated": 0, "new_messages": 0,
-                    "duplicates": 0}
         if not self.sessions_root:
             return {"error": "dsh sessions dir not found"}
-        self.sessions_root.mkdir(parents=True, exist_ok=True)
+        if not sessions:
+            # nothing to write, but the grouping pass still heals a store whose
+            # Sessions were never attached to a Workspace record
+            self._refresh_workspace_index()
+            return {"imported": 0, "updated": 0, "new_messages": 0,
+                    "duplicates": 0}
+        Path(_lp(self.sessions_root)).mkdir(parents=True, exist_ok=True)
         idmap = self._idmap()
         stats = {"imported": 0, "updated": 0, "new_messages": 0,
                  "duplicates": 0}
@@ -542,22 +667,26 @@ class DshAdapter(Adapter):
         self._save_idmap(idmap)
         if any_changed:
             self._refresh_cache_docs()
+        self._refresh_workspace_index()
         return stats
 
     def _find_any_log(self, local_id: str) -> Path | None:
         """Locate an existing session log by local id across every project
         dir (encoded id = dir name)."""
-        if not self.sessions_root or not self.sessions_root.is_dir():
+        if not self.sessions_root or not _isdir(self.sessions_root):
             return None
         enc = _encode_id(local_id)
-        for proj in self.sessions_root.iterdir():
-            if not proj.is_dir() or proj.name.startswith("."):
+        try:
+            projects = _scan(self.sessions_root)
+        except OSError:
+            return None
+        for proj_name, is_dir, _, _ in projects:
+            if not is_dir or proj_name.startswith("."):
                 continue
-            sdir = proj / enc
-            if sdir.is_dir():
-                f = self._log_file(sdir)
-                if f is not None:
-                    return f
+            sdir = self.sessions_root / proj_name / enc
+            f = self._log_file(sdir)
+            if f is not None:
+                return f
         return None
 
     def _load_log(self, sdir: Path) -> dict:
@@ -658,12 +787,11 @@ class DshAdapter(Adapter):
         (``usage`` / ``stream``) an assistant/message must carry.
 
         dsh's reader opens the numerically highest generation and migrates
-        older artifacts through v0->v1->v2->v3 — but that chain REFUSES the
-        message-only logs this adapter used to publish for new Sessions
-        ("format v2 surface before first step cannot acquire a system head
-        without changing chronology"; a v0 artifact additionally rejects
-        ``sourceEventSeqs``), which made every synced Session unopenable in
-        DSH Desktop ("历史加载失败：network error（gateway/internal）").
+        older artifacts through v0->v1->v2->v3->v4 — but those edges and the
+        v4 native admission REFUSE the shapes this adapter used to publish
+        (message-only v0 logs; a v0 ``sourceEventSeqs``; and, on the v3->v4
+        edge, a user ``session/title`` carrying ``messageSeqs``), which made
+        every synced Session unopenable in DSH Desktop ("历史加载失败").
 
         An existing log of the current generation is rewritten in place; a
         predecessor of an older generation is left byte-identical with a
@@ -737,66 +865,86 @@ class DshAdapter(Adapter):
             title = existing["title"]
         want_title = bool(isinstance(title, str) and title)
         # One turn/step frame per conversation row, mirroring the chronology
-        # dsh writes: a user row opens a turn and its first step, the model
-        # reply settles inside that step, and any further reply in the same
-        # turn opens the next step.
+        # dsh writes: a user row opens a turn and its first step (the harness
+        # system head lands in it), the model reply settles inside that step,
+        # and any further reply in the same turn opens the next step.
         turn = step = 0
         settled = False        # the open step already carries a model reply
         last_ts = base
 
+        def system_head(ts: int):
+            """The protected first surface head of the open turn. v4 requires
+            the very first surface event to be this system message; a turn
+            that opens on a model reply (no preceding user row) gets one too.
+            """
+            emit({"type": "system/message", "surfaceOp": "append",
+                  "data": {"turn": turn, "step": step,
+                           "message": {
+                               "id": f"system-{_msg_id()}",
+                               "role": "system",
+                               "source": dict(_SYSTEM_MESSAGE_SOURCE),
+                               "content": []}}}, ts)
+
         def close_turn(ts: int):
+            """Close the open turn. A turn whose step never got a model reply
+            is `interrupted`: v4 forbids a successor ``turn/start`` while a
+            turn is still open, which is exactly what consecutive user rows
+            (a dropped/absent assistant reply) produce.
+            """
             nonlocal settled
-            if turn and settled:
-                emit({"type": "step/end",
-                      "data": {"turn": turn, "step": step}}, ts)
-                emit({"type": "turn/end",
-                      "data": {"turn": turn,
-                               "reason": {"kind": "completed"}}}, ts)
-                settled = False
+            if not turn:
+                return
+            emit({"type": "step/end",
+                  "data": {"turn": turn, "step": step}}, ts)
+            emit({"type": "turn/end",
+                  "data": {"turn": turn,
+                           "reason": {"kind": "completed" if settled
+                                      else "interrupted"}}}, ts)
+            settled = False
+
+        def open_turn(ts: int):
+            """Open the next dense turn with its first step and system head."""
+            nonlocal turn, step, settled
+            turn += 1
+            step = 1
+            settled = False
+            emit({"type": "turn/start", "data": {"turn": turn}}, ts)
+            emit({"type": "step/start",
+                  "data": {"turn": turn, "step": step}}, ts)
+            system_head(ts)
 
         for r in sorted(rows, key=lambda k: (k["ts"], k["role"] != "user")):
             role, ts, content = r["role"], r["ts"], r["content"]
             last_ts = ts
             if role == "user":
                 close_turn(ts)
-                turn += 1
-                step = 1
-                emit({"type": "turn/start", "data": {"turn": turn}}, ts)
-                emit({"type": "step/start",
-                      "data": {"turn": turn, "step": step}}, ts)
-                emit({"type": "system/message", "surfaceOp": "append",
-                      "data": {"turn": turn, "step": step,
-                               "message": {
-                                   "id": f"system-{_msg_id()}",
-                                   "role": "system",
-                                   "source": {"kind": "plugin",
-                                              "plugin": _SYSTEM_HEAD_PLUGIN},
-                                   "content": []}}}, ts)
+                open_turn(ts)
                 emit({"type": "user/message", "surfaceOp": "append",
                       "data": {"id": f"user-{_msg_id()}", "role": "user",
                                "content": [{"type": "text", "text": content}],
                                "source": {"kind": "user"}}}, ts)
                 if want_title:
                     want_title = False
+                    # A user title carries NO messageSeqs in the current
+                    # generation: the v4 validator (and the v3->v4 edge)
+                    # requires them empty exactly when source.kind is "user".
                     emit({"type": "session/title",
-                          "data": {"title": title, "messageSeqs": [seq - 1],
+                          "data": {"title": title, "messageSeqs": [],
                                    "source": {"kind": "user"}}}, ts)
                 continue
-            if not turn:
-                # a model reply without a preceding user row (defensive)
-                turn = 1
-                step = 0
-                emit({"type": "turn/start", "data": {"turn": turn}}, ts)
-            if settled or step == 0:
-                # the step is not open yet: either a further model step in the
-                # same turn (the previous one must be closed) or the defensive
-                # turn above
-                if settled:
-                    emit({"type": "step/end",
-                          "data": {"turn": turn, "step": step}}, ts)
+            if settled:
+                # a further model step in the same turn: close the open step
+                emit({"type": "step/end",
+                      "data": {"turn": turn, "step": step}}, ts)
                 step += 1
                 emit({"type": "step/start",
                       "data": {"turn": turn, "step": step}}, ts)
+                settled = False
+            elif not turn:
+                # a model reply without a preceding user row (defensive):
+                # open the first turn so the log still leads with the
+                # protected system head v4 requires
+                open_turn(ts)
             # dsh's validator requires source.kind=model with provider/model
             # strings; the model NAME is never synced
             # (LOCAL_ONLY_SESSION_FIELDS, decision record 2026.10.06.1), so the
@@ -844,9 +992,8 @@ class DshAdapter(Adapter):
     # identity = header createdAt/cwd) right after each log write so a
     # fresh pull lists real titles immediately.
     #
-    # workspace.json is deliberately NOT written: dsh bootstraps that
-    # domain from session headers on first init (fs.realpath canonical
-    # paths), and externally synthesized rows break its invariants.
+    # The ``workspace`` domain (storages/workspace.json) is reconciled
+    # additively by ``_refresh_workspace_index`` further down.
     # ------------------------------------------------------------------
     def _projcache_dir(self) -> Path | None:
         if self.storages_root:
@@ -868,7 +1015,7 @@ class DshAdapter(Adapter):
         if cdir is None:
             return
         try:
-            cdir.mkdir(parents=True, exist_ok=True)
+            Path(_lp(cdir)).mkdir(parents=True, exist_ok=True)
         except OSError:
             return
         for path, local_id in self._session_files():
@@ -878,7 +1025,7 @@ class DshAdapter(Adapter):
                 # no foldable identity: drop any stale doc instead of
                 # churning quarantined .bak files on every desktop boot.
                 try:
-                    doc_path.unlink()
+                    Path(_lp(doc_path)).unlink()
                 except OSError:
                     pass
                 continue
@@ -895,17 +1042,126 @@ class DshAdapter(Adapter):
                 },
             }
             try:
-                doc_path.write_text(
+                Path(_lp(doc_path)).write_text(
                     json.dumps(doc, ensure_ascii=False, indent=2),
                     encoding="utf-8")
             except OSError:
                 pass
 
+    # ------------------------------------------------------------------
+    # workspace domain (storages/workspace.json): the Desktop sidebar groups
+    # Sessions by Workspace, and a Workspace's ``sessionIds`` are its members.
+    # dsh groups from session headers only on its ONE-TIME first boot
+    # (``initialized: true`` never re-scans), so an externally written Session
+    # stays "Ungrouped" forever. Reconcile additively, mirroring dsh's own
+    # header bootstrap (group by ``fs.realpath(cwd)``): existing records,
+    # titles and the durable order are preserved; only membership and newly
+    # seen directories are added, so the domain's invariants (one owner per
+    # session, one record per canonical path, order == table keys) hold.
+    # ------------------------------------------------------------------
+    def _workspace_file(self) -> Path | None:
+        if self.storages_root:
+            return self.storages_root / "workspace.json"
+        return None
+
+    def _refresh_workspace_index(self):
+        """Attach this store's Sessions to their cwd's Workspace record.
+
+        Fail-soft by design: an absent, foreign, uninitialized or already
+        inconsistent unit is left untouched (dsh owns it then), and any parse
+        or I/O fault aborts the pass without failing the sync. Runs after every
+        write so a store healed by a newer client groups its whole history,
+        not only the sessions of the current page."""
+        wf = self._workspace_file()
+        if wf is None:
+            return
+        try:
+            doc = json.loads(Path(_lp(wf)).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        unit = doc.get("unit") if isinstance(doc, dict) else None
+        state = doc.get("global") if isinstance(doc, dict) else None
+        tables = doc.get("tables") if isinstance(doc, dict) else None
+        if not isinstance(unit, dict) or unit.get("name") != _WORKSPACE_UNIT \
+                or unit.get("version") != _WORKSPACE_UNIT_VERSION \
+                or not isinstance(state, dict) or not isinstance(tables, dict):
+            return
+        records = tables.get("workspaces")
+        order = state.get("workspaceIds")
+        if not isinstance(records, dict) or not isinstance(order, list) \
+                or state.get("initialized") is not True \
+                or state.get("pendingMutation") is not None:
+            return
+        # An initialized domain must account for exactly its records; anything
+        # else is corruption we must not build on.
+        if len(order) != len(records) or set(map(str, order)) != set(records):
+            return
+        by_path: dict[str, str] = {}
+        accounted: set[str] = set()
+        for wid, rec in records.items():
+            if not isinstance(rec, dict) or not isinstance(rec.get("path"), str) \
+                    or not isinstance(rec.get("sessionIds"), list):
+                return
+            by_path[_norm_path(rec["path"])] = wid
+            accounted.update(map(str, rec["sessionIds"]))
+
+        groups: dict[str, list[tuple[int, str]]] = {}
+        for path, local_id in self._session_files():
+            if local_id in accounted:
+                continue
+            header = _read_header_line(path)
+            if header is None:
+                continue
+            canon = _canon_dir(header.get("cwd"))
+            if canon is None:
+                continue
+            created = header.get("createdAt")
+            created = int(created) if isinstance(created, (int, float)) else 0
+            groups.setdefault(canon, []).append((created, str(local_id)))
+
+        now = _iso_from_ms(int(time.time() * 1000))
+        new_ids: list[str] = []
+        changed = False
+        for canon, members in sorted(groups.items(),
+                                     key=lambda kv: max(m[0] for m in kv[1]),
+                                     reverse=True):
+            wid = by_path.get(_norm_path(canon))
+            if wid is None:
+                wid = str(uuid.uuid4())
+                created = _iso_from_ms(max(m[0] for m in members))
+                records[wid] = {"path": canon, "title": _default_title(canon),
+                                "sessionIds": [], "createdAt": created,
+                                "updatedAt": created}
+                by_path[_norm_path(canon)] = wid
+                new_ids.append(wid)
+                changed = True
+            rec = records[wid]
+            have = set(map(str, rec["sessionIds"]))
+            add = [sid for _c, sid in sorted(members, reverse=True)
+                   if sid not in have]
+            if add:
+                rec["sessionIds"] = add + list(rec["sessionIds"])
+                rec["updatedAt"] = now
+                changed = True
+        if not changed:
+            return
+        if new_ids:
+            # dsh prepends a newly created Workspace to the durable order.
+            state["workspaceIds"] = new_ids + list(order)
+        state.setdefault("archivedSessionIds", [])
+        state.setdefault("pinnedSessionIds", [])
+        try:
+            Path(_lp(wf)).write_text(
+                json.dumps(doc, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+        except OSError:
+            pass
+
     def _log_meta(self, path: Path) -> dict | None:
         """Parse one session log: header created_at/cwd + title + seq stats
         + last user message time (for list metadata)."""
         try:
-            raw = path.read_bytes()
+            raw = Path(_lp(path)).read_bytes()
         except OSError:
             return None
         if path.name.endswith(".zstd"):
@@ -1031,14 +1287,14 @@ class DshAdapter(Adapter):
 
     # ------------------------------------------------------------------
     def status(self) -> dict:
-        if not self.sessions_root or not self.sessions_root.is_dir():
+        if not self.sessions_root or not _isdir(self.sessions_root):
             return {"store": str(self.sessions_root), "sessions": 0,
                     "messages": 0}
         files = self._session_files()
         msgs = 0
         for path, _ in files:
             try:
-                raw = path.read_bytes()
+                raw = Path(_lp(path)).read_bytes()
             except OSError:
                 continue
             if path.name.endswith(".zstd"):

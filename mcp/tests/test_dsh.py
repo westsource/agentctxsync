@@ -398,12 +398,12 @@ class DshAdapterTest(unittest.TestCase):
             return r.read().decode("utf-8")
 
 
-def write_v3_fixture(sdir: Path, sid: str, cwd: str, title: str,
-                     messages: list[str]):
-    """dsh v3 (current) generation: header version 3 + v3-shaped rows."""
+def write_generation_fixture(sdir: Path, sid: str, cwd: str, title: str,
+                             messages: list[str], version: int = 3):
+    """A dsh generation fixture: header version ``version`` + shaped rows."""
     from adapters.dsh import _compress_zstd
     lines: list[dict] = [{
-        "type": "session", "version": 3, "id": sid, "createdAt": TS_MS,
+        "type": "session", "version": version, "id": sid, "createdAt": TS_MS,
         "cwd": cwd, "isSeeded": False, "delegationDepth": 0,
         "agentPreset": "standard"}]
     seq, turn = 0, 0
@@ -430,7 +430,7 @@ def write_v3_fixture(sdir: Path, sid: str, cwd: str, title: str,
                                        {"type": "text", "text": text}]}}})
         seq += 1
     sdir.mkdir(parents=True, exist_ok=True)
-    (sdir / "session.v3.jsonl.zstd").write_bytes(
+    (sdir / _log_filename(version, True)).write_bytes(
         _compress_zstd(("\n".join(json.dumps(x) for x in lines) + "\n").encode()))
     return sdir
 
@@ -486,8 +486,9 @@ class LogGenerationTest(unittest.TestCase):
     def test_read_uses_the_live_generation_not_the_root(self):
         sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
         write_dsh_fixture(self.root)                    # frozen v0: 1 msg
-        write_v3_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
-                         "renamed after migration", ["one", "two"])  # live v3
+        write_generation_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
+                                 "renamed after migration", ["one", "two"],
+                                 version=3)             # live v3
         sessions = DshAdapter(sessions_root=self.root).read_sessions()
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["title"], "renamed after migration")
@@ -495,14 +496,16 @@ class LogGenerationTest(unittest.TestCase):
                          ["user", "assistant"])
         self.assertEqual(sessions[0]["message_count"], 2)
 
-    def test_write_keeps_the_sessions_generation_and_header(self):
+    def test_write_rewrites_the_current_generation_in_place(self):
         sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
-        write_v3_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
-                         "v3 session", ["hello"])       # one v3 user message
+        fname = _log_filename(_CURRENT_LOG_GENERATION, True)
+        write_generation_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
+                                 "current session", ["hello"],
+                                 version=_CURRENT_LOG_GENERATION)
         a = DshAdapter(sessions_root=self.root)
         stats = a.write_sessions([{
             "id": SID, "started_at": TS_MS / 1000.0,
-            "cwd": r"E:\OpenCode\agentctxsync", "title": "v3 session",
+            "cwd": r"E:\OpenCode\agentctxsync", "title": "current session",
             "messages": [
                 # same instant as the fixture row -> deduped, not re-added
                 {"session_id": SID, "role": "user", "content": "hello",
@@ -510,13 +513,12 @@ class LogGenerationTest(unittest.TestCase):
                 {"session_id": SID, "role": "assistant", "content": "world",
                  "timestamp": (TS_MS + 9) / 1000.0}]}])
         self.assertEqual(stats["new_messages"], 1)
-        # still the v3 generation, and no v0 file was created beside it
-        self.assertTrue((sdir / "session.v3.jsonl.zstd").is_file())
-        self.assertFalse((sdir / "session.jsonl.zstd").exists())
-        self.assertFalse((sdir / "session.jsonl").exists())
+        # rewritten in place: one file, still the current generation, and no
+        # predecessor/successor churn beside it
+        self.assertEqual([p.name for p in sdir.iterdir()], [fname])
         raw = a._load_log(sdir)
         header = raw["header"]
-        self.assertEqual(header["version"], 3)
+        self.assertEqual(header["version"], _CURRENT_LOG_GENERATION)
         self.assertEqual(header["id"], SID)
         self.assertEqual(header["isSeeded"], False)          # preserved
         self.assertEqual(header["agentPreset"], "standard")  # preserved
@@ -524,8 +526,31 @@ class LogGenerationTest(unittest.TestCase):
         self.assertEqual([m["role"] for m in raw["msgs"]],
                          ["user", "assistant"])
         # and the harness's own generation selection still finds it
-        self.assertEqual(DshAdapter._log_file(sdir).name,
-                         "session.v3.jsonl.zstd")
+        self.assertEqual(DshAdapter._log_file(sdir).name, fname)
+
+    def test_legacy_v3_session_upgrades_to_the_current_generation(self):
+        """A store written before this fix carries (v3) logs the desktop's
+        v3->v4 edge refuses -- a user session/title with messageSeqs, or any
+        earlier release shape. The next sync publishes a current-generation
+        successor even without new messages, and the frozen predecessor stays
+        byte-identical (dsh never mutates a published predecessor)."""
+        sdir = self.root / _slug(r"E:\OpenCode\agentctxsync") / SID
+        write_generation_fixture(sdir, SID, r"E:\OpenCode\agentctxsync",
+                                 "v3 session", ["hello"], version=3)
+        before = (sdir / "session.v3.jsonl.zstd").read_bytes()
+        a = DshAdapter(sessions_root=self.root)
+        stats = a.write_sessions([{
+            "id": SID, "started_at": TS_MS / 1000.0,
+            "cwd": r"E:\OpenCode\agentctxsync", "title": "v3 session",
+            "messages": [
+                {"session_id": SID, "role": "user", "content": "hello",
+                 "timestamp": (TS_MS + 1) / 1000.0}]}])
+        self.assertEqual(stats["new_messages"], 0)
+        self.assertEqual(stats["updated"], 1)          # the upgrade itself
+        self.assertEqual((sdir / "session.v3.jsonl.zstd").read_bytes(), before)
+        successor = sdir / _log_filename(_CURRENT_LOG_GENERATION, True)
+        self.assertTrue(successor.is_file())
+        self.assertEqual(DshAdapter._log_file(sdir), successor)
 
 
 def _read_log_text(path: Path) -> str:
@@ -542,14 +567,14 @@ class CurrentGenerationWriteTest(unittest.TestCase):
     """New Sessions are published in dsh's CURRENT format generation.
 
     dsh's reader opens the numerically highest generation and migrates older
-    artifacts through v0->v1->v2->v3 — a chain that REFUSES the message-only
-    logs the adapter used to write for new Sessions ("format v2 surface before
-    first step cannot acquire a system head without changing chronology"; a v0
-    artifact additionally rejects ``sourceEventSeqs``). Every synced Session
-    was therefore unopenable in DSH Desktop ("历史加载失败：network error
-    （gateway/internal）"). These tests pin the shape that reader accepts: the
-    seed head, one turn/step frame per conversation row, and the settlement
-    fields an assistant/message must carry.
+    artifacts through v0->v1->v2->v3->v4 — a chain (plus v4 native admission)
+    that REFUSES malformed shapes: the message-only v0 logs the adapter used to
+    write, a v0 ``sourceEventSeqs``, and a user ``session/title`` carrying
+    ``messageSeqs``. Every such synced Session was unopenable in DSH Desktop
+    ("历史加载失败"). These tests pin the shape the reader accepts: the current
+    generation header, the seed head, one turn/step frame per conversation row,
+    the settlement fields an assistant/message must carry, and the empty
+    ``messageSeqs`` / ``system-prompt`` source the v4 validator requires.
     """
 
     def setUp(self):
@@ -611,11 +636,16 @@ class CurrentGenerationWriteTest(unittest.TestCase):
                          ["step/start", "system/message", "user/message"])
         self.assertEqual(rows[6]["data"]["turn"], 1)
         self.assertEqual(rows[6]["data"]["step"], 1)
-        # title settles with the first user row it names
+        # a user title carries NO messageSeqs in the current generation: the
+        # v4 validator requires them empty exactly when source.kind is "user"
+        # (the v3->v4 edge refused the non-empty reference this used to write)
         title = next(r for r in rows if r["type"] == "session/title")
         self.assertEqual(title["data"]["title"], "Pulled")
-        self.assertEqual(title["data"]["messageSeqs"],
-                         [rows[7]["seq"]])
+        self.assertEqual(title["data"]["messageSeqs"], [])
+        # the harness-injected system head carries the v4 system-prompt source
+        system = next(r for r in rows if r["type"] == "system/message")
+        self.assertEqual(system["data"]["message"]["source"],
+                         {"kind": "system-prompt"})
         # turn 2 holds both model replies as separate, closed steps
         steps = [(r["type"], r["data"].get("step"))
                  for r in rows if r["type"] in ("step/start", "step/end")]
@@ -650,6 +680,50 @@ class CurrentGenerationWriteTest(unittest.TestCase):
             self.assertEqual(data["message"]["source"],
                              {"kind": "model", "provider": "unknown",
                               "model": "unknown"})
+
+    def test_consecutive_user_rows_close_the_open_turn(self):
+        """Two user rows with no model reply between them must not leave a
+        turn open: v4 rejects a successor turn/start while a turn is open
+        ("turn/start does not open the expected turn"), which is what a
+        dropped/absent assistant reply produces. It is framed as an
+        ``interrupted`` turn."""
+        a, sdir = self._write(messages=[
+            {"session_id": "x", "role": "user", "content": "q1",
+             "timestamp": 2.0},
+            {"session_id": "x", "role": "user", "content": "q2",
+             "timestamp": 3.0}])
+        rows = [json.loads(ln) for ln in
+                _read_log_text(DshAdapter._log_file(sdir)).splitlines()]
+        self.assertEqual(
+            [r["type"] for r in rows
+             if r["type"] in ("turn/start", "turn/end")],
+            ["turn/start", "turn/end", "turn/start", "turn/end"])
+        self.assertEqual([r["data"] for r in rows if r["type"] == "turn/end"],
+                         [{"turn": 1, "reason": {"kind": "interrupted"}},
+                          {"turn": 2, "reason": {"kind": "interrupted"}}])
+        read = a.read_sessions()[0]
+        self.assertEqual([m["content"] for m in read["messages"]],
+                         ["q1", "q2"])
+
+    def test_model_first_session_leads_with_the_system_head(self):
+        """A Session whose first row is a model reply still leads with the
+        protected system head: v4 rejects any surface event before it
+        ("system/message requires a protected first surface head")."""
+        a, sdir = self._write(messages=[
+            {"session_id": "x", "role": "assistant", "content": "a1",
+             "timestamp": 2.0}])
+        rows = [json.loads(ln) for ln in
+                _read_log_text(DshAdapter._log_file(sdir)).splitlines()]
+        surface = [r["type"] for r in rows
+                   if r["type"] in ("system/message", "user/message",
+                                    "assistant/message")]
+        self.assertEqual(surface, ["system/message", "assistant/message"])
+        self.assertEqual(
+            [r["type"] for r in rows
+             if r["type"] in ("turn/start", "turn/end")],
+            ["turn/start", "turn/end"])
+        read = a.read_sessions()[0]
+        self.assertEqual([m["content"] for m in read["messages"]], ["a1"])
 
     def test_legacy_v0_session_gets_a_current_generation_successor(self):
         """A store pulled before the fix (v0 artifacts only) is repaired by
@@ -706,6 +780,126 @@ class CurrentGenerationWriteTest(unittest.TestCase):
         self.assertEqual(log.read_bytes(), before)
 
 
+class WorkspaceIndexTest(unittest.TestCase):
+    """A synced Session must land under its cwd's Workspace: the Desktop
+    sidebar groups by ``workspace.sessionIds`` and dsh only fills those in on
+    its one-time first boot, so an externally written Session stays
+    "Ungrouped" forever. The adapter attaches Sessions itself, additively
+    (mirroring dsh's header bootstrap), leaving the domain's invariants and
+    every existing record, title and order intact."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.sessions = root / "sessions"
+        self.sessions.mkdir()
+        self.storages = root / "storages"
+        self.storages.mkdir()
+        self.project = root / "proj"
+        self.project.mkdir()
+        self.canon = os.path.realpath(str(self.project))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _session(self, **over):
+        sess = {"id": "hermes:20260531_232319_1e131a",
+                "started_at": TS_MS / 1000.0, "cwd": str(self.project),
+                "title": "Pulled",
+                "messages": [{"session_id": "x", "role": "user",
+                              "content": "hi", "timestamp": 1.0}]}
+        sess.update(over)
+        return sess
+
+    def _unit(self, records=None, order=None, **over):
+        state = {"initialized": True, "workspaceIds": list(order or []),
+                 "archivedSessionIds": []}
+        state.update(over)
+        return {"unit": {"name": "workspace", "version": 2}, "global": state,
+                "tables": {"workspaces": records or {}}}
+
+    def _put(self, doc):
+        (self.storages / "workspace.json").write_text(
+            json.dumps(doc, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+
+    def _get(self):
+        return json.loads((self.storages / "workspace.json").read_text(
+            encoding="utf-8"))
+
+    def _adapter(self):
+        return DshAdapter(sessions_root=self.sessions,
+                          storages_root=self.storages)
+
+    def test_new_session_creates_its_workspaces_record(self):
+        self._put(self._unit())
+        self._adapter().write_sessions([self._session()])
+        doc = self._get()
+        self.assertEqual(len(doc["tables"]["workspaces"]), 1)
+        wid, rec = next(iter(doc["tables"]["workspaces"].items()))
+        self.assertEqual(rec["path"], self.canon)
+        self.assertEqual(rec["title"], self.project.name)
+        self.assertEqual(doc["global"]["workspaceIds"], [wid])
+        self.assertEqual(len(rec["sessionIds"]), 1)
+        self.assertTrue(rec["sessionIds"][0].startswith("session-"))
+
+    def test_existing_record_keeps_its_title_order_and_members(self):
+        self._put(self._unit({"w1": {
+            "path": self.canon, "title": "Renamed", "sessionIds": ["session-keep"],
+            "createdAt": "2020-01-01T00:00:00.000Z",
+            "updatedAt": "2020-01-01T00:00:00.000Z"}}, ["w1"]))
+        self._adapter().write_sessions([self._session()])
+        doc = self._get()
+        self.assertEqual(list(doc["tables"]["workspaces"]), ["w1"])
+        rec = doc["tables"]["workspaces"]["w1"]
+        self.assertEqual(rec["title"], "Renamed")
+        self.assertEqual(doc["global"]["workspaceIds"], ["w1"])
+        # the new member is prepended, the existing one is not lost
+        self.assertEqual(len(rec["sessionIds"]), 2)
+        self.assertEqual(rec["sessionIds"][-1], "session-keep")
+        self.assertNotEqual(rec["updatedAt"], "2020-01-01T00:00:00.000Z")
+
+    def test_grouping_is_idempotent(self):
+        self._put(self._unit())
+        a = self._adapter()
+        a.write_sessions([self._session()])
+        first = self._get()
+        a.write_sessions([])          # second pass with nothing to write
+        self.assertEqual(self._get(), first)
+
+    def test_cwd_that_does_not_resolve_is_not_grouped(self):
+        # dsh skips a session whose cwd cannot be canonicalized to a directory
+        self._put(self._unit())
+        self._adapter().write_sessions(
+            [self._session(cwd=str(self.project / "gone"))])
+        self.assertEqual(self._get()["tables"]["workspaces"], {})
+
+    def test_cwd_less_session_is_not_grouped(self):
+        self._put(self._unit())
+        self._adapter().write_sessions([self._session(cwd=None)])
+        self.assertEqual(self._get()["tables"]["workspaces"], {})
+
+    def test_absent_or_uninitialized_units_are_left_alone(self):
+        # no unit file: dsh creates and bootstraps it itself
+        self._adapter().write_sessions([self._session()])
+        self.assertFalse((self.storages / "workspace.json").exists())
+        # uninitialized: the one-time bootstrap is dsh's, not ours
+        self._put(self._unit(initialized=False))
+        self._adapter().write_sessions([self._session()])
+        doc = self._get()
+        self.assertEqual(doc["tables"]["workspaces"], {})
+        self.assertEqual(doc["global"]["workspaceIds"], [])
+
+    def test_inconsistent_domain_is_not_touched(self):
+        # a durable order referencing a missing record is corruption; adding
+        # to it would deepen the inconsistency
+        self._put(self._unit({}, ["ghost"]))
+        self._adapter().write_sessions([self._session()])
+        doc = self._get()
+        self.assertEqual(doc["tables"]["workspaces"], {})
+        self.assertEqual(doc["global"]["workspaceIds"], ["ghost"])
+
+
 class LongPathHelperTest(unittest.TestCase):
     """Windows MAX_PATH (260): one CJK cwd slug pushed the atomic write's
     ``session.jsonl.zstd.tmp`` to exactly 260 chars, the open raised
@@ -745,6 +939,26 @@ class LongPathHelperTest(unittest.TestCase):
             self.assertEqual(out[4:], plain.replace("/", "\\"))
         else:
             self.assertEqual(out, plain)
+
+    def test_log_file_finds_a_session_dir_past_max_path(self):
+        # The generation walk used to swallow the iterdir() failure on a store
+        # root deep enough to push a session dir past MAX_PATH, silently
+        # dropping those sessions from read / write / status.
+        import shutil
+        base = os.path.join(tempfile.gettempdir(), "dsh-lp-probe")
+        deep = os.path.join(base, "s" * 130, "p" * 130, "session-x")
+        self.addCleanup(shutil.rmtree, _lp(base), ignore_errors=True)
+        os.makedirs(_lp(deep), exist_ok=True)
+        if len(os.path.abspath(deep)) < 260:
+            self.skipTest("host path space did not reach MAX_PATH")
+        with open(_lp(os.path.join(deep, "session.v3.jsonl.zstd")), "wb") as f:
+            f.write(b"{}\n")
+        found = DshAdapter._log_file(Path(deep))
+        if os.name == "nt":
+            self.assertIsNotNone(found)          # was None before the fix
+            self.assertEqual(found.name, "session.v3.jsonl.zstd")
+        else:
+            self.skipTest("MAX_PATH is Windows-only")
 
 
 if __name__ == "__main__":

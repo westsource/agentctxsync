@@ -147,7 +147,7 @@
 | `updater.py` | 自动更新：manifest 比对、zip 校验、备份后原子替换 |
 | `adapters/base.py` | 适配器抽象：canonicalize/localize、`(session_id, role, timestamp)` 去重写入、水位线（含服务器身份绑定）、外来会话 owner 注册表、`validate_local_id` 路径穿越防护 |
 | `adapters/hermes.py` | Hermes 多档案 state.db（含子代理折叠、项目同步） |
-| `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，世代化事件日志 `session.vN.jsonl[.zstd]`，当前 v3、逐行 zstd 帧、写入发布后继且冻结前代；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
+| `adapters/dsh.py` | 官方 DeepSeek Harness（deepseek-ai/dsh，世代化事件日志 `session.vN.jsonl[.zstd]`，当前 v4、逐行 zstd 帧、写入发布后继且冻结前代；workspace/投影缓存域归 dsh 原生，写入时折叠标题缓存） |
 | `adapters/workbuddy.py` | WorkBuddy db+jsonl（`workbuddy:` 前缀、cwd slug 与 WorkBuddy 自身方案一致、ms↔s 时间戳换算；项目同步 = `workspaces` 表 + `.workbuddy-sync-projects.json` 身份侧车） |
 | `adapters/reasonix.py` | Reasonix jsonl 转写（`reasonix:` 前缀；agent 运行中持有 `.jsonl.lock` 时跳过该会话；无可靠时间戳时用合成值保持去重键唯一） |
 | `adapters/opencode.py` | opencode 1.x 共用 `opencode.db`（SQLite `session`/`message`/`part` 三表，CLI 与桌面版共享；`ses_/msg_/prt_` id、ms 时间戳、project_id 按目录解析；`model` 列属本地字段，同步不读不写——见「本地字段：模型选择不同步」）；外来会话按桌面版行格式写入同一库，`ses_` id 经 idmap 持久化保持去重稳定 |
@@ -934,25 +934,35 @@ O(可见 × |清单|)。
 ### dsh（官方 DeepSeek Harness，deepseek-ai/dsh）
 
 - **存储布局**：`<DSH_HOME 或 ~/.dsh>/sessions/--<cwd-slug>--/<session-<uuid>>/session.vN.jsonl[.zstd]`
-  （每会话一目录；一代一文件——`session.jsonl` = v0，当前世代 v3；zstd 为**逐行独立帧**
+  （每会话一目录；一代一文件——`session.jsonl` = v0，当前世代 **v4**；zstd 为**逐行独立帧**
   ——dsh 读器要求首帧解压后恰为一行 header）。`DSH_HOME` 可覆盖数据根。
 - **读取**：`session/title` → 标题、`user/message`/`assistant/message`（assistant
   `source.kind=model`）→ canonical 消息；`seq` 连续；tool/chunk/compaction 事件非对话跳过。
-- **写入**：**当前世代**（v3）头 + 种子头（`permission/preset`、`sandbox/mode`、
+- **写入**：**当前世代**（v4）头 + 种子头（`permission/preset`、`sandbox/mode`、
   `approval/policy`）+ 每轮 `turn/start`/`step/start` 帧 + 连续 seq 事件（原子替换）；既有
-  旧世代文件**逐字节冻结**、后继写成新文件（dsh 自身写入的约定：读器永远取最高世代）。
-  assistant/message 必须带 `usage`/`stream` 结算块，且**不能**带 `sourceEventSeqs`
-  ——dsh 读器对旧世代产物跑 v0→v1→v2→v3 迁移链，链上**拒绝**只有消息事件的日志
+  旧世代文件**逐字节冻结**、后继写成新文件（dsh 自身写入的约定：读器永远取最高世代），旧世代
+  日志即使无新消息也升级。assistant/message 必须带 `usage`/`stream` 结算块，且**不能**带
+  `sourceEventSeqs`；每轮注入的 `system/message` 头用 v4 要求的
+  `source.kind='system-prompt'`；用户 `session/title` 的 `messageSeqs` **必须为空**——dsh 对旧
+  世代产物跑 v0→v1→v2→v3→v4 迁移链、再叠加 v4 原生接纳，链上**拒绝**只有消息事件的 v0 日志
   （"format v2 surface before first step cannot acquire a system head without changing
-  chronology"），这正是"同步下来的会话在新版桌面打不开（历史加载失败：network
-  error（gateway/internal））"的根因。外来 id 经 idmap 映射 `session-<uuid>`；
-  cwd 漂移搬迁目录（Windows NTFS 大小写漂移就地改名）；zstd 需 `zstandard`（缺失时
-  跳过压缩文件并计跳过数）。
-- **域分工**：workspace 域由 dsh 首启按会话头 bootstrap（fs.realpath 规范路径），外部不写；
-  投影缓存（`session_projcache` v5 文档，identity=header createdAt/cwd）在每次日志写入后
-  按桌面折叠模板同步折叠 → 拉入会话在列表中即时显示真实标题；无 cwd 会话（`_no-cwd`
-  兜底）不折叠且清除陈旧文档——v5 schema 要求 `identity.cwd` 为 string，null 文档会被
-  桌面每次启动移入 `.json.bak.*`，折叠只会制造告警噪音、毫无列表收益。
+  chronology"）与 v0 `sourceEventSeqs`，v3→v4 边则拒绝带引用的用户标题
+  （"session/title messageSeqs must be empty exactly for a user title"）——这正是"同步下来的
+  会话在新版桌面（0.2.0-rc.2）打不开（历史加载失败）"的根因。外来 id 经 idmap 映射
+  `session-<uuid>`；cwd 漂移搬迁目录（Windows NTFS 大小写漂移就地改名）；zstd 需
+  `zstandard`（缺失时跳过压缩文件并计跳过数）。
+- **域分工**：workspace 域（`storages/workspace.json`，`workspace` v2）是侧栏分组真源 ——
+  每条 workspace 记录一个项目目录，`sessionIds` 是其成员（唯一所有者 + 一目录一记录 + 顺序
+  == 表键，dsh 启动即校验）。dsh 只在**首次引导**按会话头 bootstrap（`initialized: true` 后
+  永不重扫），所以外部写入的会话默认永远留在「未分组」。适配器在每次写入后**加性**重建归属：
+  按 `fs.realpath(cwd)`（Python `os.path.realpath` 与 dsh 的 `fs/promises.realpath` 同为
+  规范大小写）把本机会话挂到对应记录、缺失目录时新建记录（标题 = 末段），保留既有记录、
+  标题与展示顺序；cwd 无法解析为目录（含 `_no-cwd`）的会话不分组，与 dsh 自身一致；域缺失/
+  外部 unit/未初始化/已不一致时一律不动（交给 dsh）。投影缓存（`session_projcache` v5 文档，
+  identity=header createdAt/cwd）在每次日志写入后按桌面折叠模板同步折叠 → 拉入会话在列表中
+  即时显示真实标题；无 cwd 会话（`_no-cwd` 兜底）不折叠且清除陈旧文档——v5 schema 要求
+  `identity.cwd` 为 string，null 文档会被桌面每次启动移入 `.json.bak.*`，折叠只会制造告警
+  噪音、毫无列表收益。两者都在桌面**启动时**读取，故新建/新分组的会话需重启桌面才可见。
 
 ### opencode（opencode CLI/桌面）
 
