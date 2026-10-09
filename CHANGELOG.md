@@ -3,6 +3,15 @@
 > 客户端发布：适配新版 **DSH Desktop 0.2.0-rc.2**（会话格式已到 **v4**）。`CLIENT_VERSION`
 > 2026.10.06.1 → **2026.10.09.1**（`mcp/updater.py`、`server/client_update.py`），各端经
 > `/api/client/manifest` 自动更新。改动 `mcp/adapters/dsh.py` + `mcp/tests/test_dsh.py` + 文档。
+> 已部署 236（2026-10-10 CST，提交 `2ef7dbe`）：3 个文件（`client_update.py`、`mcp/updater.py`、
+> `mcp/adapters/dsh.py`）对上次部署提交 `f5be193` 逐文件 LF 归一化预检通过、上传后回读 sha256
+> 一致、`py_compile` 通过，重启后 active、journal 无 error、回环 `/health=200`。线上核对
+> **11 项全 PASS**：manifest(agent=dsh 与 agent=omp, `v=2026.10.06.1`) 均返回 2026.10.09.1 且
+> `update_available=true`、包内 `manifest.json` 版本一致、包内 `mcp/adapters/dsh.py` 含
+> `_CURRENT_LOG_GENERATION = 4` / `{"kind": "system-prompt"}` / `_refresh_workspace_index` /
+> `_lp(`、包内 `mcp/updater.py` 为新版本号，且包内 dsh.py 与清单 sha256 及提交 `2ef7dbe`
+> 三者逐字节相符。线上真包功能核对：把线上 `agent=dsh` 归档解出、就地对其 `mcp/adapters/dsh.py`
+> 跑 `test_dsh.py` —— **40 项 OK**（同一提交在本地跑 `mcp` 套件 **223 项 OK**）。
 
 ### Fixed（dsh 同步下来的会话在新版 DSH Desktop 里打不开 —— v3 日志过不了 v4 校验）
 
