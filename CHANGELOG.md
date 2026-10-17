@@ -7,6 +7,15 @@
 > `Initial sync: pull={'imported': 442, 'new_messages': 75127, …} |
 > push={'imported': 257, 'updated': 442, 'new_messages': 36804, …}`，全程无一条
 > chunk 失败（修复前同 store 连续 21 次 `_ssl.c:2437` 写超时）。
+> 已部署 236（2026-10-17 CST，提交 `6d93227`）：4 个文件（`client_update.py`、
+> `mcp/updater.py`、`mcp/adapters/workbuddy.py`、`agents.py`；基线按文件核算
+> `2ef7dbe`/`2ef7dbe`/`f5be193`/`abc5752`，probe 脚本 `probe_baseline_2026.10.16.py`
+> 实测 box 字节）预检通过、上传后回读 sha256 一致、`py_compile` 通过，重启后
+> active、journal 无 error、回环 `/health=200`。线上核对 8 项全 PASS
+> （agent=workbuddy 与 agent=dsh manifest `v=2026.10.09.1` 均返回 2026.10.10.1 且
+> `update_available=true`、包内 manifest 版本一致、包内 `mcp/adapters/workbuddy.py`
+> 含 `_app_launch_time`/`_HOME_NAMES`、包内 updater 为新版本号、包内 workbuddy.py
+> 与清单 sha256 及提交 `6d93227` 三者逐字节相符）。
 
 ### Fixed（workbuddy 会话同步全断——适配器绑到退役的旧版 app home）
 
