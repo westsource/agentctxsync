@@ -7,6 +7,7 @@ live inside the tempdir so tests never touch the real ~/.workbuddy.
 """
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -14,6 +15,7 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -540,6 +542,95 @@ class WorkBuddySlugTest(unittest.TestCase):
                          "c-Users-a-b")
         self.assertEqual(WorkBuddyAdapter.slugify("E:\\"), "e")
         self.assertEqual(WorkBuddyAdapter.slugify("E:/"), "e")
+
+
+class WorkBuddyDiscoverTest(unittest.TestCase):
+    """Home discovery across two app generations (see ``discover()``).
+
+    WorkBuddy was renamed with 5.6 and with it the app home: current builds
+    (appName "WorkBuddy", install dir ``Programs\\WorkBuddy``) write
+    ``~/.workbuddy``, the retired "WorkBuddy AI" builds (<=5.5.x, install dir
+    ``Programs\\WorkBuddyAI``) wrote ``~/.workbuddy-ai``. An upgraded machine
+    keeps both dirs, each with its own store, so name order alone is not a
+    valid tie-break -- ``discover()`` follows the app's own ``last-launch.json``.
+    """
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.root = Path(self.td.name)
+        self.addCleanup(self.td.cleanup)
+        self.home_patch = mock.patch.object(Path, "home",
+                                            return_value=self.root)
+        self.home_patch.start()
+        self.addCleanup(self.home_patch.stop)
+        # neutralise any dev-machine WORKBUDDY_HOME
+        self.env_patch = mock.patch.dict(os.environ,
+                                         {"WORKBUDDY_HOME": ""}, clear=False)
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
+
+    def _home(self, name: str, launch: str | None = None) -> Path:
+        home = self.root / name
+        home.mkdir(parents=True, exist_ok=True)
+        if launch:
+            (home / "last-launch.json").write_text(
+                json.dumps({"version": "5.5.2", "timestamp": launch}),
+                encoding="utf-8")
+        return home
+
+    def _discover(self) -> Path | None:
+        return WorkBuddyAdapter().discover()
+
+    def test_only_current_layout(self):
+        self._home(".workbuddy")
+        self.assertEqual(self._discover(), self.root / ".workbuddy")
+
+    def test_only_legacy_layout(self):
+        self._home(".workbuddy-ai")
+        self.assertEqual(self._discover(), self.root / ".workbuddy-ai")
+
+    def test_missing_home_discover_fails(self):
+        self.assertIsNone(self._discover())
+
+    def test_newer_launch_prefers_current_layout(self):
+        self._home(".workbuddy-ai", "2026-09-15T20:49:57.423Z")
+        self._home(".workbuddy", "2026-10-16T11:01:33.860Z")
+        self.assertEqual(self._discover(), self.root / ".workbuddy")
+
+    def test_newer_legacy_launch_wins(self):
+        # a machine still running the "WorkBuddy AI" build: .workbuddy is the
+        # stale home of the even older era and must NOT be picked
+        self._home(".workbuddy", "2026-08-19T02:01:00.000Z")
+        self._home(".workbuddy-ai", "2026-09-22T19:10:00.000Z")
+        self.assertEqual(self._discover(), self.root / ".workbuddy-ai")
+
+    def test_missing_markers_prefer_current_layout(self):
+        self._home(".workbuddy-ai")
+        self._home(".workbuddy")
+        self.assertEqual(self._discover(), self.root / ".workbuddy")
+
+    def test_env_override(self):
+        self._home(".workbuddy")
+        custom = self.root / "custom-home"
+        custom.mkdir()
+        env_patch = mock.patch.dict(os.environ,
+                                    {"WORKBUDDY_HOME": str(custom)},
+                                    clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        self.assertEqual(self._discover(), custom)
+
+    def test_env_override_missing_dir_disables_discovery(self):
+        # an explicit override that no longer exists is a config error: it
+        # silences discovery ("workbuddy home not found") instead of silently
+        # syncing a different generation than the one the operator named
+        self._home(".workbuddy")
+        env_patch = mock.patch.dict(
+            os.environ,
+            {"WORKBUDDY_HOME": str(self.root / "nope")}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        self.assertIsNone(self._discover())
 
 
 if __name__ == "__main__":

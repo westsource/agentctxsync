@@ -546,7 +546,8 @@ O(可见 × |清单|)。
   存储**的 agent 有意义，各适配器差异如下——
   - **hermes**：`projects.db`（`projects` 表 + `project_folders` 表），项目为独立实体 →
     纳入 Phase 2 字段级合并。
-  - **workbuddy**：会话文件存于 `~/.workbuddy-ai/projects/<slug>/<id>.jsonl`，
+  - **workbuddy**：会话文件存于 `~/.workbuddy/projects/<slug>/<id>.jsonl`（5.6 前
+    "WorkBuddy AI" 时期为 `~/.workbuddy-ai`，见 home 判定），
     `projects/` 下的目录 slug 由该会话 `cwd` 经 `slugify()` 派生（`workbuddy.py::_session_path`），
     `cwd` 存于 `workbuddy.db`——**会话层的"项目归属"就是 `cwd`**，已被 Phase 1 会话字段级并发
     （`cwd ∈ USER_EDIT_FIELDS`）覆盖。
@@ -1035,13 +1036,18 @@ O(可见 × |清单|)。
 
 ### workbuddy（WorkBuddy 桌面端，双向）
 
-- **存储布局**：`~/.workbuddy-ai/`（`WORKBUDDY_HOME` 覆盖；旧版 `~/.workbuddy`，同时
-  存在时**优先 `.workbuddy-ai`**——写入 legacy 目录会让 WorkBuddy 启动 MIGRATE 看到零
-  本地会话）：
+- **存储布局**：`~/.workbuddy`（5.6+ 当前布局；5.6 之前为 "WorkBuddy AI" 时期
+  `~/.workbuddy-ai`，`WORKBUDDY_HOME` 可覆盖）。升级过的机器两个目录并存，各自是一套完整
+  store——**按名称定序会绑到退役那一套**：正在使用的 app 的会话推不出去、pull 下来的对端
+  会话落进 app 已不再读取的目录（2026-10-16 事故实锤：适配器绑 `~/.workbuddy-ai`，正在
+  运行的 app 写 `~/.workbuddy`）。故 `discover()` 比较两目录的 `last-launch.json` ——它由
+  app 每次启动自写、同步程序从不触碰（db/projects/logs 的 mtime 会被同步污染，不可用）——
+  选 app 最近一次启动的目录；平手或缺标记时优取当前布局 `~/.workbuddy`：
   - 消息：`projects/<slug>/<conversationId>.jsonl`（slug = cwd 压平驱动器/分隔符，
     `F:\OpenCode\agentctxsync` → `f-OpenCode-agentctxsync`，盘符根 → 单字母）；
   - 元数据：`workbuddy.db`（SQLite `sessions` 表，毫秒时间戳）；
-  - `edge-sync-mapping-v2.db`：WorkBuddy 自管映射，**绝不触碰**。
+  - `edge-sync-mapping-v*.db`（本机实证：5.5 → v3，5.8 → v4）：WorkBuddy 自管映射，
+    **绝不触碰**。
 - **事件映射**（JSONL 每行一个事件，与 WorkBuddy 5.3.13 逐字段核对）：
   `message`→user/assistant；`reasoning`→assistant + reasoning；`function_call`→assistant
   + tool_name/call_id/参数；`function_call_result`→tool；`ai-title`→标题；

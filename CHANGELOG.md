@@ -1,3 +1,30 @@
+## [2026.10.10.1] - 2026-10-17
+
+> `CLIENT_VERSION` 2026.10.09.1 → **2026.10.10.1**（`mcp/updater.py`、
+> `server/client_update.py`）。改动 `mcp/adapters/workbuddy.py` +
+> `mcp/tests/test_workbuddy.py` + `docs/ARCHITECTURE.md`、`docs/SUPPORTED_AGENTS.md`
+> + `server/agents.py`。mcp 套件 231 项 OK；真机（本机 WorkBuddy 5.8.3）实跑
+> `Initial sync: pull={'imported': 442, 'new_messages': 75127, …} |
+> push={'imported': 257, 'updated': 442, 'new_messages': 36804, …}`，全程无一条
+> chunk 失败（修复前同 store 连续 21 次 `_ssl.c:2437` 写超时）。
+
+### Fixed（workbuddy 会话同步全断——适配器绑到退役的旧版 app home）
+
+- **根因**：WorkBuddy 5.6 起改名并换数据目录——旧 "WorkBuddy AI" 5.5.x 用
+  `~/.workbuddy-ai`（安装目录 `Programs\WorkBuddyAI`），5.6+ 当前 "WorkBuddy" 用
+  `~/.workbuddy`（安装目录 `Programs\WorkBuddy`）。升级过的机器两目录并存，各自是一套
+  完整 store（本机 `.workbuddy-ai` 441 会话，`.workbuddy` 255 会话，交集 0、用户 id 也
+  不同），而 `discover()` 按"先 `.workbuddy-ai` 后 `.workbuddy`"取第一个存在的目录
+  （2026-08-19 提交 `b1caaf8` 当时 `.workbuddy-ai` 确是当前布局）。5.6 后该规则静默绑到
+  退役 home：正在运行的 app 的会话推不出去（本机 `~/.workbuddy` 无任何同步侧车）、pull
+  回来的对端会话落进 app 已不读取的目录。
+- **修复**：两目录并存时不再按名称定序，比较各目录的 `last-launch.json`（app 每次启动
+  自写、同步程序从不触碰；db/projects/logs 的 mtime 会被同步污染故不可用），跟随 app
+  最近一次启动的 home；平手或缺标记优取当前布局 `~/.workbuddy`；`WORKBUDDY_HOME` 显式
+  覆盖仍最高优先（指向不存在的目录按配置错误禁用发现，不静默换目录）。
+- 帮助文案 `server/agents.py`、存储布局文档（`docs/SUPPORTED_AGENTS.md`、
+  `docs/ARCHITECTURE.md` 项目小节与 workbuddy 章节）同步更正。
+
 ## [2026.10.09.1] - 2026-10-09
 
 > 客户端发布：适配新版 **DSH Desktop 0.2.0-rc.2**（会话格式已到 **v4**）。`CLIENT_VERSION`

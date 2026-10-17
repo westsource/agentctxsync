@@ -1,9 +1,11 @@
 """
 WorkBuddy desktop adapter (bidirectional).
 
-Local store: ~/.workbuddy-ai/  (Windows: %USERPROFILE%\\.workbuddy-ai;
-some WorkBuddy 5.3.x installs still use the legacy ~/.workbuddy — the
-adapter prefers whichever exists, .workbuddy-ai first)
+Local store: ~/.workbuddy/  (Windows: %USERPROFILE%\\.workbuddy;
+current WorkBuddy 5.6+ builds) or ~/.workbuddy-ai/ (the pre-5.6
+"WorkBuddy AI" builds; both dirs can exist side by side -- when they do,
+the adapter follows the home the app itself launched from most recently,
+see discover())
   - session messages : projects/<slug>/<conversationId>.jsonl  (JSONL,
     one event per line; slug is the cwd with drive/separators flattened,
     e.g. F:\\OpenCode\\agentctxsync -> f-OpenCode-agentctxsync)
@@ -17,7 +19,7 @@ adapter prefers whichever exists, .workbuddy-ai first)
     sidecar: recorded by ``write_projects()`` from the server's project,
     and minted deterministically (``wb_<sha1(path)>``) for a path the
     server has never seen (see the projects section below).
-  - sync mapping     : edge-sync-mapping-v2.db (WorkBuddy maintains this;
+  - sync mapping     : edge-sync-mapping-v*.db (WorkBuddy maintains this;
     we must NOT touch it -- WorkBuddy's startup MIGRATE creates the
     convmsg:<userId> mapping for every local session, including sessions
     written by this adapter)
@@ -82,6 +84,7 @@ import re
 import sqlite3
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from .base import (Adapter, _path_key, is_root_project_path,
@@ -125,23 +128,55 @@ class WorkBuddyAdapter(Adapter):
     # ------------------------------------------------------------------
     # discovery
     # ------------------------------------------------------------------
+    #: app homes, tie-break order: the current layout (WorkBuddy 5.6+, app
+    #: name "WorkBuddy") first, then the pre-5.6 "WorkBuddy AI" one.
+    _HOME_NAMES = (".workbuddy", ".workbuddy-ai")
+
     def discover(self) -> Path | None:
         env = os.environ.get("WORKBUDDY_HOME")
         if env:
             home = Path(env)
             return home if home.is_dir() else None
-        # WorkBuddy 5.3.x keeps the unified sessions db at the current app
-        # home: most installs use `~/.workbuddy-ai` (AppServerDatabase logs
-        # "Unified database ready: ...\.workbuddy-ai\workbuddy.db"), while
-        # older builds use `~/.workbuddy`. Some machines keep BOTH dirs —
-        # writing sessions into the legacy one makes WorkBuddy's startup
-        # MIGRATE see zero local sessions, so prefer the current layout.
+        # One machine can carry two WorkBuddy generations with separate homes:
+        # current builds (5.6+, appName "WorkBuddy") use `~/.workbuddy`, the
+        # pre-5.6 "WorkBuddy AI" builds (install dir `Programs\WorkBuddyAI`)
+        # use `~/.workbuddy-ai`. Both dirs routinely exist side by side and the
+        # retired one still holds a full store, so picking by name alone syncs
+        # the wrong generation: the running app's sessions never leave the
+        # machine and pulled peers land in a store the app no longer reads
+        # (2026-10-16 incident: adapter bound to `~/.workbuddy-ai` while the
+        # live app wrote `~/.workbuddy`). Follow the home the app itself
+        # launched from most recently; `.workbuddy` wins ties/missing markers.
         home = Path.home()
-        for name in (".workbuddy-ai", ".workbuddy"):
-            cand = home / name
-            if cand.is_dir():
-                return cand
-        return None
+        cands = [home / name for name in self._HOME_NAMES
+                 if (home / name).is_dir()]
+        if not cands:
+            return None
+        return max(cands, key=self._app_launch_time)
+
+    @staticmethod
+    def _app_launch_time(home: Path) -> float:
+        """Epoch seconds of the desktop app's last launch in ``home`` (0 = never).
+
+        ``last-launch.json`` is written by the app on every start and never by
+        this adapter, so it is a clean "the app lives here" signal -- unlike the
+        ``workbuddy.db`` / ``projects/`` / ``logs/`` mtimes, which a sync also
+        refreshes."""
+        marker = home / "last-launch.json"
+        try:
+            stamp = json.loads(marker.read_text(encoding="utf-8")).get("timestamp")
+        except (OSError, ValueError, AttributeError):
+            stamp = None
+        if isinstance(stamp, str):
+            try:
+                return datetime.fromisoformat(
+                    stamp.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                pass
+        try:
+            return marker.stat().st_mtime
+        except OSError:
+            return 0.0
 
     def _foreign_ids_file(self) -> Path | None:
         if self.home:

@@ -76,12 +76,12 @@ AGENTS = {
     "workbuddy": {
         "label": "WorkBuddy",
         "desc": {
-            "zh": "腾讯 WorkBuddy 桌面智能体（5.3.x），会话为 ~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<slug>/*.jsonl + workbuddy.db。",
-            "en": "Tencent WorkBuddy desktop agent (5.3.x); sessions in ~/.workbuddy/projects/<slug>/*.jsonl + workbuddy.db.",
+            "zh": "腾讯 WorkBuddy 桌面智能体（5.6+，其前身为 \"WorkBuddy AI\" 5.5.x），会话为 ~/.workbuddy（旧版 ~/.workbuddy-ai）/projects/<slug>/*.jsonl + workbuddy.db。",
+            "en": "Tencent WorkBuddy desktop agent (5.6+, formerly \"WorkBuddy AI\" 5.5.x); sessions in ~/.workbuddy (legacy ~/.workbuddy-ai)/projects/<slug>/*.jsonl + workbuddy.db.",
         },
         "store": {
-            "zh": "~/.workbuddy-ai（或旧版 ~/.workbuddy）/projects/<路径slug>/<conversationId>.jsonl（消息）+ ~/.workbuddy-ai/workbuddy.db（元数据）",
-            "en": "~/.workbuddy-ai (or legacy ~/.workbuddy)/projects/<slug>/<conversationId>.jsonl (messages) + ~/.workbuddy-ai/workbuddy.db (metadata)",
+            "zh": "~/.workbuddy（旧版 \"WorkBuddy AI\" 时期 ~/.workbuddy-ai，两目录并存时取 app 最近一次启动的）/projects/<路径slug>/<conversationId>.jsonl（消息）+ workbuddy.db（元数据）",
+            "en": "~/.workbuddy (legacy \"WorkBuddy AI\" ~/.workbuddy-ai; when both exist the home the app launched from last wins)/projects/<slug>/<conversationId>.jsonl (messages) + workbuddy.db (metadata)",
         },
         "config": {
             "zh": "应用内「专家·技能·连接器」（添加自定义连接器，无独立配置文件）",
