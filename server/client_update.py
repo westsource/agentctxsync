@@ -45,7 +45,7 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
 # Client distribution version. Bump this together with CLIENT_VERSION in
 # mcp/server.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.10.10.1"
+CLIENT_VERSION = "2026.10.30.1"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""
@@ -59,6 +59,10 @@ def _client_archive_files():
         # spawns MCP servers lazily (OpenClaw) so auto-sync works without
         # an agent turn
         files.append(("mcp/auto-sync.py", auto))
+    for name in ("wake.py", "hermes_gateway.py", "hermes_gateway_write.py"):
+        path = os.path.join(CLIENT_DIR, name)
+        if os.path.exists(path):
+            files.append((f"mcp/{name}", path))
     _scripts_candidates = [os.path.join(os.path.dirname(_SRV_DIR), "scripts"),
                            os.path.join(_SRV_DIR, "scripts")]
 
@@ -71,7 +75,9 @@ def _client_archive_files():
 
     # one-shot deploy scripts (ship next to mcp/ so the `../mcp` layout
     # resolves inside the extracted archive)
-    for name in ("deploy-local-mcp.ps1", "deploy-local-mcp.sh"):
+    for name in ("deploy-local-mcp.ps1", "deploy-local-mcp.sh",
+                 "install-hermes-sync-hook.py",
+                 "probe-hermes-write-path.py"):
         src = _find_script(name)
         if src:
             files.append((f"scripts/{name}", src))

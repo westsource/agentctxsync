@@ -64,6 +64,13 @@ import sqlite3
 import time
 from pathlib import Path
 
+
+def _chunked(values, size: int):
+    """Yield ``values`` in lists of at most ``size`` (SQL bound-variable caps)."""
+    for i in range(0, len(values), size):
+        yield values[i:i + size]
+
+
 # ---------------------------------------------------------------------------
 # Agent prefix registry
 # ---------------------------------------------------------------------------
@@ -357,6 +364,15 @@ class Adapter(abc.ABC):
     #: sync cycle.
     supports_projects: bool = False
 
+    #: True when the adapter can answer the push-side inventory from the
+    #: store without materializing every message: ``read_sessions`` accepts
+    #: ``ids``/``with_messages`` and ``session_fingerprints`` returns real
+    #: aggregates. mcp/server.py then reads messages ONLY for sessions whose
+    #: (count, max_timestamp) changed, instead of loading the whole store
+    #: every cycle (a 700 MB store made that a multi-second read whose
+    #: snapshot also blocked the host's WAL from resetting).
+    supports_incremental_read: bool = False
+
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
@@ -376,6 +392,27 @@ class Adapter(abc.ABC):
         plus as many canonical fields as the local format provides.
         """
         raise NotImplementedError
+
+    def read_session_headers(self, limit: int | None = None) -> list[dict]:
+        """Canonical session rows WITHOUT ``messages`` (pull-side inventory).
+
+        The pull only needs ids, ``cwd`` and the user-edit fields to compute
+        dirty state and the completeness report; loading every message for
+        that inventory is what made a large store a multi-second read every
+        cycle. Adapters that can do better override this; the default reads
+        the full store and strips the messages (unchanged behavior).
+        """
+        return [{k: v for k, v in s.items() if k != "messages"}
+                for s in self.read_sessions(limit=limit)]
+
+    def session_fingerprints(self) -> dict[str, tuple] | None:
+        """``{canonical session id: (message_count, max_timestamp)}`` or None.
+
+        None means "cannot answer without materializing messages" and lets
+        the caller keep the historical full read. Keyed by canonical id, the
+        same identity mcp/server.py stores in its push fingerprint sidecar.
+        """
+        return None
 
     # ------------------------------------------------------------------
     # Writing (canonical -> local)
@@ -599,19 +636,47 @@ class SQLiteAdapter(Adapter):
     #: local col name -> canonical field name (None keeps the same name)
     col_map: dict[str, str | None] = {}
 
+    #: SQLite stores can answer the push inventory from aggregates (see
+    #: ``session_fingerprints``) instead of materializing every message.
+    supports_incremental_read = True
+
     def __init__(self, db_path: Path | str | None = None):
         self.db_path = Path(db_path) if db_path else self.discover()
 
-    def _conn(self):
+    @staticmethod
+    def _ro_uri(db_path) -> str:
+        """Read-only ``file:`` URI (percent-encoded, so ``#``/``?``/``%`` in a
+        store path cannot be mistaken for URI syntax)."""
+        from urllib.parse import quote
+        posix = Path(db_path).resolve().as_posix()
+        return "file:%s?mode=ro" % quote(posix, safe="/:")
+
+    def _conn(self, readonly: bool = False):
         if not self.db_path or not Path(self.db_path).exists():
             raise FileNotFoundError(f"Local DB not found: {self.db_path}")
-        # Short busy timeout: the Hermes desktop app opens state.db with
-        # journal_mode=DELETE (SQLite 3.50.4 WAL-reset workaround), where a
-        # write blocks concurrent readers/writers. Fail fast and let the next
-        # sync cycle retry instead of holding/blocking locks for 30s (which
-        # stalls Hermes' own session.resume reads).
+        # Short busy timeout: the host agent (Hermes on SQLite < 3.51.3)
+        # opens its store with journal_mode=DELETE, where a write blocks
+        # concurrent readers/writers. Fail fast and let the next sync cycle
+        # retry instead of holding/blocking locks for 30s (which stalls the
+        # host's own reads).
+        #
+        # ``readonly`` opens a ``mode=ro`` URI so no read can ever take the
+        # write lock or leave a write transaction open. A WAL store without
+        # its ``-shm`` companion cannot be opened read-only, so the fallback
+        # keeps the connection and pins it with ``PRAGMA query_only``.
+        if readonly:
+            try:
+                conn = sqlite3.connect(self._ro_uri(self.db_path), uri=True,
+                                       timeout=5)
+                conn.row_factory = sqlite3.Row
+                conn.execute("SELECT 1").fetchone()
+                return conn
+            except sqlite3.Error:
+                pass
         conn = sqlite3.connect(str(self.db_path), timeout=5)
         conn.row_factory = sqlite3.Row
+        if readonly:
+            conn.execute("PRAGMA query_only=1")
         return conn
 
     @staticmethod
@@ -644,28 +709,73 @@ class SQLiteAdapter(Adapter):
     def _local_cols(self, c, table: str) -> set:
         return {r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
 
-    def read_sessions(self, limit: int | None = None) -> list[dict]:
-        conn = self._conn()
-        c = conn.cursor()
-        sql = "SELECT * FROM %s ORDER BY started_at DESC" % self.table_sessions
-        if limit:
-            sql += f" LIMIT {int(limit)}"
-        sessions = []
-        # Materialize rows before issuing nested queries: sqlite3 cursors
-        # drop the pending result set when a new query runs on them.
-        for row in c.execute(sql).fetchall():
-            s = dict(row)
-            sid = s["id"]
-            c.execute(
-                "SELECT * FROM %s WHERE session_id = ? ORDER BY timestamp"
-                % self.table_messages, (sid,))
-            msgs = [self._map_cols(dict(m), self.col_map)
-                    for m in c.fetchall()]
-            s = self._map_cols(s, self.col_map)
-            s["messages"] = msgs
-            sessions.append(s)
-        conn.close()
-        return sessions
+    def read_sessions(self, limit: int | None = None, *, ids=None,
+                      with_messages: bool = True) -> list[dict]:
+        """Read sessions, optionally restricted to ``ids`` and/or without
+        their messages.
+
+        ``ids`` keeps the newest-first order and is chunked so a large
+        selected set never overflows SQLite's bound-variable limit. The
+        connection is read-only and closed before returning, so no read
+        transaction outlives the call (a long-lived snapshot keeps the host's
+        WAL from resetting).
+        """
+        conn = self._conn(readonly=True)
+        try:
+            c = conn.cursor()
+            if ids is not None:
+                wanted = [str(i) for i in ids]
+                if not wanted:
+                    return []
+                rows = []
+                for chunk in _chunked(wanted, 400):
+                    placeholders = ", ".join("?" * len(chunk))
+                    rows.extend(c.execute(
+                        "SELECT * FROM %s WHERE id IN (%s)"
+                        % (self.table_sessions, placeholders), chunk).fetchall())
+                rows.sort(key=lambda r: r["started_at"] or 0, reverse=True)
+            else:
+                sql = "SELECT * FROM %s ORDER BY started_at DESC" % self.table_sessions
+                if limit:
+                    sql += f" LIMIT {int(limit)}"
+                rows = c.execute(sql).fetchall()
+            sessions = []
+            # Materialize rows before issuing nested queries: sqlite3 cursors
+            # drop the pending result set when a new query runs on them.
+            for row in rows:
+                s = dict(row)
+                sid = s["id"]
+                if with_messages:
+                    c.execute(
+                        "SELECT * FROM %s WHERE session_id = ? ORDER BY timestamp"
+                        % self.table_messages, (sid,))
+                    msgs = [self._map_cols(dict(m), self.col_map)
+                            for m in c.fetchall()]
+                s = self._map_cols(s, self.col_map)
+                if with_messages:
+                    s["messages"] = msgs
+                sessions.append(s)
+            return sessions
+        finally:
+            conn.close()
+
+    def read_session_headers(self, limit: int | None = None) -> list[dict]:
+        return self.read_sessions(limit=limit, with_messages=False)
+
+    def session_fingerprints(self) -> dict[str, tuple]:
+        """``{session id: (message_count, max_timestamp)}`` in one indexed
+        aggregate query (a covering ``(session_id, timestamp)`` index answers
+        it without reading message payloads)."""
+        conn = self._conn(readonly=True)
+        try:
+            out = {}
+            for sid, count, max_ts in conn.execute(
+                    "SELECT session_id, COUNT(*), MAX(timestamp) FROM %s "
+                    "GROUP BY session_id" % self.table_messages):
+                out[str(sid)] = (int(count), float(max_ts or 0))
+            return out
+        finally:
+            conn.close()
 
     def write_sessions(self, sessions: list[dict]) -> dict:
         if not sessions:
@@ -805,7 +915,7 @@ class SQLiteAdapter(Adapter):
                 "new_messages": new_messages, "duplicates": duplicates}
 
     def status(self) -> dict:
-        conn = self._conn()
+        conn = self._conn(readonly=True)
         c = conn.cursor()
         c.execute(f"SELECT COUNT(*) FROM {self.table_sessions}")
         sessions = c.fetchone()[0]

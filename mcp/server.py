@@ -49,7 +49,23 @@ import updater
 
 SYNC_SERVER = os.environ.get("HERMES_SYNC_SERVER", "https://www.agentctxsync.com")
 SYNC_API_KEY = os.environ.get("HERMES_SYNC_API_KEY", "ws_placeholder")
-SYNC_INTERVAL = int(os.environ.get("HERMES_SYNC_INTERVAL", "300"))
+# Event-driven trigger. A shell hook installed in the host agent (see
+# scripts/install-hermes-sync-hook.py) touches this file when a turn ends, and
+# the periodic loop wakes early instead of waiting out the whole interval.
+# With the hook armed the fallback sweep no longer has to be frequent, so the
+# default interval becomes 30min instead of 5min (HERMES_SYNC_INTERVAL still
+# wins when set explicitly).
+def _default_wake_file() -> Path:
+    agent = os.environ.get("HERMES_SYNC_AGENT", "hermes")
+    stem = "hermes-sync" if agent == "hermes" else f"hermes-sync-{agent}"
+    return Path.home() / "AppData/Local/hermes" / (stem + ".wake")
+
+
+WAKE_FILE = Path(os.environ.get("HERMES_SYNC_WAKE_FILE") or _default_wake_file())
+WAKE_POLL_S = float(os.environ.get("HERMES_SYNC_WAKE_POLL_S", "5"))
+_INTERVAL_OVERRIDE = os.environ.get("HERMES_SYNC_INTERVAL", "").strip()
+SYNC_INTERVAL = int(_INTERVAL_OVERRIDE) if _INTERVAL_OVERRIDE else (
+    1800 if WAKE_FILE.exists() else 300)
 # Background auto-sync (startup pull + periodic sync) can be disabled so the
 # client never competes for the local store locks; manual tool calls still
 # work. Hermes on SQLite < 3.51.3 uses journal_mode=DELETE where a write
@@ -354,6 +370,8 @@ def instance_status() -> dict:
         "host": DEVICE_ID,
         "client_version": CLIENT_VERSION,
         "sync_interval_s": SYNC_INTERVAL,
+        "wake_file": str(WAKE_FILE),
+        "wake_hook_armed": WAKE_FILE.exists(),
         "lock_file": str(LOCK_FILE),
         "lock_holder_pid": _lock_holder_pid(),
         "lease_file": str(LEASE_FILE),
@@ -362,6 +380,30 @@ def instance_status() -> dict:
         "lease": lease,
         "log_file": str(LOG_FILE),
     }
+
+
+def _wake_stamp() -> float:
+    """mtime of the hook's wake file, 0 when it does not exist."""
+    try:
+        return WAKE_FILE.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+async def _wait_for_cycle(interval: float, baseline: float | None):
+    """Sleep up to ``interval``; return True when the wake hook fired first.
+
+    A hook only matters for the sync owner: a standby keeps its full interval
+    (nothing to run), so ``baseline=None`` disables early wakeups.
+    """
+    deadline = time.time() + max(0.0, interval)
+    while True:
+        now = time.time()
+        if now >= deadline:
+            return False
+        if baseline is not None and _wake_stamp() > baseline:
+            return True
+        await asyncio.sleep(min(WAKE_POLL_S, max(0.01, deadline - now)))
 
 
 async def _acquire_tool_lock() -> bool:
@@ -1043,7 +1085,7 @@ def pull_sessions(last_sync_at=None, limit=None):
     # value != sidecar last-known). The same read also feeds the
     # path-separator alignment below, and it IS the inventory the
     # completeness check is computed against.
-    _local = adapter.read_sessions()
+    _local = _session_headers()
     local_by_id = {str(s["id"]): s for s in _local}
     local_cwd_map = build_path_map(
         s.get("cwd") for s in _local if isinstance(s.get("cwd"), str))
@@ -1142,13 +1184,46 @@ def pull_sessions(last_sync_at=None, limit=None):
             "total_remote_sessions": total_remote,
             "restored": restored, "unfiled": unfiled, "titles_healed": healed}
 
+def _session_headers() -> list[dict]:
+    """Inventory rows without messages (duck-typed adapters may lack the hook)."""
+    fn = getattr(adapter, "read_session_headers", None)
+    if fn is not None:
+        return fn()
+    return [{k: v for k, v in s.items() if k != "messages"}
+            for s in adapter.read_sessions()]
+
+
+def _read_push_candidates(fp: dict) -> list[dict]:
+    """Read the sessions whose fingerprint changed since the last push.
+
+    Adapters that can answer the inventory from store aggregates (hermes)
+    report ``(count, max_timestamp)`` per session, so only the changed
+    sessions are materialized; the full-store read this replaces took ~8s on
+    a 700 MB state.db and its long snapshot stopped the host's WAL from
+    resetting. Adapters without that capability keep the historical read.
+    """
+    fingerprints = getattr(adapter, "session_fingerprints", None)
+    fps = fingerprints() if fingerprints is not None else None
+    if fps is None:
+        return adapter.read_sessions()
+    changed_ids = []
+    for header in _session_headers():
+        sid = str(header["id"])
+        if fps.get(sid, (0, 0)) != tuple(fp.get(sid) or ()):
+            changed_ids.append(sid)
+    if not changed_ids:
+        return []
+    return adapter.read_sessions(ids=changed_ids)
+
+
 def push_sessions():
     if adapter.discover() is None:
         return {"error": f"Local store not found for agent {AGENT}"}
 
-    sessions_data = adapter.read_sessions()
+    fp = _load_push_fingerprint()
+    sessions_data = _read_push_candidates(fp)
     if not sessions_data:
-        return {"message": "No local sessions to push"}
+        return {"message": "No local changes to push"}
     # Push EVERYTHING the local store holds, own sessions and foreign ones
     # pulled from the shared pool. A foreign session may have been continued
     # locally (e.g. a hermes session edited in workbuddy gains new messages)
@@ -1182,7 +1257,6 @@ def push_sessions():
     paused_all: set = set()
     errors: list[str] = []
     meta = _load_field_meta()
-    fp = _load_push_fingerprint()
     try:
         # Skip sessions whose fingerprint is unchanged since the last
         # successful push (see _session_fingerprint): the server dedupes
@@ -1557,8 +1631,16 @@ async def periodic_sync():
     if _role != "primary":
         log(f"Standby instance (pid {os.getpid()}): not the sync owner; "
             f"waiting for the lease to free up")
+    # Consume wake events that fired before/while this copy started, so the
+    # first early cycle is not caused by a stale stamp.
+    baseline = _wake_stamp()
     while True:
-        await asyncio.sleep(SYNC_INTERVAL)
+        woke = await _wait_for_cycle(
+            SYNC_INTERVAL, baseline if _role == "primary" else None)
+        if woke:
+            log("Wake hook fired: running an early sync cycle")
+        # A hook that fired during the cycle is already covered by it.
+        baseline = _wake_stamp()
         # Standby: wake every cycle, but only contend for the lock once the
         # lease looks ownerless (dead pid / stale heartbeat). A standby that
         # grabbed the lock merely because it woke first would steal a healthy

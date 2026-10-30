@@ -197,6 +197,7 @@
   对实际发货字节计算），可分发白名单 `PUBLIC_AGENTS`。
 - **各 agent 本地存储一览**（数据目录 / canonical id / 写入约束）见
   [SUPPORTED_AGENTS.md](SUPPORTED_AGENTS.md)，新 agent 接入步骤见 [ADDING_AGENT.md](ADDING_AGENT.md)。
+- **增量读能力位**（2026.10.30）：`supports_incremental_read`（base 默认 False，SQLite 适配器 True）。具备该能力的适配器实现 `read_session_headers(limit)`（无 messages 的清单）与 `session_fingerprints()`（`{canonical id: (message_count, max_timestamp)}`，必须与折叠后的载荷一致），`read_sessions` 额外接受 `ids=` / `with_messages=`；`mcp/server.py` 的 push 先读清单+指纹，只对变化会话物化消息（实测 821 MB store：5.2 s 全量读 → 0.6 s + 0.06 s + 0.05 s），pull 的清单同样用 header 读。hermes 另把子代理子树的聚合卷到根会话上，`ids=` 读会展开祖先链与根的整棵子树。**写入通道**（hermes）：新会话按 `HERMES_SYNC_HERMES_API`（HTTP）→ 运行中网关的 `session.mutate`（`mcp/hermes_gateway.py`，发现只连不启、rename 探针判定契约、失败整批回退）→ 本地 SQLite 的顺序尝试；已有会话的追加消息始终走本地 SQLite（hermes 的 import 跳过已存在 id）。
 
 ## 多租户模型
 

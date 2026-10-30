@@ -23,10 +23,22 @@ The server distinguishes profiles purely by the id prefix (session key is
 (workspace_id, id)); non-hermes agents are never profile-filtered.
 """
 
+import json
 import os
+import sqlite3
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 
 from .base import SQLiteAdapter, AGENT_PREFIXES
+
+try:  # gateway-RPC write path (optional; see mcp/hermes_gateway.py)
+    from hermes_gateway import enabled as gateway_writes_enabled
+    from hermes_gateway import import_sessions as gateway_import_sessions
+except ImportError:  # adapter inspected outside the mcp package
+    gateway_writes_enabled = lambda: False  # noqa: E731
+    gateway_import_sessions = None
 
 
 class HermesAdapter(SQLiteAdapter):
@@ -182,29 +194,150 @@ class HermesAdapter(SQLiteAdapter):
     # ------------------------------------------------------------------
     # aggregate read / routed write
     # ------------------------------------------------------------------
-    def read_sessions(self, limit: int | None = None) -> list[dict]:
+    def read_sessions(self, limit: int | None = None, *, ids=None,
+                      with_messages: bool = True) -> list[dict]:
         """Push view: sessions from EVERY profile on the machine, merged.
 
         default sessions keep bare ids; named-profile sessions carry their
         ``<profile>:`` prefix so the server never confuses profiles.
         Sub-agent children (``parent_session_id``) are folded into their
         parent so the main agent and its sub-agents surface as one session.
+
+        ``ids`` restricts the read to those sessions plus everything folding
+        needs to reproduce them (the ancestor chain and the root's whole
+        subtree), and ``with_messages=False`` returns header rows only.
         """
         if not self._aggregate:
             # single-db mode: canonicalize each session, then fold children
             sessions = [self.canonicalize(s)
-                        for s in super().read_sessions(limit=limit)]
+                        for s in super().read_sessions(
+                            limit=limit, ids=ids, with_messages=with_messages)]
+            if not with_messages:
+                # canonicalize() re-attaches an empty message list; a header
+                # row must not carry one (callers fingerprint off the store).
+                for s in sessions:
+                    s.pop("messages", None)
+                return sessions
             return self._fold_subagent_sessions(sessions)
         merged: list[dict] = []
         for name, db in self._profile_dbs():
             sub = self._sub_adapter(name, db)
+            wanted = None
+            if ids is not None:
+                wanted = self._expand_fold_ids(db, ids)
+                if not wanted:
+                    continue
             # sub.read_sessions() already canonicalizes its rows; parent and
             # child always live in the same profile's state.db, so fold per
             # profile (parent_session_id is a local id).
-            sessions = sub.read_sessions(limit=limit)
-            merged.extend(self._fold_subagent_sessions(sessions))
+            sessions = sub.read_sessions(limit=limit, ids=wanted,
+                                         with_messages=with_messages)
+            merged.extend(self._fold_subagent_sessions(sessions)
+                          if with_messages else sessions)
         merged.sort(key=lambda s: s.get("started_at") or 0, reverse=True)
         return merged
+
+    def read_session_headers(self, limit: int | None = None) -> list[dict]:
+        """Session rows (no messages) for the pull-side inventory."""
+        return self.read_sessions(limit=limit, with_messages=False)
+
+    def session_fingerprints(self) -> dict[str, tuple]:
+        """``{root session id: (message_count, max_timestamp)}`` per profile.
+
+        Sub-agent messages are folded into their root before the push, so a
+        child's new messages must change the ROOT's fingerprint -- otherwise
+        a continuing sub-agent conversation would never be re-pushed.
+        """
+        out: dict[str, tuple] = {}
+        if not self._aggregate:
+            return self._fingerprints_for(self.db_path)
+        for name, db in self._profile_dbs():
+            out.update(self._fingerprints_for(db))
+        return out
+
+    @staticmethod
+    def _fingerprints_for(db_path) -> dict[str, tuple]:
+        import sqlite3
+        try:
+            conn = sqlite3.connect(SQLiteAdapter._ro_uri(db_path),
+                                   uri=True)
+        except sqlite3.Error:
+            return {}
+        try:
+            parent = {str(r[0]): (str(r[1]) if r[1] else "")
+                      for r in conn.execute(
+                          "SELECT id, parent_session_id FROM sessions")}
+            agg = {str(r[0]): (int(r[1]), float(r[2] or 0))
+                   for r in conn.execute(
+                       "SELECT session_id, COUNT(*), MAX(timestamp) "
+                       "FROM messages GROUP BY session_id")}
+        except sqlite3.Error:
+            return {}
+        finally:
+            conn.close()
+        roots: dict[str, str] = {}
+        for sid in parent:
+            cur, seen = sid, set()
+            while parent.get(cur) and cur not in seen:
+                seen.add(cur)
+                cur = parent[cur]
+            roots[sid] = cur if cur in parent else sid
+        out: dict[str, tuple] = {}
+        for sid, root in roots.items():
+            count, latest = agg.get(sid, (0, 0.0))
+            prev_count, prev_latest = out.get(root, (0, 0.0))
+            out[root] = (prev_count + count, max(prev_latest, latest))
+        # Message rows whose session row is gone still belong to a push: the
+        # base reader only walks session rows, so this mirrors its output.
+        for sid, (count, latest) in agg.items():
+            if sid not in roots:
+                prev_count, prev_latest = out.get(sid, (0, 0.0))
+                out[sid] = (prev_count + count, max(prev_latest, latest))
+        return out
+
+    @classmethod
+    def _expand_fold_ids(cls, db_path, ids) -> set[str]:
+        """Expand requested ids to what folding needs in this profile.
+
+        Reading a root without its children would drop the folded sub-agent
+        messages (and report a smaller session than the store holds), while
+        reading a child without its root cannot fold it at all. Both sides of
+        every ``parent_session_id`` edge are therefore included.
+        """
+        import sqlite3
+        wanted = {str(i) for i in ids}
+        try:
+            conn = sqlite3.connect(cls._ro_uri(db_path), uri=True)
+        except sqlite3.Error:
+            return wanted
+        try:
+            parent = {str(r[0]): (str(r[1]) if r[1] else "")
+                      for r in conn.execute(
+                          "SELECT id, parent_session_id FROM sessions")}
+        except sqlite3.Error:
+            return wanted
+        finally:
+            conn.close()
+        children: dict[str, list[str]] = {}
+        for sid, pid in parent.items():
+            if pid:
+                children.setdefault(pid, []).append(sid)
+        roots: set[str] = set()
+        for sid in wanted:
+            cur, seen = sid, set()
+            while parent.get(cur) and cur not in seen:
+                seen.add(cur)
+                cur = parent[cur]
+            roots.add(cur if cur in parent else sid)
+        out: set[str] = {i for i in wanted if i not in parent}
+        stack = list(roots)
+        while stack:
+            sid = stack.pop()
+            if sid in out:
+                continue
+            out.add(sid)
+            stack.extend(children.get(sid, ()))
+        return out
 
     @staticmethod
     def _fold_subagent_sessions(sessions: list[dict]) -> list[dict]:
@@ -261,6 +394,14 @@ class HermesAdapter(SQLiteAdapter):
         their canonical id intact — hermes' pass-through id handling
         round-trips them verbatim, and push_sessions never re-pushes them
         (owner filter).
+
+        With ``HERMES_SYNC_HERMES_API`` pointing at a running Hermes backend
+        (``hermes serve``), sessions that do not exist locally yet are
+        imported through Hermes' own HTTP API, which runs the write inside
+        the Hermes process (single writer, revision/epoch fencing). Hermes'
+        import refuses existing ids (it is an import, not an upsert), so
+        message appends to an existing session still go through the local
+        SQLite writer below.
         """
         if not self._aggregate:
             return super().write_sessions(sessions)
@@ -270,6 +411,8 @@ class HermesAdapter(SQLiteAdapter):
             route[name] = self._sub_adapter(name, db)
         totals = {"imported": 0, "updated": 0, "new_messages": 0, "duplicates": 0}
         skipped = 0
+        new_by_profile: dict[str, list[dict]] = {}
+        via_sqlite: dict[str, list[dict]] = {}
         for s in sessions:
             cid = str(s["id"])
             profile = str(s.get("profile_name") or "")
@@ -301,12 +444,204 @@ class HermesAdapter(SQLiteAdapter):
             owner = s.get("agent_type") or ""
             if owner and owner != "hermes":
                 target._remember_foreign(cid, owner)
-            stats = target.write_sessions([s])
+            if target._has_session(target.localize(s)["id"]):
+                via_sqlite.setdefault(profile, []).append(s)
+            else:
+                new_by_profile.setdefault(profile, []).append(s)
+        for profile, batch in new_by_profile.items():
+            remaining = self._write_new_sessions(route[profile], profile,
+                                                 batch, totals)
+            if remaining:
+                via_sqlite.setdefault(profile, []).extend(remaining)
+        for profile, batch in via_sqlite.items():
+            target = route[profile]
+            stats = target.write_sessions(batch)
             for k in totals:
                 totals[k] += stats.get(k, 0)
         if skipped:
             self._log_profile_skip(skipped)
         return totals
+
+    # ------------------------------------------------------------------
+    # Remote write paths for sessions that are new to this store
+    # ------------------------------------------------------------------
+    def _write_new_sessions(self, target: "HermesAdapter", profile: str,
+                            batch: list[dict], totals: dict) -> list[dict]:
+        """Try the single-writer paths in order; return what still needs SQLite.
+
+        ``HERMES_SYNC_HERMES_API`` (a ``hermes serve`` backend) first, then the
+        running gateway's JSON-RPC (the Desktop case, where a second ``serve``
+        is refused), then the caller's local writer. Each step is advisory: a
+        refusal only ever costs the optimisation, never the pull.
+        """
+        originals = batch
+        prepared = [self._remote_payload(target, s) for s in originals]
+        api_base = self._hermes_api_base()
+        if api_base:
+            prepared = self._import_via_api(api_base, profile, prepared, totals)
+            if not prepared:
+                return []
+        if gateway_import_sessions is not None and gateway_writes_enabled():
+            result = gateway_import_sessions(self._platform_root(),
+                                             target._home, prepared)
+            if result.get("ok"):
+                totals["imported"] += int(result.get("imported") or 0)
+                failed = {str(i) for i in (result.get("failed") or [])}
+                # Hand back the ORIGINAL payload: the local writer applies its
+                # own title rule, and a remote-only suffix must not stick.
+                return [s for s in originals if str(s["id"]) in failed]
+            self._log_api_once(
+                f"gateway write unavailable: {result.get('reason')}")
+        return originals
+
+    def _remote_payload(self, target: "HermesAdapter", session: dict) -> dict:
+        """Payload for a remote import: titles disambiguated, no local rows.
+
+        Hermes enforces a partial ``UNIQUE INDEX`` on ``sessions.title``; an
+        import carrying a title this profile already holds fails the whole
+        statement (measured: ``UNIQUE constraint failed: sessions.title``),
+        so the same ``" (N)"`` rule the local writer applies is applied here.
+        """
+        s = dict(session)
+        title = s.get("title")
+        if isinstance(title, str) and title.strip():
+            local_id = str(target.localize(s)["id"])
+            s["title"] = target._unique_title(title, local_id)
+        s["messages"] = [dict(m) for m in (s.get("messages") or [])]
+        return s
+
+    def _unique_title(self, title: str, exclude_id: str | None = None) -> str:
+        """First ``title``/``title (N)`` this profile's store does not hold."""
+        conn = self._conn(readonly=True)
+        try:
+            candidate, n = title, 2
+            while conn.execute(
+                    "SELECT 1 FROM %s WHERE title = ? AND id <> ?"
+                    % self.table_sessions,
+                    (candidate, exclude_id or "")).fetchone():
+                candidate = f"{title} ({n})"
+                n += 1
+            return candidate
+        except sqlite3.Error:
+            return title
+        finally:
+            conn.close()
+
+    _logged_api_reasons: set = set()
+
+    @classmethod
+    def _log_api_once(cls, message: str):
+        """Log each gateway/API unavailability reason once per process."""
+        if message in cls._logged_api_reasons:
+            return
+        cls._logged_api_reasons.add(message)
+        cls._log_api(message)
+
+    # ------------------------------------------------------------------
+    # Hermes backend API (optional write path, see write_sessions)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _hermes_api_base() -> str:
+        """Base URL of a running Hermes backend, '' when the API path is off."""
+        return (os.environ.get("HERMES_SYNC_HERMES_API") or "").strip().rstrip("/")
+
+    @staticmethod
+    def _hermes_api_token() -> str:
+        """Optional ``X-Hermes-Session-Token`` (Desktop-owned loopback backends
+        require the per-spawn token; a self-started ``hermes serve`` bound to
+        loopback does not)."""
+        return (os.environ.get("HERMES_SYNC_HERMES_API_TOKEN") or "").strip()
+
+    def _has_session(self, session_id) -> bool:
+        """True when this profile's store already holds the (local) id."""
+        conn = self._conn(readonly=True)
+        try:
+            return conn.execute(
+                "SELECT 1 FROM %s WHERE id = ?" % self.table_sessions,
+                (str(session_id),)).fetchone() is not None
+        except sqlite3.Error:
+            return False
+        finally:
+            conn.close()
+
+    def _import_via_api(self, base: str, profile: str, batch: list[dict],
+                        totals: dict) -> list[dict]:
+        """Import sessions new to this store through Hermes' own backend.
+
+        Returns the sessions the API did not take (HTTP/validation failure);
+        write_sessions falls back to the local SQLite writer for those, so a
+        stopped backend or an older Hermes never blocks the pull.
+        """
+        failed: list[dict] = []
+        for chunk in self._import_chunks(batch):
+            payload = {
+                "request_id": uuid.uuid4().hex,
+                "expected_revision": 0,
+                "profile": profile or None,
+                "sessions": chunk,
+            }
+            result = self._post_json(base + "/api/sessions/import", payload,
+                                     timeout=60)
+            if result is None:
+                failed.extend(chunk)
+                continue
+            imported = int(result.get("imported") or 0)
+            totals["imported"] += imported
+            skipped_ids = result.get("skipped_ids") or []
+            failed.extend([s for s in chunk if str(s["id"]) in
+                           {str(i) for i in skipped_ids}])
+            if result.get("errors"):
+                self._log_api(f"import reported errors: {result['errors'][:3]}")
+        return failed
+
+    @staticmethod
+    def _import_chunks(batch: list[dict]):
+        """Bound each import request by session count and payload size."""
+        chunk: list[dict] = []
+        size = 0
+        for s in batch:
+            try:
+                n = len(json.dumps(s, ensure_ascii=False).encode("utf-8"))
+            except (TypeError, ValueError):
+                n = 0
+            if chunk and (len(chunk) >= 20 or size + n > 4 * 1024 * 1024):
+                yield chunk
+                chunk, size = [], 0
+            chunk.append(s)
+            size += n
+        if chunk:
+            yield chunk
+
+    def _post_json(self, url: str, payload: dict, timeout: float):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type": "application/json"})
+        token = self._hermes_api_token()
+        if token:
+            req.add_header("X-Hermes-Session-Token", token)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except OSError:
+                pass
+            self._log_api(f"POST {url} failed: HTTP {e.code} {detail}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            self._log_api(f"POST {url} failed: {e}")
+        return None
+
+    @staticmethod
+    def _log_api(message: str):
+        # stderr only: stdout is the MCP JSON-RPC channel.
+        try:
+            import sys
+            sys.stderr.write(f"[hermes-sync] hermes api: {message}\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
 
     def _log_profile_skip(self, n: int):
         # stderr only: stdout is the MCP JSON-RPC channel and must never

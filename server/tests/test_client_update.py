@@ -27,7 +27,8 @@ sys.path.insert(0, str(MCP_DIR))
 import updater  # noqa: E402
 
 _MCP_ROOTS = ("server.py", "updater.py", "run.sh", "run.bat",
-              "auto-sync.py", "adapters/")
+              "auto-sync.py", "wake.py", "hermes_gateway.py",
+              "hermes_gateway_write.py", "adapters/")
 
 
 class ManifestRoundTripTest(unittest.TestCase):

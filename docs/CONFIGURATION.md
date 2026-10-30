@@ -32,7 +32,13 @@ When SMTP is not configured the whole email feature is dormant: registration and
 | `HERMES_SYNC_AGENT` | `hermes` | Local storage adapter: `hermes`/`dsh`/`opencode`/`reasonix`/`openclaw`/`workbuddy`/`omp` |
 | `HERMES_SYNC_SERVER` | `https://www.agentctxsync.com` | Remote server address (the shipped client points at the public server; self-hosted deployments must set it to their own address) |
 | `HERMES_SYNC_API_KEY` | - | **Workspace API Key** (required, format `ws_xxx`) |
-| `HERMES_SYNC_INTERVAL` | `300` | Auto-sync interval (seconds) |
+| `HERMES_SYNC_INTERVAL` | `300` (`1800` once the wake hook is armed) | Auto-sync interval (seconds). The fallback sweep; with `HERMES_SYNC_WAKE_FILE` present it defaults to 30min because the hook drives the fast path. An explicit value always wins |
+| `HERMES_SYNC_WAKE_FILE` | derived per agent | Wake file touched by the host hook (`scripts/install-hermes-sync-hook.py`); the background loop syncs as soon as its mtime changes instead of waiting out the interval |
+| `HERMES_SYNC_WAKE_POLL_S` | `5` | How often the loop checks the wake file while waiting |
+| `HERMES_SYNC_HERMES_API` | - | Base URL of a running Hermes backend (e.g. `http://127.0.0.1:9119` from `hermes serve`). Sessions that do not exist locally yet are imported through Hermes' own `POST /api/sessions/import` (single writer inside the Hermes process); anything it refuses or cannot reach falls back to the local SQLite writer. The backend must own the profile: while the Desktop gateway runs it answers `409 Exclusive maintenance refused`, so the path only applies where no gateway owns the store |
+| `HERMES_SYNC_HERMES_API_TOKEN` | - | `X-Hermes-Session-Token` for a Desktop-owned loopback backend (a self-started `hermes serve` on loopback needs none) |
+| `HERMES_SYNC_HERMES_RPC` | `auto` | Write new sessions through the **running** Hermes gateway's JSON-RPC (the Desktop case, where the gateway owns the store and a second `serve` is refused). `auto` = probe once per batch and fall back to the local SQLite writer when the gateway is absent / the contract is unknown; `off` disables it entirely |
+| `HERMES_SYNC_HERMES_RPC_TIMEOUT_S` | `180` | Upper bound for one helper run (probe + batch) when the protocol half runs as a child process |
 | `HERMES_SYNC_AUTO_SYNC` | `1` | Background auto-sync switch (`0` disables the startup pull + periodic sync; manual tool calls still work) |
 | `HERMES_SYNC_AUTO_UPDATE` | `1` | Client auto-update switch (`0` disables) |
 | `HERMES_SYNC_UPDATE_INTERVAL` | `3600` | Update check interval (seconds, default 1 hour) |
@@ -62,4 +68,4 @@ Sidecars live next to the agent's store (each agent-scoped file is prefixed with
 | `.{agent}-projects-field-meta.json` | Same as the field sidecar, for the project store |
 | `.hermes-sync-version` (in `mcp/`) | Installed client version, written by the updater |
 
-The coordination files live in `%LOCALAPPDATA%\hermes` (`$LOCALAPPDATA/hermes`), *not* next to the store, because they are per-machine rather than per-store. One name stem per agent (`hermes-sync` for hermes, `hermes-sync-<agent>` otherwise) yields `<stem>.lock` (per-cycle sync lock), `<stem>.primary.json` (background-sync lease: owner `pid`, heartbeat, `last_sync_ok`), `<stem>-update.lock` and `<stem>.log` (rotated into `.log.1`). `sync_status` reports those paths plus this copy's role, so "which copy is syncing, and is anything duplicated?" is answerable from the agent itself.
+The coordination files live in `%LOCALAPPDATA%\hermes` (`$LOCALAPPDATA/hermes`), *not* next to the store, because they are per-machine rather than per-store. One name stem per agent (`hermes-sync` for hermes, `hermes-sync-<agent>` otherwise) yields `<stem>.lock` (per-cycle sync lock), `<stem>.primary.json` (background-sync lease: owner `pid`, heartbeat, `last_sync_ok`), `<stem>-update.lock`, `<stem>.log` (rotated into `.log.1`) and `<stem>.wake` (hook trigger; its presence also selects the 30min fallback interval). `sync_status` reports those paths plus this copy's role, so "which copy is syncing, and is anything duplicated?" is answerable from the agent itself.

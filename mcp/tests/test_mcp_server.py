@@ -221,6 +221,59 @@ class PushFingerprintTest(unittest.TestCase):
                 self.assertIn("failed", r1.get("error", ""))
                 # fingerprint not anchored for the failed session
                 self.assertEqual(server._load_push_fingerprint(), {})
+    def test_incremental_adapter_materializes_only_changed_sessions(self):
+        """An adapter that answers the inventory from aggregates must not have
+        every session's messages read: only fingerprints that changed are
+        fetched, plus the header rows for the rest."""
+        read_ids = []
+
+        class FakeAdapter:
+            agent_type = "hermes"
+
+            def discover(self):
+                return "store"
+
+            def session_fingerprints(self):
+                return {"s1": (1, 1.0), "s2": (2, 2.0)}
+
+            def read_session_headers(self):
+                return [{"id": "s1", "cwd": "c:/x"},
+                        {"id": "s2", "cwd": "c:/y"}]
+
+            def read_sessions(self, limit=None, *, ids=None,
+                              with_messages=True):
+                read_ids.append(list(ids) if ids is not None else None)
+                return [{"id": sid, "cwd": "c:/x", "title": "t",
+                         "messages": [{"session_id": sid, "role": "user",
+                                       "content": "hi", "timestamp": 2.0}]}
+                        for sid in (ids or [])]
+
+            def _is_foreign(self, sid):
+                return False
+
+            def _foreign_agent(self, sid):
+                return None
+
+        calls = []
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            with mock.patch.object(server, "adapter", FakeAdapter()), \
+                    mock.patch.object(server, "FIELD_META_PATH",
+                                      td / "meta.json"), \
+                    mock.patch.object(server, "PUSH_FINGERPRINT_PATH",
+                                      td / "fp.json"), \
+                    mock.patch.object(server, "SYNC_SERVER",
+                                      "https://www.agentctxsync.com"), \
+                    mock.patch.object(
+                        server, "api_call",
+                        side_effect=lambda *a, **k: calls.append(a) or {
+                            "imported": 0, "updated": 1, "new_messages": 0,
+                            "sync_at": 1.0, "session_revs": {}}):
+                server._save_push_fingerprint({"s1": [1, 1.0]})
+                server.push_sessions()
+        self.assertEqual(read_ids, [["s2"]])
+        self.assertEqual([c[2]["sessions"][0]["id"] for c in calls], ["s2"])
+
     def test_legacy_flat_fingerprint_is_stale_when_identity_known(self):
         """A fingerprint file from before identity recording must not keep
         suppressing a re-push: once an identity is known, an old flat dict
@@ -1243,6 +1296,52 @@ class OpenClawAutoSyncLockTest(unittest.TestCase):
         self.assertIn("skipped", out)
         full.assert_not_called()
         self.assertEqual(server._lock_holder_pid(), os.getppid())
+
+
+class WakeHookTest(unittest.TestCase):
+    """The shell hook's wake file wakes the periodic loop early instead of
+    waiting out the whole interval (event-driven trigger, phase 3)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.wake = Path(self.tmp.name) / "hermes-sync.wake"
+        orig_poll = server.WAKE_POLL_S
+        self.addCleanup(lambda: setattr(server, "WAKE_POLL_S", orig_poll))
+        server.WAKE_POLL_S = 0.02
+        patch = mock.patch.object(server, "WAKE_FILE", self.wake)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_full_interval_without_a_hook(self):
+        started = time.time()
+        self.assertFalse(asyncio.run(server._wait_for_cycle(
+            0.08, server._wake_stamp())))
+        self.assertGreaterEqual(time.time() - started, 0.08)
+
+    def test_touch_wakes_the_loop_immediately(self):
+        self.wake.touch()
+        baseline = server._wake_stamp()
+
+        async def go():
+            import threading
+
+            def fire():
+                time.sleep(0.1)
+                self.wake.touch()
+
+            threading.Thread(target=fire, daemon=True).start()
+            started = time.time()
+            woke = await server._wait_for_cycle(30, baseline)
+            return woke, time.time() - started
+
+        woke, elapsed = asyncio.run(go())
+        self.assertTrue(woke)
+        self.assertLess(elapsed, 2.0)
+
+    def test_standby_ignores_the_hook(self):
+        self.wake.touch()
+        self.assertFalse(asyncio.run(server._wait_for_cycle(0.05, None)))
 
 
 if __name__ == "__main__":

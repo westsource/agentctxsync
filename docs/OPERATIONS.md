@@ -27,7 +27,7 @@ MCP clients have built-in auto-update: a check runs about 1 minute after startup
 - **Server default in shipped packages**: every downloaded client package has its `HERMES_SYNC_SERVER` code default set to the server that served the download (per-request address), or to `HERMES_SYNC_PUBLIC_URL` when that server-side variable is configured. To migrate existing clients to a new address: set `HERMES_SYNC_PUBLIC_URL` to the new address on the server and bump `CLIENT_VERSION` — clients pull the new package from the old address (keep it reachable until they all update) and switch after the agent restarts.
 - If verification fails or the network is unreachable, the old files are kept and only a log entry is recorded; sync is unaffected
 - Rollback: copy the files from `.bak-<version>/` back into the `mcp/` directory and delete `.hermes-sync-version`
-- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/client_update.py`; once the server is deployed, all clients upgrade automatically at their next check
+- **Release workflow**: after modifying the client, bump the `CLIENT_VERSION` constant in both `mcp/updater.py` and `server/client_update.py`; once the server is deployed, all clients upgrade automatically at their next check. `scripts/deploy-remote.py --list` prints the exact upload set (server modules/templates/static, the `mcp/` package and the `/opt/scripts` files the client zip embeds) without connecting; the script takes `DEPLOY_SSH_PORT` (the 63 host listens on 8022) and probes the schema with the local `psql` before falling back to the legacy docker container.
 
 ## Multi-Profile Sync (Hermes profiles)
 
@@ -146,7 +146,8 @@ Server address priority: the `HERMES_SYNC_SERVER` environment variable in `confi
 The full tool list lives in the README; details of the background engine:
 
 - One automatic **incremental** pull at startup (delayed 8 seconds to avoid the host agent's startup/read peak; local `.hermes-sync-watermark` watermark + 5-minute clock tolerance); if the remote is empty, local data is pushed automatically (first-pairing bootstrap for new devices)
-- Periodic auto-sync (default 300 seconds)
+- Periodic auto-sync (default 300 seconds; 1800 once the wake hook below is armed)
+- **Event-driven wake**: `scripts/install-hermes-sync-hook.py --apply` registers a Hermes shell hook on `on_session_end` that touches `<stem>.wake`; the loop watches that file (`HERMES_SYNC_WAKE_POLL_S`, 5 s) and runs a cycle as soon as a turn ends instead of polling on a short timer. Standbys ignore wake events. See [Large stores: incremental reads, API writes and the wake hook](#large-stores-incremental-reads-api-writes-and-the-wake-hook)
 - **Watermark bound to the server identity**: pointing the client at a different server automatically triggers a full re-pull (see Server Migration)
 - **Batching**: pulls page in small batches (15 sessions per request); pushes split by session-count + message-count + byte-size (default 8 MB) limits — large syncs never time out; a single oversized session rides alone in its own chunk, and a failed chunk (413 / quota / timeout) no longer aborts the rest of the push cycle
 - **Push-side watermark (session fingerprint)**: each session records a push fingerprint `(message_count, max_timestamp[, file mtime])` in a sidecar next to the field-meta file; periodic push skips sessions whose fingerprint is unchanged (the fingerprint updates only after a successful push), so a large store no longer re-uploads everything every cycle. Agents without field-meta fall back to full push (previous behavior). mtime is provided by the adapter where available (workbuddy implements it, so a pull that touched a copy also invalidates its fingerprint)
@@ -154,6 +155,97 @@ The full tool list lives in the README; details of the background engine:
 - Single-writer lock: with two `serve` instances, only one process runs background sync, avoiding local storage races; auto-update uses a separate update lock
 - Message dedup is based on the `(session_id, role, timestamp)` triple, idempotent across devices
 - Background sync completion sends an MCP log notification (`notifications/message`, logger `hermes-sync`) to the host agent; whether the host surfaces it in the UI is host-dependent — the Web UI is the guaranteed visibility channel
+
+## Large stores: incremental reads, API writes and the wake hook
+
+A hermes store grows fast: the development machine's `state.db` reached
+**821 MB / 742 sessions / 109,869 messages**, of which `messages` is 297 MB and
+the two FTS5 indexes (`messages_fts_trigram_data`, `messages_fts_data`) are
+406 MB. Every write to `messages` fires 11 triggers over those indexes, so a
+sync client that reads the whole store every cycle and writes pulled messages
+in a second process is expensive on both sides (observed: `event loop stalled`
+in the Hermes web server, 67 MB `state.db-wal` that could not reset).
+
+Four changes address that. All are on by default where noted; none changes
+the wire format or the server.
+
+1. **Incremental reads (default).** `mcp/adapters/base.py` gained
+   `read_session_headers()` and `session_fingerprints()`; hermes answers both
+   from SQL (`SELECT session_id, COUNT(*), MAX(timestamp) … GROUP BY
+   session_id`, covered by an index) instead of materializing messages. The
+   push reads headers + fingerprints, compares them with its sidecar and
+   materializes ONLY the changed sessions; the pull's inventory uses headers.
+   Measured on the store above: full read 5.2 s / ~300 MB of pages →
+   headers 0.6 s + fingerprints 0.06 s + 0.05 s for the changed sessions.
+   A sub-agent session's messages are folded into its root, so the root's
+   fingerprint rolls up its subtree and a partial read expands to the ancestor
+   chain plus the root's whole subtree.
+   Other agents keep the previous full read (`supports_incremental_read` is
+   per adapter).
+
+2. **Writes through Hermes (optional, `HERMES_SYNC_HERMES_API`).** Hermes'
+   HTTP API writes inside the Hermes process (`mutate_session(authority, …)`,
+   documented in its source as "never open a second writer"). Set
+   `HERMES_SYNC_HERMES_API=http://127.0.0.1:9119` for a backend started with
+   `hermes serve --host 127.0.0.1 --port 9119`; a loopback bind needs no auth,
+   a Desktop-owned backend needs `HERMES_SYNC_HERMES_API_TOKEN`
+   (`X-Hermes-Session-Token`). Only sessions absent locally go through it:
+   Hermes' `POST /api/sessions/import` is an import, not an upsert — it skips
+   ids that already exist, so message appends to an existing session still use
+   the local SQLite writer. Any HTTP error, validation refusal or unreachable
+   backend falls back to that writer for the affected sessions, so the pull
+   never depends on the API being up.
+
+   The backend must OWN the profile. While the Desktop gateway runs it owns
+   `state.db`, and a standalone `hermes serve` is refused for writes with
+   `409 Exclusive maintenance refused: Gateway runtime already owns profile ...`
+   (Hermes' "never open a second writer" rule) — that case is what the gateway
+   RPC path (next item) covers. Verified on a live backend: new session imported
+   (`imported: 1`), readable through `GET /api/sessions/{id}/messages`; an
+   existing session's new message appended through the SQLite path and visible
+   through the same API; `profile_name: magic` routed to `?profile=magic`; a
+   wrong `X-Hermes-Session-Token` produced 401 and the local fallback wrote the
+   row. Canonical payloads pass Hermes' `_validate_import_payload` unchanged
+   (verified against Hermes 0.22.1).
+
+3. **Writes through the running gateway (Desktop; default `auto`).** The
+   Desktop gateway accepts session edits over its own WebSocket JSON-RPC
+   (`session.mutate`), and any same-user process can mint the ticket it needs
+   through the local control channel. `mcp/hermes_gateway.py` discovers the
+   owner **without starting one** (`discover_gateway_endpoint`, whose contract
+   is "preserving uncertainty instead of spawning"), then
+   `mcp/hermes_gateway_write.py` runs under the Hermes install's own
+   interpreter (in-process when the MCP child already uses it, otherwise as a
+   child process) and imports each new session. Hermes stays the only writer.
+
+   Version skew is handled by capability probing, not version numbers: the
+   helper first issues a **non-mutating probe** — renaming a session that does
+   not exist — and treats `not_found` as "contract accepted",
+   `unknown_method`/`invalid_params`/`permission_denied` as "this version does
+   not speak our shape". Anything else (missing gateway, protocol mismatch,
+   ticket refusal, timeout) is reported with a bounded reason and the batch goes
+   to the local writer; `supported: false` refuses the whole batch rather than
+   trusting partial outcomes. `runtime.describe` is *not* used as the gate: its
+   `capabilities` list does not advertise mutation verbs.
+
+   Titles are disambiguated with the local `" (N)"` rule before the import
+   because Hermes enforces `UNIQUE INDEX sessions(title)` and a collision fails
+   the statement (`UNIQUE constraint failed: sessions.title`, measured).
+   `scripts/probe-hermes-write-path.py` prints which path a machine will use
+   (API / gateway RPC / local SQLite) plus the probe verdict — run it on an
+   unfamiliar Hermes version instead of guessing. Measured on 0.22.1 with the
+   gateway running: new session written by the gateway in 0.75 s (child helper
+   incl. startup), existing session appended through SQLite, colliding title
+   stored as `dup probe (2)`.
+
+4. **Wake hook (opt-in).** `python scripts/install-hermes-sync-hook.py`
+   (dry run) / `--apply` writes a `hooks.on_session_end` entry that runs
+   `mcp/wake.py`, records its consent entry in
+   `~/.hermes/shell-hooks-allowlist.json` through Hermes' own writer, and
+   creates the wake file. Restart Hermes so the hook registers. `--remove`
+   undoes it. With the wake file present the client's fallback interval
+   becomes 1800 s; `HERMES_SYNC_INTERVAL` still overrides. `sync_status` reports
+   `wake_file` / `wake_hook_armed`.
 
 ## Compatibility with Hermes 0.20+ (SQLite Lock Contention)
 

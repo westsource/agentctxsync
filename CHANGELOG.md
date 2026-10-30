@@ -1,3 +1,100 @@
+## [2026.10.30.1] - 2026-10-30
+
+> 客户端发布：`CLIENT_VERSION` 2026.10.10.1 → **2026.10.30.1**（`mcp/updater.py`、
+> `server/client_update.py`）。改动 `mcp/server.py`、`mcp/adapters/base.py`、
+> `mcp/adapters/hermes.py`，新增 `mcp/wake.py`、`scripts/install-hermes-sync-hook.py`；
+> 分包新增 `mcp/wake.py` 与 `scripts/install-hermes-sync-hook.py`（`_client_archive_files`）。
+> 线协议与服务器**零改动**（无 schema、无迁移）。测试：mcp 套件 **258 项 OK**（新增
+> `test_hermes_incremental.py` 13 项、`test_hermes_gateway.py` 11 项、推送增量选择/唤醒各 1 项），
+> server 套件 **296 项 OK / 2 skipped**。真机实测（本机
+> `state.db` 821 MB / 742 会话 / 109,869 消息，其中 `messages` 297 MB、两套 FTS 索引
+> 406 MB、`messages` 上 11 个触发器、`state.db-wal` 67 MB）：全量读 5.2 s / 约 300 MB
+> 页面 → headers 0.6 s + 指纹 0.06 s + 变化会话 0.05 s；新指纹与全量读逐会话一致
+> （741 会话，0 mismatch、0 多余键）。
+
+### Added（2b：桌面场景走运行中网关的 JSON-RPC 写入，hermes 仍是唯一写者）
+
+- **为什么**：桌面网关运行时会独占 profile，独立 `hermes serve` 的写入被拒
+  `409 Exclusive maintenance refused`，因此阶段 2 的 HTTP 路径在桌面端不可用，只能回退直写。
+  但网关本身接受会话编辑（桌面/ACP 用的就是它），同用户进程可通过本地控制通道自取 ticket，
+  所以外部进程可以**当客户端而不是第二写者**。
+- **实现**：新增 `mcp/hermes_gateway.py`（只连不启：`discover_gateway_endpoint`，
+  其 docstring 明写 “preserving uncertainty instead of spawning”；再 `connect_gateway(endpoint=…)`）
+  与 `mcp/hermes_gateway_write.py`（协议半边，跑在该安装自己的解释器里，import
+  `hermes_cli.gateway_client`，因此子协议/ticket/参数契约永远与那一版一致；MCP 子进程本身
+  就在 hermes venv 时进程内调用，否则用发现到的 hermes python 起子进程并补 `PYTHONPATH`）。
+  适配器写入顺序：`HERMES_SYNC_HERMES_API` → 网关 RPC（`HERMES_SYNC_HERMES_RPC=auto|off`）
+  → 本地 SQLite；回退交回**原始**载荷（远程专用的标题后缀不会粘住）。
+- **版本兼容（不按版本号分支）**：写入前先做**非破坏性探针**——对不存在的会话发
+  `session.mutate` + `rename`：`not_found` = 契约接受；`unknown_method`/`invalid_params`/
+  `permission_denied` = 该版本不支持（整批交回本地写，不信任部分结果）；其余（无网关/握手失败/
+  ticket 拒绝/超时）= 记 bounded reason 后回退。**不**用 `runtime.describe` 的 `capabilities`
+  做门控（它不声明变更类动词）。
+- **标题消歧**：hermes 有 `UNIQUE INDEX sessions(title)`，import 前按本地 `" (N)"` 规则预消歧
+  （实测冲突会直接 `UNIQUE constraint failed: sessions.title` → 5001）。
+- **诊断**：`scripts/probe-hermes-write-path.py` 打印 hermes 版本、网关是否存在、探针结论与本机
+  将走的写入路径。新环境变量 `HERMES_SYNC_HERMES_RPC`（默认 auto）/
+  `HERMES_SYNC_HERMES_RPC_TIMEOUT_S`（默认 180）；分包新增两个 mcp 模块与该脚本。
+- **真机验证（2026-10-30，hermes 0.22.1，网关运行中，桌面场景 API 未设）**：
+  `scripts/probe-hermes-write-path.py` → `gateway_probe.ok=true / supported=true /
+  instance_id / hermes_version 0.22.1`、`write_path=hermes-gateway-rpc`；适配器
+  `write_sessions` 新会话 **0.75 s** 由网关写入（行+消息落库，本地未重复插入）；同会话追加
+  消息走 SQLite（`updated 1 / new_messages 1`）；标题冲突存为 `dup probe (2)`。探针会话全部删除
+  （`sessions` 回到 742）。
+- **测试**：`mcp/tests/test_hermes_gateway.py` 10 项（探针判定/逐会话导入/契约漂移整批回退/
+  单会话 busy 不拖垮批次/已存在回交/无网关/超时/开关/空批）；`test_hermes_incremental.py`
+  +6 项（网关导入、已有会话不进网关、标题消歧、拒绝回退、失败 id 本地补写、off 开关）；
+  新增 `mcp/tests/conftest.py` 在套件内强制 `HERMES_SYNC_HERMES_RPC=off`，防止单测误写开发者真实库。
+
+> **已部署 63（2026-10-30 15:07 CST，`39.96.215.63`，SSH 8022）**：按文件清单上传 14 个文件——`server/client_update.py`、`mcp/{server,updater,wake,hermes_gateway,hermes_gateway_write}.py`、`mcp/adapters/{base,hermes}.py`、`/opt/scripts/` 下 6 个随包脚本（deploy-local-mcp.ps1/.sh、install-deps.bat/.sh、install-hermes-sync-hook.py、probe-hermes-write-path.py；该目录此前不存在，因此旧包一直没有附这些脚本）。备份 `backups/pre-release-2026.10.30.1-20261030-150719.tar.gz`；上传后 `py_compile` 通过、`systemctl is-active agentctxsync`=active、`/health`=`{"status":"ok","backend":"postgresql"}`。线上核对（真实 workspace key，HTTPS）：7 个 agent 的 `/api/client/manifest` 全部返回 **2026.10.30.1 / update_available=true / 18 个文件**；下载包 127,315 B、25 个文件、内含 `mcp/{wake,hermes_gateway,hermes_gateway_write}.py` 与 `scripts/{install-hermes-sync-hook,probe-hermes-write-path}.py`，`updater.verify_archive` 通过，包内 `mcp/server.py` 含 `_read_push_candidates`、`mcp/adapters/hermes.py` 含 `hermes_gateway`。**部署方式与基线**：63 上另有 12 个 server `.py` 与仓库工作树不同（本次之前的既有漂移，未触碰）；本次只按发布清单覆盖，未整树覆盖。回滚：`tar -xzf` 该备份到 `/` + `systemctl restart agentctxsync`。
+> 发布脚本 `scripts/deploy-remote.py` 同步修正：`DEPLOY_SSH_PORT`（63 用 8022）、上传清单按目录派生（原硬编码会漏掉本次 5 个新文件）、`/opt/scripts` 远程路径改 POSIX、DB 探针先本机 `psql` 再回退容器、`--list` 可离线打印将上传的文件。
+
+### Changed（大库不再每轮整库搬运：增量读 → Hermes 单写者写入 → 事件驱动唤醒）
+
+- **增量读（默认开启）**：`adapters/base.py::Adapter` 新增能力位
+  `supports_incremental_read`（默认 False；`SQLiteAdapter` True）与两个可覆写方法
+  `read_session_headers(limit)`（无 messages 的清单）/`session_fingerprints()`
+  （`{canonical id: (message_count, max_timestamp)}` 或 None）。`read_sessions` 增加
+  `ids=` / `with_messages=` 关键字；读连接改为 `mode=ro` URI（WAL 缺 `-shm` 时回退
+  `PRAGMA query_only`），并保证连接在调用内关闭（长快照会挡住宿主的 WAL reset）。
+  `mcp/server.py::push_sessions` 先取指纹+清单，只对变化会话物化消息
+  （`_read_push_candidates`）；`pull_sessions` 的本地清单改用 `read_session_headers`
+  （`_session_headers`，对没有该方法的适配器自动回退全量读）。hermes 侧
+  `_fingerprints_for` 把子代理子树聚合到根会话、`_expand_fold_ids` 让 `ids=` 读带上
+  祖先链与根的整棵子树，因此“子代理继续对话”仍会触发根会话重推。
+- **写入走 Hermes 自己的进程（可选）**：`HERMES_SYNC_HERMES_API` 指向运行中的
+  `hermes serve`（默认 loopback 无鉴权；Desktop 自有后端需
+  `HERMES_SYNC_HERMES_API_TOKEN` = `X-Hermes-Session-Token`）时，**本地不存在的会话**
+  改走 `POST /api/sessions/import`（hermes 侧 `mutate_session`，注释原文 “never open a
+  second writer”，带 revision/epoch 围栏）。hermes 的 import **跳过已存在的 id**
+  （是 import 不是 upsert），所以“已有会话追加消息”仍走本地 SQLite 写；HTTP 非 2xx /
+  校验拒绝 / 后端不可达时整批回退本地写，pull 不依赖该服务在线。canonical 会话载荷
+  已对 hermes 0.22.1 的 `_validate_import_payload` 实测通过（含 `agent_type`/`field_rev`
+  /`hidden`/`pinned`/消息内 `session_id`/`id` 等多余键，errors=[]）。
+  **真机端到端验证（2026-10-30，本机 hermes 0.22.1 + `hermes serve --port 9119`，
+  网关临时 `gateway stop`/`start` 一轮，测试会话已删净）**：直连 `POST
+  /api/sessions/import` 返回 `200 {'imported': 1, 'imported_ids': [...]}` 且
+  `GET /api/sessions/{id}/messages` 可读；适配器 `write_sessions` 新会话走 API
+  （`imported 1`）、既有会话追加走本地 SQLite（`updated 1 / new_messages 1`）且两条消息
+  经同一 API 可见；`profile_name: magic` 落到 `?profile=magic`；错误
+  `X-Hermes-Session-Token` 得到 401 并回退本地写入（行+消息落库）。
+  **发现的边界**：写操作要求后端**独占该 profile**——桌面网关在跑时它持有
+  `state.db`，独立 `hermes serve` 会被拒 `409 Exclusive maintenance refused: Gateway
+  runtime already owns profile …`（hermes 的“不开第二写者”规则）。因此该路径只在没有网关
+  持有该库时生效（桌面关闭 / headless 主机），其余场景自动回退本地 SQLite；已写入
+  `docs/OPERATIONS.md` 与 `docs/CONFIGURATION.md`。
+- **唤醒钩子（opt-in）**：`scripts/install-hermes-sync-hook.py`（默认 dry-run，
+  `--apply` / `--remove`）向 hermes `config.yaml` 的 `hooks.on_session_end` 写入
+  `python mcp/wake.py`，用 hermes 自己的 `_record_approval` 记录 consent，并创建唤醒文件；
+  当前口译不可导入 `hermes_cli` 时自动用 hermes venv python 重跑（`PYTHONPATH` +
+  `cwd=hermes-agent`）。后台循环改为 `_wait_for_cycle`：每 `HERMES_SYNC_WAKE_POLL_S`（5 s）
+  看唤醒文件 mtime，变化即跑一轮；standby 忽略唤醒。唤醒文件存在时 `HERMES_SYNC_INTERVAL`
+  默认从 300 s 变 1800 s（显式设置仍优先）；`sync_status` 新增 `wake_file` /
+  `wake_hook_armed`。
+- **文档**：`docs/OPERATIONS.md` 新增「Large stores: incremental reads, API writes and the
+  wake hook」（含一个 store 体积/耗时基线）、`docs/CONFIGURATION.md` 新增 4 个环境变量与
+  `<stem>.wake`、`docs/ARCHITECTURE.md` 能力位说明、`docs/SUPPORTED_AGENTS.md` hermes 行。
+
 ## [2026.10.10.1] - 2026-10-17
 
 > `CLIENT_VERSION` 2026.10.09.1 → **2026.10.10.1**（`mcp/updater.py`、
