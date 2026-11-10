@@ -43,9 +43,9 @@ CLIENT_DIR = os.path.join(_SRV_DIR, "mcp") \
     else os.path.join(os.path.dirname(_SRV_DIR), "mcp")
 
 # Client distribution version. Bump this together with CLIENT_VERSION in
-# mcp/server.py whenever the client package changes; clients compare it via
+# mcp/updater.py whenever the client package changes; clients compare it via
 # /api/client/manifest and auto-update.
-CLIENT_VERSION = "2026.10.30.1"
+CLIENT_VERSION = "2026.11.10.1"
 
 def _client_archive_files():
     """[(arcname, source_path)] for every file shipped in the client zip."""

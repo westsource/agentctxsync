@@ -1,3 +1,49 @@
+## [2026.11.10.1] - 2026-11-10
+
+> 客户端发布：`CLIENT_VERSION` 2026.10.30.1 → **2026.11.10.1**（`mcp/updater.py`、
+> `server/client_update.py`）。改动 `mcp/adapters/base.py`、`mcp/tests/{test_base,test_omp,test_mcp_server}.py`；
+> 线协议、schema、服务器逻辑零改动。测试：mcp 套件 **261 项 OK**（Windows / 本机；Ubuntu 24.04 +
+> Python 3.12 全新克隆同样 261 项 OK、1 skipped = dsh 的 MAX_PATH 仅 Windows 用例）。
+> 本版同时把 2026.10.30.1 与 2026.10.10.1 真正发布出去（此前只在本地：`main` 未推送、
+> 两个版本都没有 tag）。
+
+### Fixed（POSIX 客户端从不写入：所有远端会话 id 被判为路径穿越）
+
+- **为什么**：`mcp/adapters/base.py::validate_local_id` 的分隔符列表是
+  `("/", "\\", os.sep, os.altsep or "")`。`os.altsep` 在 POSIX 上是 `None`，
+  于是列表里多出一个空串，而 `"" in s` 对任何字符串都为真——**每一个** id 都被判为
+  “可能逃出 store 目录”而拒绝。Windows 上 `os.altsep == "/"`，所以本机一直是绿的。
+  该写法自 2026-08-18（e3de37e，裸 id 方案）引入。
+- **后果**：Linux/macOS 客户端的 pull 从不落盘——`workbuddy`/`omp` 走
+  `continue`、`reasonix` 走 `validate_file_id`、SQLite 系的插入同样被跳过；
+  `pull` 一直报 `imported: 0`，且没有任何日志（静默）。Windows 不受影响。
+- **修复**：分隔符改为集合，空值不入集合（`os.altsep` 仅在真值时才加入）。
+- **CI 一直红**：GitHub Actions 自 2026-09-19 起每次 push 都失败（run 119–133），
+  失败步骤固定为 `Run adapter unit tests`，本机 Windows 全绿所以没被发现。除上述
+  守卫外还修了两处 Windows-only 的测试假设，之后 Linux 套件才真正全绿：
+  - `test_omp` 硬编码会话目录 `--E--OpenCode-agentctxsync--`（omp 的目录名依赖
+    cwd 与 home/tmp 的相对关系，只有开发机的 `E:` 会得到该名字）；`test_foreign_id_*`
+    里对 `--C--tmp--` 的 glob 在 POSIX 上匹配不到文件，断言整体空转。改为在 store 内
+    递归发现文件，并新增 `OmpDirNameTest`（把平台探针钉住）以在任意平台校验
+    `--<盘符>--<路径>--` 这个 omp 兼容布局。
+  - `test_mcp_server::test_missing_local_value_is_not_dirty` 断言 cwd 大小写不敏感；
+    `_path_key` 的大小写折叠**只在 Windows**（POSIX 文件系统区分大小写，折叠会把两个
+    不同目录并成一个），断言改为按平台区分。
+- **新增测试**：`ValidateLocalIdTest`（普通 id 全部接受；`/`、`\`、`os.sep`、`os.altsep`、
+  `..`、`.`、空串、`None` 全部拒绝）。
+- **验证**：Linux 端到端（Ubuntu 24.04 / py3.12，临时 home）`WorkBuddyAdapter.write_sessions`
+  → `{'imported': 1, 'new_messages': 1}` 且 `projects/<slug>/<id>.jsonl` 落盘；pytest/unittest
+  同一套件在 Windows 与 Linux 上均为绿。修复前同一命令返回
+  `{'imported': 0, ...}` 且只有 `.hermes-sync-foreign-ids.json` 一个文件。
+
+### Repo（发布状态校正）
+
+- 2026.10.30.1（`0b6ae28`）此前只存在于本地：`gitee/main`、`github/main` 都停在
+  `536ac40`，且**没有任何 tag**（最新 tag 还是 `v2026.10.09.1`）。本次推送 `main`
+  并补 `v2026.10.10.1`（`536ac40`）与 `v2026.10.30.1`（`0b6ae28`）两个 tag 到两个远端。
+- `CONTRIBUTING.md` 新增发布清单（版本号两处 + CHANGELOG + 两个远端 + tag），
+  避免再次出现“提交了但没发布”。
+
 ## [2026.10.30.1] - 2026-10-30
 
 > 客户端发布：`CLIENT_VERSION` 2026.10.10.1 → **2026.10.30.1**（`mcp/updater.py`、

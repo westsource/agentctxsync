@@ -371,8 +371,14 @@ class FieldMergeTest(unittest.TestCase):
         # real local values still compare exactly (paths case-insensitively)
         self.assertTrue(server._field_dirty("title", "Local", "Server"))
         self.assertFalse(server._field_dirty("title", "Same", "Same"))
+        # separator spelling never counts as an edit on any platform
         self.assertFalse(
-            server._field_dirty("cwd", r"D:\Work\X", "D:/work/x"))
+            server._field_dirty("cwd", r"D:\Work\X", "D:/Work/X"))
+        # case folding is Windows-only: POSIX filesystems are case-sensitive,
+        # so `D:/Work` and `D:/work` are different local paths there.
+        self.assertEqual(
+            server._field_dirty("cwd", r"D:\Work\X", "D:/work/x"),
+            os.name != "nt")
 
     def test_push_missing_local_field_is_omitted_not_asserted(self):
         """Mirror rule on push: a None local value must not be asserted

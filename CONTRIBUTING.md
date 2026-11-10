@@ -115,6 +115,22 @@ templates or routes.
 - Before any push: `git status` + `git diff --stat` — review exactly what
   is staged.
 
+## Release checklist
+
+A version is released only when **all** of these are done; a commit that stays
+local is invisible to users, and a missing tag makes `git describe`/release
+pages disagree with `CHANGELOG.md`.
+
+1. Bump `CLIENT_VERSION` in **both** `mcp/updater.py` and
+   `server/client_update.py`; add the `CHANGELOG.md` entry.
+2. Run both suites (see Testing). They must be green on **Linux/macOS too** —
+   a Windows-only assumption or a POSIX-only path bug shows up as green
+   locally and red in CI.
+3. `git push gitee main` and `git push github main` — both remotes, every time.
+4. `git tag -a v<version> -m "<summary>"`, then
+   `git push gitee v<version>` and `git push github v<version>`.
+5. Confirm CI is green for the pushed commit, then deploy the server files.
+
 ## Pull requests
 
 1. Fork and branch (`main`).

@@ -16,11 +16,31 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.base import session_last_activity  # noqa: E402
+from adapters.base import session_last_activity, validate_local_id  # noqa: E402
 from adapters.workbuddy import WorkBuddyAdapter  # noqa: E402
 
 SERVER_A = "http://203.0.113.7:8765"
 SERVER_B = "http://localhost:8765"
+
+
+class ValidateLocalIdTest(unittest.TestCase):
+    """Session ids come from other machines: the validator is what keeps a
+    remote id from escaping the store directory. It must accept every plain
+    id on every platform -- a separator list that includes an empty string
+    matches all ids and silently turns every pull write into a no-op."""
+
+    def test_plain_ids_accepted(self):
+        for lid in ("aaaaaaaa-1111-2222-3333-444444444444",
+                    "01a045e5-5c99-75ad-abae-91b14594f6ad",
+                    "20260801_201638_8ab26b", "a.b c", "magic:abc"):
+            self.assertTrue(validate_local_id(lid), lid)
+
+    def test_separators_and_traversal_rejected(self):
+        for lid in ("a/b", "a\\b", "..", ".", "", None,
+                    f"a{os.sep}b", "a/../../etc/passwd"):
+            self.assertFalse(validate_local_id(lid), lid)
+        if os.altsep:
+            self.assertFalse(validate_local_id(f"a{os.altsep}b"))
 
 
 class SessionLastActivityTest(unittest.TestCase):

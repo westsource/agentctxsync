@@ -207,7 +207,12 @@ def validate_local_id(local_id: str) -> bool:
     """
     if not local_id or local_id in (".", ".."):
         return False
-    if any(sep in local_id for sep in ("/", "\\", os.sep, os.altsep or "")):
+    # ``os.altsep`` is None on POSIX; an empty separator would match every
+    # id (``"" in s`` is always True) and reject all of them.
+    seps = {"/", "\\", os.sep}
+    if os.altsep:
+        seps.add(os.altsep)
+    if any(sep in local_id for sep in seps):
         return False
     return True
 

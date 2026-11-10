@@ -9,11 +9,12 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from adapters.omp import OmpAdapter  # noqa: E402
+from adapters.omp import OmpAdapter, _encode_dir_name  # noqa: E402
 
 TS = "2026-08-28T01-04-14.489Z"
 SID = "01a045e5-5c99-75ad-abae-91b14594f6ad"
@@ -97,8 +98,7 @@ class OmpAdapterTest(unittest.TestCase):
         stats = a.write_sessions([self._session()])
         self.assertEqual(stats["imported"], 1)
         self.assertEqual(stats["new_messages"], 2)
-        d = self.root / "--E--OpenCode-agentctxsync--"
-        files = list(d.glob("*.jsonl"))
+        files = list(self.root.rglob("*.jsonl"))
         self.assertEqual(len(files), 1)
         lines = [json.loads(l) for l in
                  files[0].read_text(encoding="utf-8").splitlines()]
@@ -146,9 +146,9 @@ class OmpAdapterTest(unittest.TestCase):
         (decision record 2026.09.13.3)."""
         a = OmpAdapter(sessions_root=self.root)
         a.write_sessions([self._session()])
-        d = self.root / "--E--OpenCode-agentctxsync--"
         lines = [json.loads(l) for l in
-                 next(d.glob("*.jsonl")).read_text(encoding="utf-8").splitlines()]
+                 next(self.root.rglob("*.jsonl")).read_text(
+                     encoding="utf-8").splitlines()]
         self.assertEqual(lines[0]["type"], "title")
         got = datetime.datetime.fromisoformat(
             lines[0]["updatedAt"].replace("Z", "+00:00")).timestamp()
@@ -162,9 +162,9 @@ class OmpAdapterTest(unittest.TestCase):
         a = OmpAdapter(sessions_root=self.root)
         a.write_sessions([self._session(messages=[
             {"session_id": SID, "role": "user", "content": "no ts"}])])
-        d = self.root / "--E--OpenCode-agentctxsync--"
         lines = [json.loads(l) for l in
-                 next(d.glob("*.jsonl")).read_text(encoding="utf-8").splitlines()]
+                 next(self.root.rglob("*.jsonl")).read_text(
+                     encoding="utf-8").splitlines()]
         got = datetime.datetime.fromisoformat(
             lines[0]["updatedAt"].replace("Z", "+00:00")).timestamp()
         self.assertGreater(got, datetime.datetime.now(
@@ -185,9 +185,11 @@ class OmpAdapterTest(unittest.TestCase):
         back = [s for s in a.read_sessions() if s["id"] == foreign]
         self.assertEqual(len(back), 1)
         # the on-disk header uses the fresh local uuid, never the foreign id
-        for f in (self.root / "--C--tmp--").glob("*.jsonl"):
-            header = json.loads(f.read_text(encoding="utf-8").splitlines()[1])
-            self.assertEqual(header["id"], idmap[foreign])
+        files = list(self.root.rglob("*.jsonl"))
+        self.assertEqual(len(files), 1)
+        header = json.loads(
+            files[0].read_text(encoding="utf-8").splitlines()[1])
+        self.assertEqual(header["id"], idmap[foreign])
 
     def test_status_counts(self):
         write_omp_fixture(self.root)
@@ -195,6 +197,28 @@ class OmpAdapterTest(unittest.TestCase):
         st = a.status()
         self.assertEqual(st["sessions"], 1)
         self.assertGreaterEqual(st["messages"], 2)
+
+
+class OmpDirNameTest(unittest.TestCase):
+    """omp names a session directory after the session cwd.
+
+    The layout is a wire-compatible detail of omp (``--<drive>--<path>--``),
+    so it must hold on every platform the suite runs on: the home/tmp probes
+    are pinned rather than pointing at the machine running the tests.
+    """
+
+    def _dir_name(self, cwd: str) -> str:
+        with mock.patch("adapters.omp._resolve", side_effect=lambda p: p), \
+                mock.patch("adapters.omp.os.path.expanduser",
+                           return_value="/no-home"), \
+                mock.patch("adapters.omp.tempfile.gettempdir",
+                           return_value="/no-tmp"):
+            return _encode_dir_name(cwd)
+
+    def test_windows_drive_layout(self):
+        self.assertEqual(self._dir_name("E:\\OpenCode\\agentctxsync"),
+                         "--E--OpenCode-agentctxsync--")
+        self.assertEqual(self._dir_name("C:\\tmp"), "--C--tmp--")
 
 
 if __name__ == "__main__":
