@@ -10,7 +10,7 @@ silently skipped every module added after it was written (it once shipped a
 
 Environment:
     DEPLOY_SSH_HOST    target host (default: YOUR_SERVER_IP placeholder)
-    DEPLOY_SSH_PORT    SSH port (default 22; the 63 host listens on 8022)
+    DEPLOY_SSH_PORT    SSH port (default 22; set when the host uses another)
     DEPLOY_SSH_PASSWORD / DEPLOY_SSH_KEY (/ default ~/.ssh/id_ed25519)
     DEPLOY_REMOTE_DIR /opt/agentctxsync
     DEPLOY_SERVICE    agentctxsync
